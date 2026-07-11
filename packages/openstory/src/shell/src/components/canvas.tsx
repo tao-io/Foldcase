@@ -1,5 +1,5 @@
 import { type RefObject } from "react";
-import { AlertCircle, Accessibility } from "lucide-react";
+import { AlertCircle, Accessibility, Activity } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { StoryStatus } from "@/lib/types";
@@ -10,6 +10,7 @@ interface CanvasProps {
   status: StoryStatus;
   storyId: string | undefined;
   a11yViolationCount?: number;
+  messageCount?: number;
 }
 
 const hasFailure = (status: StoryStatus): boolean =>
@@ -21,6 +22,7 @@ export const Canvas = ({
   status,
   storyId,
   a11yViolationCount = 0,
+  messageCount = 0,
 }: CanvasProps) => {
   if (!storyId) {
     return (
@@ -41,6 +43,12 @@ export const Canvas = ({
         />
       </div>
       <div className="pointer-events-none absolute right-3 top-3 flex gap-2">
+        {messageCount > 0 ? (
+          <Badge variant="secondary" className="pointer-events-auto">
+            <Activity className="h-3 w-3" />
+            {`msgs: ${messageCount}`}
+          </Badge>
+        ) : null}
         {a11yViolationCount > 0 ? (
           <Badge variant="destructive" className="pointer-events-auto">
             <Accessibility className="h-3 w-3" />

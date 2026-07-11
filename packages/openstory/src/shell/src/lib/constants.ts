@@ -15,3 +15,6 @@ export const MOBILE_BREAKPOINT_PX = 768;
 export const CONTROLS_PANEL_HEIGHT_PX = 192;
 export const CONTROLS_PANEL_MOBILE_HEIGHT_PX = 256;
 export const SIDEBAR_WIDTH_PX = 288;
+
+/** Cap the actions message log so a chatty story can't grow it unbounded. */
+export const MESSAGE_LOG_LIMIT = 200;
