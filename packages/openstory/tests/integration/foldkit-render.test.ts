@@ -5,6 +5,7 @@ import { chromium, type Browser, type ConsoleMessage, type Page } from "playwrig
 import type { ViteDevServer } from "vite";
 
 import { openstory } from "../../src/plugin/index.js";
+import { SHELL_MESSAGE_SOURCE } from "../../src/constants.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureRoot = join(here, "fixtures", "foldkit-basic");
@@ -129,6 +130,43 @@ describe("foldkit integration: browser render", () => {
       await expect
         .poll(() => page.locator("[data-openstory-test='foldkit-count']").textContent())
         .toBe("Count: 1");
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
+  it("preserves the accumulated Model across an arg change (no cold remount)", async () => {
+    const page = await newPage();
+    try {
+      const result = await renderAndCollect(page, `${baseUrl}/__story/foldkit-counter--basic`);
+      expect(result.status).toBe("passed");
+      await expect
+        .poll(() => page.locator("[data-openstory-test='foldkit-count']").textContent())
+        .toBe("Count: 1");
+
+      await page.evaluate(
+        (source) =>
+          new Promise<void>((resolve) => {
+            const onMessage = (event: MessageEvent): void => {
+              const data = event.data as { source?: string; type?: string };
+              if (data?.source === "openstory" && data.type === "args-changed") {
+                window.removeEventListener("message", onMessage);
+                resolve();
+              }
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(
+              { source, type: "set-args", args: { label: "Renamed" } },
+              window.location.origin,
+            );
+          }),
+        SHELL_MESSAGE_SOURCE,
+      );
+
+      await new Promise<void>((settle) => setTimeout(settle, 500));
+      expect(await page.locator("[data-openstory-test='foldkit-count']").textContent()).toBe(
+        "Count: 1",
+      );
     } finally {
       await page.close();
     }
