@@ -44,13 +44,12 @@ export class ShowcaseCoverageHit extends Schema.Class<ShowcaseCoverageHit>(
 }) {}
 
 /**
- * The whole collector payload: per-Showcase deltas plus the `total` cumulative
- * snapshot (so aggregate coverage is authoritative from V8, not reconstructed
- * by zipping deltas whose function lists may differ under lazy compilation).
+ * The whole collector payload: the coverage each Showcase's `play` executed.
+ * Aggregate coverage is the union of these downstream — Node's precise-coverage
+ * take resets on read, so there is no single cumulative snapshot to lean on.
  */
 export class RawCoverage extends Schema.Class<RawCoverage>("foldcase/RawCoverage")({
   showcases: Schema.Array(ShowcaseCoverageHit),
-  total: Schema.Array(ScriptHit),
 }) {}
 
 // ─── Pure coverage math ──────────────────────────────────────────────────────
@@ -61,6 +60,23 @@ export interface FileTally {
   readonly executableLines: number
   readonly coveredFunctions: number
   readonly totalFunctions: number
+}
+
+/** One V8 function, identified for cross-Showcase union by name + position. */
+export interface FunctionMark {
+  readonly key: string
+  readonly covered: boolean
+}
+
+/**
+ * A file's coverage as composable *sets* rather than counts, so the aggregate
+ * over many Showcases is a union: line numbers that ran anywhere, executable
+ * line numbers seen anywhere, and each function's covered-anywhere flag.
+ */
+export interface FileDetail {
+  readonly executableLines: ReadonlyArray<number>
+  readonly coveredLines: ReadonlyArray<number>
+  readonly functions: ReadonlyArray<FunctionMark>
 }
 
 // Per-offset coverage state while reconstructing block nesting.
@@ -104,37 +120,50 @@ const lineSpans = (source: string): ReadonlyArray<LineSpan> =>
   ])[1]
 
 /**
- * Reduce a file's V8 function coverage to line and function tallies.
+ * Reduce a file's V8 function coverage to composable line/function detail.
  *
  * Line coverage uses the c8/istanbul reconstruction: flatten every function's
  * ranges, apply them outer-first (widest span first) so an inner count-0 hole
- * overrides the covering span, then classify each source line — covered if any
- * of its characters ran, executable if any character carried coverage info at
- * all (blank/structural gaps stay out of the denominator).
+ * overrides the covering span, then classify each 1-based source line — covered
+ * if any of its characters ran, executable if any character carried coverage
+ * info at all (blank/structural gaps stay out of the denominator).
  *
- * Function coverage counts each V8 function whose own (outer) range ran.
+ * Each function is keyed by name + start offset and flagged covered when its
+ * own (outer) range ran, so the same function across Showcases unions cleanly.
  */
-export const tallyFile = (source: string, functions: ReadonlyArray<FunctionHit>): FileTally => {
+export const fileDetail = (source: string, functions: ReadonlyArray<FunctionHit>): FileDetail => {
   const ordered = Arr.sort(
     functions.flatMap((fn) => fn.ranges),
     outerFirst,
   )
   const marks = Array.from({ length: source.length }, (_, offset) => offsetMark(ordered, offset))
 
-  const lines = lineSpans(source).map((span) => {
+  const lines = lineSpans(source).map((span, index) => {
     const lineMarks = marks.slice(span.start, span.end)
     return {
+      line: index + 1,
       executable: lineMarks.some((mark) => mark !== UNKNOWN),
       covered: lineMarks.some((mark) => mark === COVERED),
     }
   })
 
-  const coveredFunctions = functions.filter((fn) => (fn.ranges[0]?.count ?? 0) > 0).length
-
   return {
-    coveredLines: lines.filter((line) => line.executable && line.covered).length,
-    executableLines: lines.filter((line) => line.executable).length,
-    coveredFunctions,
-    totalFunctions: functions.length,
+    executableLines: lines.filter((line) => line.executable).map((line) => line.line),
+    coveredLines: lines.filter((line) => line.executable && line.covered).map((line) => line.line),
+    functions: functions.map((fn) => ({
+      key: `${fn.functionName}@${fn.ranges[0]?.startOffset ?? -1}`,
+      covered: (fn.ranges[0]?.count ?? 0) > 0,
+    })),
+  }
+}
+
+/** Roll {@link fileDetail} up into scalar counts for a single Showcase/file. */
+export const tallyFile = (source: string, functions: ReadonlyArray<FunctionHit>): FileTally => {
+  const detail = fileDetail(source, functions)
+  return {
+    coveredLines: detail.coveredLines.length,
+    executableLines: detail.executableLines.length,
+    coveredFunctions: detail.functions.filter((fn) => fn.covered).length,
+    totalFunctions: detail.functions.length,
   }
 }

@@ -25,7 +25,6 @@ const reportOverSource = <A>(use: (report: CoverageReport, path: string) => A) =
       yield* fs.writeFileString(path, SOURCE)
       const raw = new RawCoverage({
         showcases: [{ id: "demo/one", scripts: [new ScriptHit({ path, functions })] }],
-        total: [new ScriptHit({ path, functions })],
       })
       const report = yield* buildCoverageReport(raw)
       return use(report, path)

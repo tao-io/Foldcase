@@ -4,7 +4,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
-import { type RawCoverage, type ScriptHit, tallyFile } from "./coverage"
+import { type FileDetail, fileDetail, type RawCoverage, type ScriptHit } from "./coverage"
 
 // ─── The emitted coverage report ─────────────────────────────────────────────
 
@@ -36,42 +36,68 @@ interface SourceFile {
   readonly source: string
 }
 
-const scriptCoverage = (sources: ReadonlyArray<SourceFile>, script: ScriptHit): FileCoverage => {
-  const source = Option.match(
-    Arr.findFirst(sources, (entry) => entry.path === script.path),
+const sourceOf = (sources: ReadonlyArray<SourceFile>, path: string): string =>
+  Option.match(
+    Arr.findFirst(sources, (entry) => entry.path === path),
     { onNone: () => "", onSome: (entry) => entry.source },
   )
-  const tally = tallyFile(source, script.functions)
-  return new FileCoverage({ path: script.path, ...tally })
-}
+
+const fileCoverageOf = (path: string, detail: FileDetail): FileCoverage =>
+  new FileCoverage({
+    path,
+    coveredLines: detail.coveredLines.length,
+    executableLines: detail.executableLines.length,
+    coveredFunctions: detail.functions.filter((fn) => fn.covered).length,
+    totalFunctions: detail.functions.length,
+  })
+
+// Union many per-Showcase details for the same file: a line/function counts as
+// covered if it ran in *any* Showcase; the denominators are the union of what
+// each run saw (line numbers and function keys are the identities).
+const unionDetail = (details: ReadonlyArray<FileDetail>): FileDetail => ({
+  executableLines: Arr.dedupe(details.flatMap((detail) => detail.executableLines)),
+  coveredLines: Arr.dedupe(details.flatMap((detail) => detail.coveredLines)),
+  functions: Arr.dedupeWith(
+    details.flatMap((detail) => detail.functions),
+    (a, b) => a.key === b.key,
+  ).map((fn) => ({
+    key: fn.key,
+    covered: details.some((detail) => detail.functions.some((g) => g.key === fn.key && g.covered)),
+  })),
+})
 
 /**
  * Turn decoded collector output into a {@link CoverageReport}: read each unique
- * source once, then tally the aggregate `total` snapshot and each Showcase's
- * per-`play` delta into {@link FileCoverage} rows. Fails only if a covered
- * source file can't be read (the caller treats coverage as best-effort).
+ * source once, tally every Showcase's per-`play` coverage, then union those per
+ * file into the aggregate `files`. Fails only if a covered source file can't be
+ * read (the caller treats coverage as best-effort).
  */
 export const buildCoverageReport = Effect.fn("foldcase.coverage.buildCoverageReport")(function* (
   raw: RawCoverage,
 ) {
   const fs = yield* FileSystem.FileSystem
-  const paths = Arr.dedupe(
-    [...raw.total, ...raw.showcases.flatMap((showcase) => showcase.scripts)].map(
-      (script) => script.path,
-    ),
-  )
+  const scripts = raw.showcases.flatMap((showcase) => showcase.scripts)
+  const paths = Arr.dedupe(scripts.map((script) => script.path))
   const sources = yield* Effect.forEach(
     paths,
     (path) => fs.readFileString(path).pipe(Effect.map((source) => ({ path, source }))),
     { concurrency: "unbounded" },
   )
+  const detailOf = (script: ScriptHit): FileDetail =>
+    fileDetail(sourceOf(sources, script.path), script.functions)
+
   return new CoverageReport({
-    files: raw.total.map((script) => scriptCoverage(sources, script)),
+    files: paths.map((path) =>
+      fileCoverageOf(
+        path,
+        unionDetail(scripts.filter((script) => script.path === path).map(detailOf)),
+      ),
+    ),
     showcases: raw.showcases.map(
       (showcase) =>
         new ShowcaseCoverage({
           id: showcase.id,
-          files: showcase.scripts.map((script) => scriptCoverage(sources, script)),
+          files: showcase.scripts.map((script) => fileCoverageOf(script.path, detailOf(script))),
         }),
     ),
   })
