@@ -1,6 +1,17 @@
 import { useEffect, useState, type RefObject } from "react";
-import { MESSAGE_LOG_LIMIT, PARENT_MESSAGE_SOURCE, SHELL_MESSAGE_SOURCE } from "@/lib/constants";
-import type { A11yViolation, MessageLogEntry, PlayStatus, StoryStatus } from "@/lib/types";
+import {
+  MESSAGE_LOG_LIMIT,
+  PARENT_MESSAGE_SOURCE,
+  SHELL_MESSAGE_SOURCE,
+  STEP_LOG_LIMIT,
+} from "@/lib/constants";
+import type {
+  A11yViolation,
+  MessageLogEntry,
+  PlayStatus,
+  PlayStep,
+  StoryStatus,
+} from "@/lib/types";
 
 interface IframeIncomingMessage {
   source?: string;
@@ -13,7 +24,8 @@ interface IframeIncomingMessage {
     | "error"
     | "model-schema"
     | "a11y"
-    | "message";
+    | "message"
+    | "play-step";
   status?: PlayStatus;
   error?: { name: string; message: string };
   id?: string;
@@ -23,6 +35,8 @@ interface IframeIncomingMessage {
   tag?: string;
   payload?: Record<string, unknown>;
   ts?: number;
+  name?: string;
+  index?: number;
 }
 
 export interface IframeCommsApi {
@@ -30,6 +44,7 @@ export interface IframeCommsApi {
   modelSchema: Record<string, unknown> | undefined;
   a11yViolations: A11yViolation[];
   messages: MessageLogEntry[];
+  steps: PlayStep[];
   setArgs: (args: Record<string, unknown>) => void;
   setGlobals: (globals: Record<string, unknown>) => void;
   setModel: (path: ReadonlyArray<string>, value: unknown) => void;
@@ -45,12 +60,14 @@ export const useIframeComms = (
   const [modelSchema, setModelSchema] = useState<Record<string, unknown> | undefined>(undefined);
   const [a11yViolations, setA11yViolations] = useState<A11yViolation[]>([]);
   const [messages, setMessages] = useState<MessageLogEntry[]>([]);
+  const [steps, setSteps] = useState<PlayStep[]>([]);
 
   useEffect(() => {
     setStatus({ rendered: false });
     setModelSchema(undefined);
     setA11yViolations([]);
     setMessages([]);
+    setSteps([]);
   }, [storyId]);
 
   useEffect(() => {
@@ -78,7 +95,29 @@ export const useIframeComms = (
         setMessages((previous) => [...previous, entry].slice(-MESSAGE_LOG_LIMIT));
         return;
       }
+      if (
+        data.type === "play-step" &&
+        typeof data.name === "string" &&
+        typeof data.index === "number" &&
+        data.status
+      ) {
+        const step: PlayStep = {
+          name: data.name,
+          index: data.index,
+          status: data.status,
+          error: data.error?.message,
+        };
+        setSteps((previous) => {
+          const next = previous.filter((entry) => entry.index !== step.index);
+          next.push(step);
+          next.sort((left, right) => left.index - right.index);
+          return next.slice(-STEP_LOG_LIMIT);
+        });
+        return;
+      }
       if (data.type === "play-status" && data.status) {
+        // A fresh play run (re-mount or rerun) restarts the step ledger.
+        if (data.status === "running") setSteps([]);
         setStatus((previous) => ({
           ...previous,
           playStatus: data.status,
@@ -109,6 +148,7 @@ export const useIframeComms = (
     modelSchema,
     a11yViolations,
     messages,
+    steps,
     setArgs: (args) => postToStory({ type: "set-args", args }),
     setGlobals: (globals) => postToStory({ type: "set-globals", globals }),
     setModel: (path, value) => postToStory({ type: "set-model", path, value }),

@@ -3,6 +3,7 @@ import { A11yPanel } from "@/components/a11y-panel";
 import { ActionsPanel } from "@/components/actions-panel";
 import { Canvas } from "@/components/canvas";
 import { ControlsPanel } from "@/components/controls-panel";
+import { InteractionsPanel } from "@/components/interactions-panel";
 import { StoryTree } from "@/components/story-tree";
 import { TopBar } from "@/components/top-bar";
 import { Separator } from "@/components/ui/separator";
@@ -99,6 +100,8 @@ export const App = () => {
   const hasA11y = comms.a11yViolations.length > 0;
 
   const hasActions = comms.messages.length > 0;
+
+  const hasInteractions = comms.steps.length > 0;
 
   const iframeSrc = useMemo(
     () => buildStoryIframeUrl({ storyId: selectedStoryId, args, globals }),
@@ -258,9 +261,10 @@ export const App = () => {
               storyId={selectedStoryId}
               a11yViolationCount={comms.a11yViolations.length}
               messageCount={comms.messages.length}
+              stepCount={comms.steps.length}
             />
           </div>
-          {hasControls || hasA11y || hasActions ? (
+          {hasControls || hasA11y || hasActions || hasInteractions ? (
             <>
               <Separator />
               <div
@@ -279,9 +283,17 @@ export const App = () => {
                     />
                   </div>
                 ) : null}
-                {hasA11y ? (
+                {hasInteractions ? (
                   <>
                     {hasControls ? <Separator orientation="vertical" /> : null}
+                    <div className="w-80 shrink-0 overflow-hidden">
+                      <InteractionsPanel steps={comms.steps} />
+                    </div>
+                  </>
+                ) : null}
+                {hasA11y ? (
+                  <>
+                    {hasControls || hasInteractions ? <Separator orientation="vertical" /> : null}
                     <div className="w-80 shrink-0 overflow-hidden">
                       <A11yPanel violations={comms.a11yViolations} />
                     </div>
@@ -289,7 +301,9 @@ export const App = () => {
                 ) : null}
                 {hasActions ? (
                   <>
-                    {hasControls || hasA11y ? <Separator orientation="vertical" /> : null}
+                    {hasControls || hasInteractions || hasA11y ? (
+                      <Separator orientation="vertical" />
+                    ) : null}
                     <div className="w-80 shrink-0 overflow-hidden">
                       <ActionsPanel messages={comms.messages} />
                     </div>

@@ -75,3 +75,10 @@ export interface MessageLogEntry {
   payload: Record<string, unknown>;
   ts: number;
 }
+
+export interface PlayStep {
+  name: string;
+  index: number;
+  status: PlayStatus;
+  error?: string;
+}

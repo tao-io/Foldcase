@@ -42,6 +42,7 @@ export type StoryToShell =
   | { type: "a11y"; id: string; violations: A11yViolation[] }
   | { type: "message"; tag: string; payload: Record<string, unknown>; ts: number }
   | { type: "play-status"; status: PlayStatus; error?: SerializedError }
+  | { type: "play-step"; name: string; index: number; status: PlayStatus; error?: SerializedError }
   | {
       type: "console";
       level: "log" | "warn" | "error" | "info" | "debug";
