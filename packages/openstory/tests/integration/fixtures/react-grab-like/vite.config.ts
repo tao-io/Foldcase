@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
-import { openstory } from "openstory/plugin";
+import { openstory } from "foldcase/plugin";
 
 const REACT_FILE_PATTERN = /\.react\.tsx$/;
 const REACT_GRAB_ROOT = "/Users/aidenybai/Developer/react-grab/packages/react-grab";

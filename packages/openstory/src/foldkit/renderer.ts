@@ -125,10 +125,10 @@ const surfaceRuntimeFailure = (
   if (mounted.runId !== currentRunId) return;
   const message = errorMessage(cause);
   if (typeof console !== "undefined") {
-    console.error("openstory/foldkit: runtime crashed", message);
+    console.error("foldcase/foldkit: runtime crashed", message);
   }
   const element = document.createElement("pre");
-  element.textContent = `openstory/foldkit: runtime crashed\n\n${message}`;
+  element.textContent = `foldcase/foldkit: runtime crashed\n\n${message}`;
   mounted.container.replaceChildren(element);
 };
 
@@ -140,10 +140,10 @@ const surfaceMountFailure = (
   if (mounted.runId !== currentRunId) return;
   const message = cause instanceof Error ? (cause.stack ?? cause.message) : String(cause);
   if (typeof console !== "undefined") {
-    console.error("openstory/foldkit: mount failed", message);
+    console.error("foldcase/foldkit: mount failed", message);
   }
   const element = document.createElement("pre");
-  element.textContent = `openstory/foldkit: mount failed\n\n${message}`;
+  element.textContent = `foldcase/foldkit: mount failed\n\n${message}`;
   mounted.container.replaceChildren(element);
 };
 

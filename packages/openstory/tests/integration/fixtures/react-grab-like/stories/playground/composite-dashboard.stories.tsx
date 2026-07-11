@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "openstory/solid";
+import type { Meta, StoryObj } from "foldcase/solid";
 import { For } from "solid-js";
 
 import "react-grab";

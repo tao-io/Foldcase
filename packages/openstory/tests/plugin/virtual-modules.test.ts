@@ -25,7 +25,7 @@ const FRAMEWORK_RENDER_EXPECTATIONS: Record<Framework, { importLine: RegExp; ren
     render: /__openstoryCreateElement\(__openstoryComponent, args\)/,
   },
   foldkit: {
-    importLine: /openstory\/foldkit/,
+    importLine: /foldcase\/foldkit/,
     render: /\(\) => __openstoryComponent/,
   },
   solid: {
@@ -37,7 +37,7 @@ const FRAMEWORK_RENDER_EXPECTATIONS: Record<Framework, { importLine: RegExp; ren
     render: /__openstoryH\(__openstoryComponent, args\)/,
   },
   svelte: {
-    importLine: /openstory\/svelte/,
+    importLine: /foldcase\/svelte/,
     render: /\{ component: __openstoryComponent, props: args \}/,
   },
 };

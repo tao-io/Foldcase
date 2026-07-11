@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "openstory": "workspace:*"
+    "foldcase": "workspace:*"
   },
   "devDependencies": {
-    "@effect/platform-browser": "4.0.0-beta.66",
-    "effect": "4.0.0-beta.66",
-    "foldkit": "^0.104.0"
+    "@effect/platform-browser": "4.0.0-beta.88",
+    "effect": "4.0.0-beta.88",
+    "foldkit": "^0.127.0"
   }
 }

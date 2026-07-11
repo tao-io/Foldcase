@@ -56,11 +56,11 @@ export const URL_KV_PAIR_SEPARATOR = ";";
 export const URL_KV_KEY_VALUE_SEPARATOR = ":";
 
 export const OPENSTORY_FRAMEWORK_TO_ADAPTER: Record<string, string> = {
-  react: "openstory/react",
-  foldkit: "openstory/foldkit",
-  solid: "openstory/solid",
-  vue: "openstory/vue",
-  svelte: "openstory/svelte",
+  react: "foldcase/react",
+  foldkit: "foldcase/foldkit",
+  solid: "foldcase/solid",
+  vue: "foldcase/vue",
+  svelte: "foldcase/svelte",
 };
 
 export const PARENT_MESSAGE_SOURCE = "openstory";

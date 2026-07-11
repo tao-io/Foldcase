@@ -1,6 +1,6 @@
 import "react-grab/dist/styles.css";
 import { init } from "react-grab";
-import type { Preview } from "openstory/solid";
+import type { Preview } from "foldcase/solid";
 
 if (typeof window !== "undefined") {
   init();

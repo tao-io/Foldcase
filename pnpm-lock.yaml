@@ -90,8 +90,8 @@ importers:
         version: '@voidzero-dev/vite-plus-core@0.1.22(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.3)(typescript@6.0.3)(yaml@2.9.0)'
     devDependencies:
       '@effect/platform-browser':
-        specifier: 4.0.0-beta.66
-        version: 4.0.0-beta.66(effect@4.0.0-beta.66)
+        specifier: 4.0.0-beta.88
+        version: 4.0.0-beta.88(effect@4.0.0-beta.88)
       '@pierre/trees':
         specifier: 1.0.0-beta.4
         version: 1.0.0-beta.4(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -150,11 +150,11 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
       effect:
-        specifier: 4.0.0-beta.66
-        version: 4.0.0-beta.66
+        specifier: 4.0.0-beta.88
+        version: 4.0.0-beta.88
       foldkit:
-        specifier: ^0.104.0
-        version: 0.104.1(@effect/platform-browser@4.0.0-beta.66(effect@4.0.0-beta.66))(effect@4.0.0-beta.66)
+        specifier: ^0.127.0
+        version: 0.127.0(@effect/platform-browser@4.0.0-beta.88(effect@4.0.0-beta.88))(effect@4.0.0-beta.88)
       lucide-react:
         specifier: ^1.16.0
         version: 1.16.0(react@19.2.6)
@@ -197,23 +197,23 @@ importers:
 
   packages/openstory/tests/integration/fixtures/foldkit-basic:
     dependencies:
-      openstory:
+      foldcase:
         specifier: workspace:*
         version: link:../../../..
     devDependencies:
       '@effect/platform-browser':
-        specifier: 4.0.0-beta.66
-        version: 4.0.0-beta.66(effect@4.0.0-beta.66)
+        specifier: 4.0.0-beta.88
+        version: 4.0.0-beta.88(effect@4.0.0-beta.88)
       effect:
-        specifier: 4.0.0-beta.66
-        version: 4.0.0-beta.66
+        specifier: 4.0.0-beta.88
+        version: 4.0.0-beta.88
       foldkit:
-        specifier: ^0.104.0
-        version: 0.104.1(@effect/platform-browser@4.0.0-beta.66(effect@4.0.0-beta.66))(effect@4.0.0-beta.66)
+        specifier: ^0.127.0
+        version: 0.127.0(@effect/platform-browser@4.0.0-beta.88(effect@4.0.0-beta.88))(effect@4.0.0-beta.88)
 
   packages/openstory/tests/integration/fixtures/react-grab-like:
     dependencies:
-      openstory:
+      foldcase:
         specifier: workspace:*
         version: link:../../../..
     devDependencies:
@@ -373,10 +373,10 @@ packages:
   '@changesets/write@0.4.0':
     resolution: {integrity: sha512-CdTLvIOPiCNuH71pyDu3rA+Q0n65cmAbXnwWH84rKGiFumFzkmHNT8KHTMEchcxN+Kl8I54xGUhJ7l3E7X396Q==}
 
-  '@effect/platform-browser@4.0.0-beta.66':
-    resolution: {integrity: sha512-UGKKzAXWaVNJSLDNqXdYu5Hfi12A+JWDiiT/YW7SvEmGi9Bi70kdtTGET5Xl9kUqUn2paeMyadijJ3ADjFj+qQ==}
+  '@effect/platform-browser@4.0.0-beta.88':
+    resolution: {integrity: sha512-SwJ9KJ4g8dk1XDscxCy1NYJl4AJYqvxwQx43g4LV9OwipUisjdqKUZLrFo3PY3Rfkh2FCGpis55mrAXNklaKdg==}
     peerDependencies:
-      effect: ^4.0.0-beta.66
+      effect: ^4.0.0-beta.88
 
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==}
@@ -2214,8 +2214,8 @@ packages:
   dom-accessibility-api@0.6.3:
     resolution: {integrity: sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w==}
 
-  effect@4.0.0-beta.66:
-    resolution: {integrity: sha512-4arEr62cziFa8BBVDUwJCJJmaVepXf/kRg7KtC0h8+bufngscrHbwWFhr9c+HonwOF+31U3iD3xUJmw9KzX7Dw==}
+  effect@4.0.0-beta.88:
+    resolution: {integrity: sha512-ml7Xr2BhU12RnNk5xX0lPqHv5pIXg7E161ooGlYncFd17Z5NKXL26DnfvwZsNBxYLS0ToGVMhb4Em7Z0A4dTDA==}
 
   electron-to-chromium@1.5.360:
     resolution: {integrity: sha512-GkcBt6YYAw9SxFWn+xVar4cLVGlXVuswwtRLBozi2zp0GjXs4ZnOrqV4zbXzg35n7w81hCkyJNYicgXlVHAmBA==}
@@ -2301,12 +2301,12 @@ packages:
     resolution: {integrity: sha512-PpOwAdQ/YlXQ2vj8a3h8IipDuYRi3wceVQQGYWxNINccq40Anw7BlsEXCMbt1Zt+OLA6Fq9suIpIWD0OsnISlw==}
     engines: {node: '>=8'}
 
-  foldkit@0.104.1:
-    resolution: {integrity: sha512-shbYZtbPC5tUBdKbMst/ZvfVfoAm/FTwz699kwnQGm2HIuJcxtXoAPgjYtQh2oXGrJ/FAOIvidVeQcOcTnELEQ==}
+  foldkit@0.127.0:
+    resolution: {integrity: sha512-zUQswwlB//oVHkNl99pBtw0aTLzfn9SbfSf7erSIwNRLPNOshV4YSjc2fBrVDB8jvt/OKHpGKVMDQxTlvC47LQ==}
     engines: {node: '>=18.0.0'}
     peerDependencies:
-      '@effect/platform-browser': 4.0.0-beta.66
-      effect: 4.0.0-beta.66
+      '@effect/platform-browser': 4.0.0-beta.88
+      effect: 4.0.0-beta.88
 
   fs-extra@7.0.1:
     resolution: {integrity: sha512-YJDaCJZEnBmcbw13fvdAM9AwNOJwOzrE4pqMqBq5nFiEqXUqHwlK4B+3pUw6JNvfSPtX05xFHtYy/1ni01eGCw==}
@@ -2368,9 +2368,9 @@ packages:
     resolution: {integrity: sha512-EdDDZu4A2OyIK7Lr/2zG+w5jmbuk1DVBnEwREQvBzspBJkCEbRa8GxU1lghYcaGJCnRWibjDXlq779X1/y5xwg==}
     engines: {node: '>=8'}
 
-  ini@6.0.0:
-    resolution: {integrity: sha512-IBTdIkzZNOpqm7q3dRqJvMaldXjDHWkEDfrwGEQTs5eaQMWV+djAhR+wahyNNMAa+qpbDUhBMVt4ZKNwpPm7xQ==}
-    engines: {node: ^20.17.0 || >=22.9.0}
+  ini@7.0.0:
+    resolution: {integrity: sha512-ifK0CgjALofS5bkrcTy4RaQ9Vx2Knf/eLeIO+NaswQEpH1UblrtTSCIvN71qQDMq0PeQ/SSPojvEJp9vvvfr+w==}
+    engines: {node: ^22.22.2 || ^24.15.0 || >=26.0.0}
 
   is-extglob@2.1.1:
     resolution: {integrity: sha512-SbKbANkN603Vi4jEZv49LeVJMn4yGwsbzZworEoyEiutsN3nJYdbO36zfhGJ6QEDpOZIFkDtnq5JRxmvl3jsoQ==}
@@ -2559,8 +2559,8 @@ packages:
     resolution: {integrity: sha512-4kmO/MdyUIkLIvTPr8VHLil4AtoKIoniWPIEk5+CDy0xnWC84azhSFmuJ7PxZdsYtiP5kEeQsORAVIeMgxT+Hw==}
     hasBin: true
 
-  msgpackr@1.12.1:
-    resolution: {integrity: sha512-4EUH9tQHnMmEgzW/MdAP0KIfa1T9AF+htl0ffe2n5vb2EKn9y2co8ccpgWko6S52Jy1PQZKwRnx5/KkYjtd9MQ==}
+  msgpackr@2.0.4:
+    resolution: {integrity: sha512-o1C5KRmuRt+apqMr1HuGSqWStZoRBUpEsCsl15uM9VdAF1qHLtvMOU2En747EnTyEl6c4pzPewRMFF31s1CNbA==}
 
   multipasta@0.2.7:
     resolution: {integrity: sha512-KPA58d68KgGil15oDqXjkUBEBYc00XvbPj5/X+dyzeo/lWm9Nc25pQRlf1D+gv4OpK7NM0J1odrbu9JNNGvynA==}
@@ -3007,8 +3007,8 @@ packages:
       '@types/react':
         optional: true
 
-  uuid@13.0.2:
-    resolution: {integrity: sha512-vzi9uRZ926x4XV73S/4qQaTwPXM2JBj6/6lI/byHH1jOpCzb0zDbfytgA9LcN/hzb2l7WQSQnxITOVx5un/wGw==}
+  uuid@14.0.1:
+    resolution: {integrity: sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew==}
     hasBin: true
 
   vite-plugin-solid@2.11.12:
@@ -3379,9 +3379,9 @@ snapshots:
       human-id: 4.1.3
       prettier: 2.8.8
 
-  '@effect/platform-browser@4.0.0-beta.66(effect@4.0.0-beta.66)':
+  '@effect/platform-browser@4.0.0-beta.88(effect@4.0.0-beta.88)':
     dependencies:
-      effect: 4.0.0-beta.66
+      effect: 4.0.0-beta.88
       multipasta: 0.2.7
 
   '@emnapi/core@1.10.0':
@@ -4760,17 +4760,17 @@ snapshots:
 
   dom-accessibility-api@0.6.3: {}
 
-  effect@4.0.0-beta.66:
+  effect@4.0.0-beta.88:
     dependencies:
       '@standard-schema/spec': 1.1.0
       fast-check: 4.8.0
       find-my-way-ts: 0.1.6
-      ini: 6.0.0
+      ini: 7.0.0
       kubernetes-types: 1.30.0
-      msgpackr: 1.12.1
+      msgpackr: 2.0.4
       multipasta: 0.2.7
       toml: 4.1.1
-      uuid: 13.0.2
+      uuid: 14.0.1
       yaml: 2.9.0
 
   electron-to-chromium@1.5.360: {}
@@ -4865,12 +4865,10 @@ snapshots:
       locate-path: 5.0.0
       path-exists: 4.0.0
 
-  foldkit@0.104.1(@effect/platform-browser@4.0.0-beta.66(effect@4.0.0-beta.66))(effect@4.0.0-beta.66):
+  foldkit@0.127.0(@effect/platform-browser@4.0.0-beta.88(effect@4.0.0-beta.88))(effect@4.0.0-beta.88):
     dependencies:
-      '@effect/platform-browser': 4.0.0-beta.66(effect@4.0.0-beta.66)
-      '@floating-ui/dom': 1.7.6
-      clsx: 2.1.1
-      effect: 4.0.0-beta.66
+      '@effect/platform-browser': 4.0.0-beta.88(effect@4.0.0-beta.88)
+      effect: 4.0.0-beta.88
       snabbdom: 3.6.3
 
   fs-extra@7.0.1:
@@ -4934,7 +4932,7 @@ snapshots:
 
   indent-string@4.0.0: {}
 
-  ini@6.0.0: {}
+  ini@7.0.0: {}
 
   is-extglob@2.1.1: {}
 
@@ -5083,7 +5081,7 @@ snapshots:
       '@msgpackr-extract/msgpackr-extract-win32-x64': 3.0.4
     optional: true
 
-  msgpackr@1.12.1:
+  msgpackr@2.0.4:
     optionalDependencies:
       msgpackr-extract: 3.0.4
 
@@ -5575,7 +5573,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.15
 
-  uuid@13.0.2: {}
+  uuid@14.0.1: {}
 
   vite-plugin-solid@2.11.12(@testing-library/jest-dom@6.9.1)(@voidzero-dev/vite-plus-core@0.1.22(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.3)(typescript@6.0.3)(yaml@2.9.0))(solid-js@1.9.13):
     dependencies:

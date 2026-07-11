@@ -3,7 +3,7 @@ import type { Command } from "foldkit";
 import { html } from "foldkit/html";
 import { m } from "foldkit/message";
 import { evo } from "foldkit/struct";
-import type { Meta, StoryObj } from "openstory/foldkit";
+import type { Meta, StoryObj } from "foldcase/foldkit";
 
 interface CounterArgs {
   label: string;

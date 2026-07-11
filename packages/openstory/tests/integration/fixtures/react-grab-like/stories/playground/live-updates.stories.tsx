@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from "openstory/solid";
+import type { Meta, StoryObj } from "foldcase/solid";
 import { onCleanup, onMount } from "solid-js";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";

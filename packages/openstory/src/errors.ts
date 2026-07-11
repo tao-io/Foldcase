@@ -169,7 +169,7 @@ export class OpenstoryAdapterMissingFrameworkError extends OpenstoryAdapterError
   override readonly code = "OpenstoryAdapterMissingFrameworkError";
   constructor(framework: string, install: string) {
     super(
-      `openstory/${framework} requires ${install} to be installed. Run \`pnpm add ${install}\`.`,
+      `foldcase/${framework} requires ${install} to be installed. Run \`pnpm add ${install}\`.`,
       { framework, install },
     );
   }

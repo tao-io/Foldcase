@@ -3,8 +3,8 @@
 // the real react-grab stories come online in Phase 5/6.
 
 import type { Component } from "solid-js";
-import type { Meta, StoryObj } from "openstory/solid";
-import { expect, waitFor } from "openstory/test";
+import type { Meta, StoryObj } from "foldcase/solid";
+import { expect, waitFor } from "foldcase/test";
 
 interface ButtonProps {
   label: string;

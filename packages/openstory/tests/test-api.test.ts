@@ -5,11 +5,11 @@
 import { describe, expect, it } from "vitest";
 
 const loadOpenstoryTest = async (): Promise<Record<string, unknown>> => {
-  const mod = (await import("openstory/test")) as Record<string, unknown>;
+  const mod = (await import("foldcase/test")) as Record<string, unknown>;
   return mod;
 };
 
-describe("openstory/test API surface", () => {
+describe("foldcase/test API surface", () => {
   it("exports the full play-function toolkit", async () => {
     const api = await loadOpenstoryTest();
 

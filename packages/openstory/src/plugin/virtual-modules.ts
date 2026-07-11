@@ -132,7 +132,7 @@ export const synthesizeStoryEntry = (options: SynthesizeEntryOptions): string =>
   }
 
   return `import { renderer } from ${JSON.stringify(adapterSpecifier)};
-import { boot, surfaceModuleLoadError } from "openstory/boot";
+import { boot, surfaceModuleLoadError } from "foldcase/boot";
 ${previewImport}
 
 const __openstoryStoryModulePromise = import(${JSON.stringify(toFsId(storyAbsolutePath))});
@@ -176,7 +176,7 @@ const synthesizeComponentStoryEntry = (options: SynthesizeComponentEntryOptions)
   const renderExpression = helpers.renderExpression("__openstoryComponent");
 
   return `import { renderer } from ${JSON.stringify(adapterSpecifier)};
-import { boot, surfaceModuleLoadError } from "openstory/boot";
+import { boot, surfaceModuleLoadError } from "foldcase/boot";
 ${previewImport}
 ${helperImport}
 import(${JSON.stringify(toFsId(storyAbsolutePath))})

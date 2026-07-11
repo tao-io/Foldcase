@@ -59,7 +59,7 @@ describe("renderCsfStory - basic shape", () => {
 
   it("imports from the framework-specific adapter", () => {
     const reactRendered = renderBasic([]);
-    expect(reactRendered.source).toContain(`from "openstory/react"`);
+    expect(reactRendered.source).toContain(`from "foldcase/react"`);
     const solidRendered = renderCsfStory({
       componentName: "Widget",
       componentSourceAbsolutePath: join(projectRoot, "src/components/widget.tsx"),
@@ -69,7 +69,7 @@ describe("renderCsfStory - basic shape", () => {
       storyOutputAbsolutePath: join(projectRoot, "src/components/widget.stories.tsx"),
       props: [],
     });
-    expect(solidRendered.source).toContain(`from "openstory/solid"`);
+    expect(solidRendered.source).toContain(`from "foldcase/solid"`);
   });
 
   it("computes the import specifier relative to the story output path", () => {

@@ -8,7 +8,7 @@ interface PackageJsonShape {
 }
 
 const FALLBACK_VERSION = "0.0.0";
-const OPENSTORY_PACKAGE_NAME = "openstory";
+const OPENSTORY_PACKAGE_NAME = "foldcase";
 
 const findOpenstoryPackageJson = (startDirectory: string): string | undefined => {
   let currentDirectory = startDirectory;

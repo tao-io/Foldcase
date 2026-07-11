@@ -1,7 +1,7 @@
 {
-  "name": "openstory",
-  "version": "0.0.16",
-  "description": "A lightweight, Vite-native CSF 3 alternative to Storybook. Agent-first component lab.",
+  "name": "foldcase",
+  "version": "0.1.0",
+  "description": "foldcase — a Foldkit-native component explorer (Showcases). MIT fork of millionco/openstory.",
   "keywords": [
     "components",
     "csf",
@@ -12,27 +12,31 @@
     "ui",
     "vite"
   ],
-  "homepage": "https://openstory.dev",
+  "homepage": "https://github.com/tao-io/foldcase",
   "bugs": {
-    "url": "https://github.com/millionco/openstory/issues"
+    "url": "https://github.com/tao-io/foldcase/issues"
   },
   "license": "MIT",
   "author": {
     "name": "Aiden Bai",
     "email": "aiden@million.dev"
   },
+  "contributors": [
+    "tao-io (foldcase fork)"
+  ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/millionco/openstory.git"
+    "url": "git+https://github.com/tao-io/foldcase.git"
   },
   "bin": {
-    "openstory": "./dist/cli.mjs"
+    "foldcase": "./dist/cli.mjs"
   },
   "files": [
     "dist",
     "package.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "type": "module",
   "main": "./dist/index.mjs",
