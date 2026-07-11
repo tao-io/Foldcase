@@ -149,6 +149,63 @@ time-travellable Model. Same loop — no guessing, no flake.*
 
 ---
 
+---
+
+## 5. Build it on the TAO / CosmOS stack (Foldcase is our own Effect-4 Foldkit tool)
+
+Foldcase is a **TAO-owned Effect-4 Foldkit tool**, so the moat features are built to CosmOS's
+mandatory stack and gates (`/Users/tao/CosmOS/CLAUDE.md`, ADR-0001), not the fork's pnpm/vite-plus
+toolchain. Keep the two layers separate:
+
+- **Fork-core (openstory heritage)** — the CSF parser, Vite plugin, manifest, React shell, framework
+  renderers. Stays **pnpm + vitest + vite-plus + turbo**, synced from upstream (`main` tracks
+  millionco). **Don't TAO-ify it** — that fights the upstream-sync goal in `FORK.md`.
+- **Foldcase-native moat (new code)** — the typed self-healing loop: `foldcase test`, the `foldcase
+  mcp` catalog server, Schema-driven controls. **This is the "our own Effect-4 tool" part** — write
+  it on the CosmOS stack and develop it as a **CosmOS tooling project under `tools/foldcase/`**,
+  dogfooded against the Todoer PWA's Foldkit components (`src/pwa/`).
+
+### The stack the new code uses (mandatory)
+
+| Layer | Choice | Applied to Foldcase moat |
+|---|---|---|
+| Runtime | **Bun** (`bun build --compile`) | `foldcase test` + `foldcase mcp` ship as single binaries. |
+| Logic | **Effect v4** — typed errors, **Layers** (DI), **Schema**, `Config`/`Redacted` | MCP server + test-runner are Effect programs; requests **Schema-decoded**, failures are typed errors, services wired as Layers. |
+| Tests | **`bun test`**, co-located, **TDD mandatory** (`tdd` skill, red→green→refactor) | Every slice test-first through its interface. |
+| Foldkit UI parts | **vite + vitest + foldkit + `@foldkit/ui`** (like `src/pwa/`) | Any in-lab Foldkit panel (Schema controls, a11y) uses foldkit's `vitest` matchers, not `bun test`. |
+| Lint | **oxlint** + the three vendored plugins: `@cosmos/oxlint-plugin-effect` (ns `effect`), `@cosmos/oxlint-plugin-cosmos` (ns `cosmos`), `@cosmos/oxlint-plugin-foldkit` (Foldkit apps) | Effect-4 idiom bans enforced: **`Config` over `process.env`** (`effect/avoid-process-env`), **`Effect.log*` over `console`** (`effect/use-console-service`), **`Schema` over `JSON.parse`**. |
+| Types | **patched `tsc` + `@effect/language-service`** (`prepare: effect-language-service patch`) | Effect-4 semantics gate (`typecheck` / `typecheck:foldkit`). |
+| Toolchain | **mise** per repo; the **G0–G3** gate pyramid | New tasks mirror `lint` / `typecheck` / `test` / `lint:foldkit` / `typecheck:foldkit`. |
+| Skills | **`effect-ts`** (any Effect), **`foldkit`** (any UI), **`tdd`** (any dev) — all mandatory | Consult before writing code; pattern-match the vendored `./.repos/foldkit`. |
+| Loop | claim → work → **`mise run review --base local`** → **`cosmos finish <id>`**; branch `<id>-slug` off `local` | The moat work is a Todoer task closed via the loop; push to `local` is sanctioned, `main` opt-in. |
+
+### How each moat deliverable maps to the stack
+
+- **`foldcase test` (Phase 1.1)** — an **Effect program** (`@effect/platform` `Command`/child-process
+  + `Layer`s) that boots each Showcase's iframe entry headlessly (reuses the fork's boot.js play
+  runner), collects `play-status`, and — for Foldkit — also boots a **portable Showcase**
+  (`{init,update,view}` headless) and asserts on the **Model** via Schema. Typed errors per failure
+  mode; results as a `Schema`-decoded report. `bun test` TDD; ships as a bun binary + a `mise run
+  foldcase:test` task. **Dogfood:** run it over `src/pwa/`'s components in G2.
+- **`foldcase mcp` catalog server (Phase 1.2)** — a real MCP server (replaces the `MCP_PLACEHOLDER`
+  stub) as an **Effect service** exposing the story catalog (list Showcases, get argTypes/**Effect
+  Schema**, run a Showcase's play → typed pass/fail). Composes with the existing `@foldkit/devtools-mcp`
+  (already a dep of `src/pwa/`): catalog = *which* Showcases exist; devtools-mcp = *drive* the live
+  runtime (`dispatch_message`/`get_model`/`replay`). Requests/responses are `Schema`, config via
+  `Config`. `bun test`.
+- **Schema-driven Controls (Phase 1.3)** — leans on the fact that **Foldkit already uses Effect
+  Schema** for the Message union (`foldkit_get_message_schema` exists). Derive controls from Schema,
+  dispatch setter Msgs into the live runtime (fix the remount-discards-Model bug at
+  `foldkit/renderer.ts:215`). The panel itself is a Foldkit view → vitest + `@cosmos/oxlint-plugin-foldkit`.
+- **a11y / actions / visual (Phase 2)** — a11y = `axe-core` at the renderer `mount()` boundary; actions
+  = surface the Foldkit message stream (`foldkit_list_messages`); visual = Playwright screenshot per
+  Showcase with an "unresolved" state. All headless pieces are Effect programs under `bun test`.
+
+**Net:** the openstory fork stays upstream-friendly; everything *new and Foldkit-specific* is a
+CosmOS tool on Bun + Effect 4, gated by the CosmOS oxlint plugins + patched tsc, TDD'd with `bun
+test`, and dogfooded on the Todoer PWA. That is what makes Foldcase "our own Effect-4 Foldkit tool"
+rather than just a fork.
+
 ### Sources
 Storybook MCP/Vitest: storybook.js.org/docs/ai/mcp/overview, /docs/writing-tests/integrations/vitest-addon,
 /docs/writing-tests/interaction-testing, /docs/api/portable-stories/portable-stories-vitest,
