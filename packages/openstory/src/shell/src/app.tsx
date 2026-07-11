@@ -18,6 +18,14 @@ import {
   STORAGE_KEY_NAV_COLLAPSED,
 } from "@/lib/constants";
 import type { ManifestStory } from "@/lib/types";
+import {
+  RESET_BACKGROUND,
+  RESET_VIEWPORT,
+  resolveBackgroundOptions,
+  resolveDefaultBackgroundName,
+  resolveDefaultViewportName,
+  resolveViewportOptions,
+} from "@/lib/viewport-backgrounds";
 import { buildStoryIframeUrl, readUrlState, writeUrlState } from "@/lib/url-state";
 import { cn } from "@/lib/utils";
 import { useIframeComms } from "@/state/use-iframe-comms";
@@ -46,6 +54,8 @@ export const App = () => {
   );
   const [globals, setGlobals] = useState<Record<string, unknown>>(initialUrlState.globals);
   const [args, setArgs] = useState<Record<string, unknown>>(initialUrlState.args);
+  const [selectedViewport, setSelectedViewport] = useState<string>(RESET_VIEWPORT.name);
+  const [selectedBackground, setSelectedBackground] = useState<string>(RESET_BACKGROUND.name);
   const [isNavCollapsed, setIsNavCollapsed] = useState<boolean>(
     () => readNavCollapsed() || getInitialMobileCollapsed(),
   );
@@ -92,6 +102,34 @@ export const App = () => {
     if (!manifest || !selectedStoryId) return undefined;
     return manifest.stories.find((entry) => entry.id === selectedStoryId);
   }, [manifest, selectedStoryId]);
+
+  const mergedParameters = useMemo(
+    () => ({ ...manifest?.parameters, ...selectedStory?.parameters }),
+    [manifest, selectedStory],
+  );
+  const viewportOptions = useMemo(
+    () => resolveViewportOptions(mergedParameters),
+    [mergedParameters],
+  );
+  const backgroundOptions = useMemo(
+    () => resolveBackgroundOptions(mergedParameters),
+    [mergedParameters],
+  );
+
+  useEffect(() => {
+    setSelectedViewport(resolveDefaultViewportName(mergedParameters));
+    setSelectedBackground(resolveDefaultBackgroundName(mergedParameters));
+  }, [mergedParameters]);
+
+  const activeViewport = useMemo(
+    () => viewportOptions.find((option) => option.name === selectedViewport) ?? RESET_VIEWPORT,
+    [viewportOptions, selectedViewport],
+  );
+  const activeBackground = useMemo(
+    () =>
+      backgroundOptions.find((option) => option.name === selectedBackground) ?? RESET_BACKGROUND,
+    [backgroundOptions, selectedBackground],
+  );
 
   const hasControls =
     comms.modelSchema !== undefined ||
@@ -208,6 +246,12 @@ export const App = () => {
         manifest={manifest}
         globals={globals}
         onGlobalChange={handleGlobalChange}
+        viewportOptions={viewportOptions}
+        selectedViewport={selectedViewport}
+        onViewportChange={setSelectedViewport}
+        backgroundOptions={backgroundOptions}
+        selectedBackground={selectedBackground}
+        onBackgroundChange={setSelectedBackground}
         isNavCollapsed={isNavCollapsed}
         onToggleNav={handleToggleNav}
       />
@@ -259,6 +303,8 @@ export const App = () => {
               iframeSrc={iframeSrc}
               status={comms.status}
               storyId={selectedStoryId}
+              viewport={activeViewport}
+              background={activeBackground}
               a11yViolationCount={comms.a11yViolations.length}
               messageCount={comms.messages.length}
               stepCount={comms.steps.length}

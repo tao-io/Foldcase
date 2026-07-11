@@ -1,4 +1,4 @@
-import { Sidebar } from "lucide-react";
+import { Monitor, Paintbrush, Sidebar } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -9,11 +9,18 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import type { GlobalType, Manifest, ToolbarItem } from "@/lib/types";
+import type { BackgroundOption, ViewportOption } from "@/lib/viewport-backgrounds";
 
 interface TopBarProps {
   manifest: Manifest;
   globals: Record<string, unknown>;
   onGlobalChange: (key: string, value: unknown) => void;
+  viewportOptions: ReadonlyArray<ViewportOption>;
+  selectedViewport: string;
+  onViewportChange: (name: string) => void;
+  backgroundOptions: ReadonlyArray<BackgroundOption>;
+  selectedBackground: string;
+  onBackgroundChange: (name: string) => void;
   isNavCollapsed: boolean;
   onToggleNav: () => void;
 }
@@ -28,10 +35,18 @@ export const TopBar = ({
   manifest,
   globals,
   onGlobalChange,
+  viewportOptions,
+  selectedViewport,
+  onViewportChange,
+  backgroundOptions,
+  selectedBackground,
+  onBackgroundChange,
   isNavCollapsed,
   onToggleNav,
 }: TopBarProps) => {
   const globalEntries = Object.entries(manifest.globalTypes);
+  const showViewport = viewportOptions.length > 1;
+  const showBackground = backgroundOptions.length > 0;
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-2 sm:gap-3 sm:px-3">
@@ -52,6 +67,42 @@ export const TopBar = ({
       <div className="min-w-0 flex-1" />
 
       <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
+        {showViewport ? (
+          <Select value={selectedViewport} onValueChange={onViewportChange}>
+            <SelectTrigger
+              className="h-8 w-auto min-w-24 max-w-40 shrink-0 sm:min-w-32"
+              aria-label="Viewport"
+            >
+              <Monitor className="mr-1 h-4 w-4 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {viewportOptions.map((option) => (
+                <SelectItem key={option.name} value={option.name}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
+        {showBackground ? (
+          <Select value={selectedBackground} onValueChange={onBackgroundChange}>
+            <SelectTrigger
+              className="h-8 w-auto min-w-24 max-w-40 shrink-0 sm:min-w-32"
+              aria-label="Background"
+            >
+              <Paintbrush className="mr-1 h-4 w-4 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {backgroundOptions.map((option) => (
+                <SelectItem key={option.name} value={option.name}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
         {globalEntries.map(([key, definition]) => {
           const items = toolbarItems(definition.toolbar);
           if (items.length === 0) return null;

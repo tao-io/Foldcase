@@ -3,12 +3,16 @@ import { AlertCircle, Accessibility, Activity, ListChecks } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { StoryStatus } from "@/lib/types";
+import { RESET_BACKGROUND, RESET_VIEWPORT } from "@/lib/viewport-backgrounds";
+import type { BackgroundOption, ViewportOption } from "@/lib/viewport-backgrounds";
 
 interface CanvasProps {
   iframeRef: RefObject<HTMLIFrameElement | null>;
   iframeSrc: string;
   status: StoryStatus;
   storyId: string | undefined;
+  viewport?: ViewportOption;
+  background?: BackgroundOption;
   a11yViolationCount?: number;
   messageCount?: number;
   stepCount?: number;
@@ -22,6 +26,8 @@ export const Canvas = ({
   iframeSrc,
   status,
   storyId,
+  viewport = RESET_VIEWPORT,
+  background = RESET_BACKGROUND,
   a11yViolationCount = 0,
   messageCount = 0,
   stepCount = 0,
@@ -34,14 +40,26 @@ export const Canvas = ({
     );
   }
 
+  const isReset = viewport.name === RESET_VIEWPORT.name;
+  const surfaceColor = background.value === "transparent" ? undefined : background.value;
+
   return (
     <div className="relative flex h-full flex-col bg-background">
-      <div className="flex-1 overflow-hidden bg-muted/30">
+      <div
+        data-testid="canvas-surface"
+        style={{ backgroundColor: surfaceColor }}
+        className={cn(
+          "flex flex-1 overflow-auto bg-muted/30",
+          isReset ? "" : "items-center justify-center p-4",
+        )}
+      >
         <iframe
           ref={iframeRef}
           src={iframeSrc}
           title={storyId}
-          className={cn("h-full w-full border-0")}
+          data-testid="canvas-iframe"
+          style={{ width: viewport.width, height: viewport.height }}
+          className={cn("border-0", isReset ? "" : "max-h-full shrink-0 bg-background shadow-lg")}
         />
       </div>
       <div className="pointer-events-none absolute right-3 top-3 flex gap-2">
