@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { A11yPanel } from "@/components/a11y-panel";
 import { Canvas } from "@/components/canvas";
 import { ControlsPanel } from "@/components/controls-panel";
 import { StoryTree } from "@/components/story-tree";
@@ -93,6 +94,8 @@ export const App = () => {
   const hasControls =
     comms.modelSchema !== undefined ||
     (selectedStory !== undefined && Object.keys(selectedStory.argTypes).length > 0);
+
+  const hasA11y = comms.a11yViolations.length > 0;
 
   const iframeSrc = useMemo(
     () => buildStoryIframeUrl({ storyId: selectedStoryId, args, globals }),
@@ -250,23 +253,36 @@ export const App = () => {
               iframeSrc={iframeSrc}
               status={comms.status}
               storyId={selectedStoryId}
+              a11yViolationCount={comms.a11yViolations.length}
             />
           </div>
-          {hasControls ? (
+          {hasControls || hasA11y ? (
             <>
               <Separator />
               <div
                 style={{ height: `${controlsHeight}px` }}
-                className="shrink-0 overflow-hidden bg-background"
+                className="flex shrink-0 overflow-hidden bg-background"
               >
-                <ControlsPanel
-                  story={selectedStory}
-                  args={args}
-                  modelSchema={comms.modelSchema}
-                  onChange={handleArgsChange}
-                  onModelEdit={handleModelEdit}
-                  onReset={handleArgsReset}
-                />
+                {hasControls ? (
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    <ControlsPanel
+                      story={selectedStory}
+                      args={args}
+                      modelSchema={comms.modelSchema}
+                      onChange={handleArgsChange}
+                      onModelEdit={handleModelEdit}
+                      onReset={handleArgsReset}
+                    />
+                  </div>
+                ) : null}
+                {hasA11y ? (
+                  <>
+                    {hasControls ? <Separator orientation="vertical" /> : null}
+                    <div className="w-80 shrink-0 overflow-hidden">
+                      <A11yPanel violations={comms.a11yViolations} />
+                    </div>
+                  </>
+                ) : null}
               </div>
             </>
           ) : null}

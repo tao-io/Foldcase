@@ -1,6 +1,6 @@
 import { useEffect, useState, type RefObject } from "react";
 import { PARENT_MESSAGE_SOURCE, SHELL_MESSAGE_SOURCE } from "@/lib/constants";
-import type { PlayStatus, StoryStatus } from "@/lib/types";
+import type { A11yViolation, PlayStatus, StoryStatus } from "@/lib/types";
 
 interface IframeIncomingMessage {
   source?: string;
@@ -11,17 +11,20 @@ interface IframeIncomingMessage {
     | "play-status"
     | "console"
     | "error"
-    | "model-schema";
+    | "model-schema"
+    | "a11y";
   status?: PlayStatus;
   error?: { name: string; message: string };
   id?: string;
   args?: Record<string, unknown>;
   schema?: Record<string, unknown>;
+  violations?: A11yViolation[];
 }
 
 export interface IframeCommsApi {
   status: StoryStatus;
   modelSchema: Record<string, unknown> | undefined;
+  a11yViolations: A11yViolation[];
   setArgs: (args: Record<string, unknown>) => void;
   setGlobals: (globals: Record<string, unknown>) => void;
   setModel: (path: ReadonlyArray<string>, value: unknown) => void;
@@ -35,10 +38,12 @@ export const useIframeComms = (
 ): IframeCommsApi => {
   const [status, setStatus] = useState<StoryStatus>({ rendered: false });
   const [modelSchema, setModelSchema] = useState<Record<string, unknown> | undefined>(undefined);
+  const [a11yViolations, setA11yViolations] = useState<A11yViolation[]>([]);
 
   useEffect(() => {
     setStatus({ rendered: false });
     setModelSchema(undefined);
+    setA11yViolations([]);
   }, [storyId]);
 
   useEffect(() => {
@@ -51,6 +56,10 @@ export const useIframeComms = (
       }
       if (data.type === "model-schema" && data.schema) {
         setModelSchema(data.schema);
+        return;
+      }
+      if (data.type === "a11y" && data.violations) {
+        setA11yViolations(data.violations);
         return;
       }
       if (data.type === "play-status" && data.status) {
@@ -82,6 +91,7 @@ export const useIframeComms = (
   return {
     status,
     modelSchema,
+    a11yViolations,
     setArgs: (args) => postToStory({ type: "set-args", args }),
     setGlobals: (globals) => postToStory({ type: "set-globals", globals }),
     setModel: (path, value) => postToStory({ type: "set-model", path, value }),

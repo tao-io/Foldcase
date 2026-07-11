@@ -17,6 +17,7 @@ import type {
   StoryParameters,
 } from "../types.js";
 import { escapeHtml } from "../utils/escape-html.js";
+import { runA11yAudit } from "./a11y.js";
 import { serializeError, type ShellToStory, type StoryToShell } from "./protocol.js";
 
 export interface BootOptions {
@@ -212,6 +213,7 @@ export const boot = (options: BootOptions): void => {
   }
 
   const initialUrlState = parseUrlState(window.location.search);
+  const a11yEnabled = new URLSearchParams(window.location.search).get("a11y") === "1";
 
   const metaArgs = readRecord(meta, "args") ?? {};
   const storyArgs = readRecord(story, "args") ?? {};
@@ -326,6 +328,12 @@ export const boot = (options: BootOptions): void => {
     const modelSchema = options.renderer.describeModel?.(mountedHandle);
     if (modelSchema !== undefined) {
       sendToShell({ type: "model-schema", id: options.id, schema: modelSchema });
+    }
+
+    if (a11yEnabled) {
+      void runA11yAudit(container).then((violations) => {
+        sendToShell({ type: "a11y", id: options.id, violations });
+      });
     }
 
     if (play) {
