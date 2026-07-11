@@ -1,7 +1,7 @@
 {
   "name": "foldcase",
   "version": "0.1.0",
-  "description": "foldcase — a Foldkit-native component explorer (Showcases). MIT fork of millionco/openstory.",
+  "description": "Foldcase — a Foldkit-native component explorer (Showcases). MIT fork of millionco/openstory.",
   "keywords": [
     "components",
     "csf",

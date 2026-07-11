@@ -84,7 +84,7 @@ interface GenerateCliInputOptions {
 const buildProgram = (projectRoot: string): Command => {
   const program = new Command()
     .name("foldcase")
-    .description("foldcase: Foldkit-native component explorer (fork of Openstory)")
+    .description("Foldcase: Foldkit-native component explorer (fork of Openstory)")
     .version(OPENSTORY_VERSION, "-v, --version", "print version")
     .helpOption("-h, --help", "show this message")
     .showHelpAfterError();

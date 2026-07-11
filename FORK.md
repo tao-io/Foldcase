@@ -1,10 +1,11 @@
-# foldcase — a Foldkit-native component explorer (fork of Openstory)
+# Foldcase — a Foldkit-native component explorer (fork of Openstory)
 
-`foldcase` (github.com/tao-io/foldcase) is `tao-io`'s fork of
+**Foldcase** (github.com/tao-io/Foldcase) is `tao-io`'s fork of
 [millionco/openstory](https://github.com/millionco/openstory) (MIT), maintained to make
-it a first-class **Foldkit** component explorer.
+it a first-class **Foldkit** component explorer. The installable package name + import path
+stay lowercase (`foldcase`, `foldcase/foldkit`) — npm forbids capitals; the tool is **Foldcase**.
 
-**The name.** `foldcase` = **fold** (Foldkit) + (show)**case** — the tool renders
+**The name.** Foldcase = **fold** (Foldkit) + (show)**case** — the tool renders
 **Showcases**. It extends Foldkit's testing family **Story · Scene** with the isolation
 layer **Showcase** (Story · Showcase · Scene), the component performing outside the app.
 
@@ -46,5 +47,6 @@ freely. MIT permits this; attribution to millionco + binarytide is in `LICENSE` 
 
 ## Downstream consumer
 Bina's Teacher-Desk **Showcase** lab (`bina` repo, scope-039,
-`.../frontend/showcase/`) currently vendors a build of this adapter; it will repoint at a
-published `foldcase` build (after the internal rename in step 1).
+`.../frontend/showcase/`) consumes Foldcase as a vendored `file:` tarball
+(`showcase/vendor/foldcase-0.1.0.tgz`) and imports `foldcase/foldkit`, with the DevTools
+overlay on all 11 Showcases + the DevTools→MCP relay wired via `showcase/vite.config.ts`.

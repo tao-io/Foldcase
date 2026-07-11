@@ -1,128 +1,91 @@
-# Openstory
+# Foldcase
 
-[![version](https://img.shields.io/npm/v/openstory?style=flat&colorA=000000&colorB=000000)](https://npmjs.com/package/openstory)
+**Foldcase** — a Foldkit-native component explorer. The component performing outside the app.
 
-Storybook for Agents.
+Foldcase is [`tao-io`](https://github.com/tao-io)'s fork of
+[millionco/openstory](https://github.com/millionco/openstory) (MIT), maintained to make it a
+first-class **[Foldkit](https://github.com/binarytide/foldkit)** component lab: it renders
+Foldkit programs as **Showcases** with a live TEA `Model` inspector + message log +
+time-travel, and an MCP relay so an agent can drive a Showcase directly.
 
-Openstory is a drop-in replacement for Storybook. Your existing stories work as-is.
+> **The name.** Foldcase = **fold** (Foldkit) + (show)**case**. It extends Foldkit's testing
+> family **Story · Scene** with the isolation layer **Showcase** (Story · Showcase · Scene).
 
-> Openstory is in alpha (`0.0.x`). Any patch may break the public API.
+> Foldcase is in alpha (`0.1.x`). Any patch may break the public API. The installable
+> package name and import path stay lowercase (`foldcase`, `foldcase/foldkit`) — npm forbids
+> capitals; the tool's name is **Foldcase**.
 
 ## Install
 
-Install Openstory, Vite, and the Vite plugin for your framework:
-
 ```bash
-# React
-pnpm add -D openstory vite @vitejs/plugin-react
-
-# Solid
-pnpm add -D openstory vite vite-plugin-solid
-
-# Vue
-pnpm add -D openstory vite @vitejs/plugin-vue
-
-# Svelte
-pnpm add -D openstory vite @sveltejs/vite-plugin-svelte
+pnpm add -D foldcase vite foldkit @foldkit/devtools @foldkit/vite-plugin
 ```
 
 Then start the dev server:
 
 ```bash
-pnpm exec openstory dev
+pnpm exec foldcase dev --framework foldkit
 ```
 
-No `vite.config.ts` required — Openstory configures Vite in-memory and picks up `tsconfig.json` path aliases automatically. If you'd rather drive Vite yourself, drop the plugin into your own config:
+No `vite.config.ts` is required for basic use — Foldcase configures Vite in-memory and picks
+up `tsconfig.json` path aliases automatically. To wire the Foldkit **DevTools → MCP relay**,
+drop a `vite.config.ts`; Foldcase's dev server auto-loads it and concatenates its plugins:
 
 ```ts
+import { foldkit } from "@foldkit/vite-plugin";
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import { openstory } from "openstory/plugin";
 
 export default defineConfig({
-  plugins: [react(), openstory({ framework: "react" })],
+  plugins: [foldkit({ devToolsMcpPort: 9989 })],
 });
 ```
 
-(Optional) Add a `preview.tsx` next to your stories for global decorators, parameters, or providers:
+## Write a Showcase
 
-```tsx
-import type { Preview } from "openstory/react";
+A Foldkit Showcase is a CSF 3 story whose `render` returns a Foldkit program config
+(`{ Model, init, update, view, devTools }`). Set `devTools` to mount the overlay in the
+Showcase canvas — `show: 'Always'` is required because Foldcase renders every Showcase inside
+an iframe, where the default `'Development'` gate is false:
 
-const preview: Preview = {
-  parameters: { layout: "padded" },
-  decorators: [],
+```ts
+import { overlay } from "@foldkit/devtools";
+import type { Meta, StoryObj } from "foldcase/foldkit";
+
+const program = {
+  Model,
+  init,
+  update,
+  view,
+  devTools: { overlay, Message, show: "Always" as const },
 };
 
-export default preview;
-```
-
-## How It Works
-
-Openstory turns your existing CSF 3 story files into a browsable component lab served from a single Vite dev server:
-
-1. Write standard CSF 3 stories (`*.stories.{ts,tsx,js,jsx}`).
-2. Run `openstory dev`.
-3. Browse stories at `http://localhost:6006`.
-
-Stories use the same shape as Storybook. Swap imports, drop addons:
-
-```tsx
-import type { Meta, StoryObj } from "openstory/react";
-import { expect, waitFor } from "openstory/test";
-
-const meta: Meta = {
-  title: "Forms/Button",
-  component: Button,
-  args: { label: "Click me", variant: "primary" },
-};
+const meta: Meta = { title: "Grid/Button", render: () => program };
 export default meta;
 
-export const Primary: StoryObj<typeof meta> = {
-  play: async ({ canvasElement }) => {
-    await waitFor(() => {
-      expect(canvasElement.querySelector("button")).toBeInTheDocument();
-    });
-  },
-};
+export const Variants: StoryObj = { /* play: async ({ canvasElement }) => { … } */ };
 ```
-
-The shell UI is React + Tailwind + shadcn. Stories render in an iframe via a postMessage protocol for live args/globals updates and play-status reporting.
-
-## Migrate from Storybook
-
-Swap your story imports. `meta`, `decorators`, `parameters`, `globalTypes`, `initialGlobals`, and `play` functions keep the same shape:
-
-```diff
-- import type { Meta, StoryObj } from "@storybook/react";
-- import { expect, waitFor } from "@storybook/test";
-+ import type { Meta, StoryObj } from "openstory/react";
-+ import { expect, waitFor } from "openstory/test";
-```
-
-`preview.tsx` keeps the same shape too. No addon dependencies. The shell ships built-in.
 
 ## CLI
 
 ```
-openstory dev        start the dev server
-openstory build      write a static deployable site to dist/
-openstory preview    serve the built site
-openstory generate   generate CSF 3 stories for components
-openstory list       print manifest (--json for raw)
-openstory inspect    print details for one story (--json for raw)
+foldcase dev        start the dev server (--framework foldkit)
+foldcase build      write a static deployable site to dist/
+foldcase preview    serve the built site
+foldcase generate   generate CSF 3 stories for components
+foldcase list       print manifest (--json for raw)
+foldcase inspect    print details for one Showcase (--json for raw)
 ```
 
-See [`packages/openstory/src/types.ts`](https://github.com/millionco/openstory/blob/main/packages/openstory/src/types.ts) for the full `Meta`, `StoryObj`, `Preview`, `Decorator`, `PlayFunction`, and `OpenstoryRenderer` interfaces.
+## Heritage & other frameworks
 
-## Resources & Contributing Back
+Foldcase inherits Openstory's framework-agnostic core — React / Solid / Vue / Svelte renderers
+still ship (`foldcase/react`, `foldcase/solid`, …) and standard CSF 3 stories work as-is. See
+[Openstory](https://github.com/millionco/openstory) for the multi-framework story shape;
+Foldcase's focus is the Foldkit adapter and its dev instruments.
 
-Looking to contribute back? Check out the [Contributing Guide](https://github.com/millionco/openstory/blob/main/CONTRIBUTING.md).
+## License & attribution
 
-Find a bug? Head over to our [issue tracker](https://github.com/millionco/openstory/issues) and we'll do our best to help. We love pull requests, too!
-
-[**Start contributing on GitHub**](https://github.com/millionco/openstory/blob/main/CONTRIBUTING.md)
-
-### License
-
-Openstory is MIT-licensed open-source software.
+Foldcase is MIT-licensed open-source software. It is a fork of Openstory (Copyright © millionco)
+and incorporates the Foldkit adapter contributed by binarytide in
+[millionco/openstory#4](https://github.com/millionco/openstory/pull/4). See `LICENSE` and
+`NOTICE` for the full attribution, which must be retained.
