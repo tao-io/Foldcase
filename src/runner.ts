@@ -84,3 +84,29 @@ export const runShowcase = (showcase: Showcase): Effect.Effect<ShowcaseReport> =
       onFailure: (error) => new ShowcaseReport({ id: showcase.id, status: "failed", error }),
     }),
   )
+
+/** The whole-suite result — per-Showcase reports plus rolled-up counts. */
+export class SuiteReport extends Schema.Class<SuiteReport>("SuiteReport")({
+  total: Schema.Number,
+  passed: Schema.Number,
+  failed: Schema.Number,
+  reports: Schema.Array(ShowcaseReport),
+}) {}
+
+/**
+ * Run every Showcase and roll the results into one {@link SuiteReport}.
+ * Runs sequentially so report order matches input order, and never
+ * short-circuits — a failing Showcase is recorded, not thrown.
+ */
+export const runShowcases = (showcases: ReadonlyArray<Showcase>): Effect.Effect<SuiteReport> =>
+  Effect.forEach(showcases, runShowcase, { concurrency: 1 }).pipe(
+    Effect.map((reports) => {
+      const passed = reports.filter((report) => report.status === "passed").length
+      return new SuiteReport({
+        total: reports.length,
+        passed,
+        failed: reports.length - passed,
+        reports,
+      })
+    }),
+  )
