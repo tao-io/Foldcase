@@ -6,6 +6,9 @@
   "bin": { "foldcase": "./src/main.ts" },
   "exports": {
     ".": "./src/runner.ts",
-    "./cli": "./src/cli.ts"
+    "./cli": "./src/cli.ts",
+    "./mcp": "./src/mcp/server.ts",
+    "./mcp/catalog": "./src/mcp/catalog.ts",
+    "./mcp/tools": "./src/mcp/tools.ts"
   }
 }

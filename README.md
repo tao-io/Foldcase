@@ -32,8 +32,13 @@ how the `play` is produced:
 export interface Showcase {
   readonly id: string
   readonly play: () => void | Promise<void> // throws on assertion failure
+  readonly message?: Schema.Top // optional Message-union schema (see `foldcase mcp`)
 }
 ```
+
+The optional `message` is the component's Message-union Effect Schema; the
+`foldcase mcp` catalog server introspects it into a JSON Schema so an agent can
+construct a valid typed Message. Absent for framework-agnostic showcases.
 
 For a **Foldkit** component, `play` is a `Story` that dispatches typed Messages
 and asserts on the `Model` (no DOM, no view). Because `Story` needs the
@@ -66,8 +71,41 @@ const report = await Effect.runPromise(runShowcase(clickCounter))
 - `src/main.ts` — the imperative shell: the `foldcase` bin (BunRuntime + platform
   layers, argv, stdout, exit code).
 
-## Next (Phase 1.2)
+## `foldcase mcp` (Phase 1.2)
 
-`foldcase mcp` — the catalog MCP server (list Showcases, get argTypes / Effect
-Schema, run a Showcase's play → typed pass/fail), composing with the runtime
-`@foldkit/devtools-mcp` (`dispatch_message` / `get_model` / `replay`).
+The **catalog MCP server**: a real, Effect-native MCP server (built on
+`effect/unstable/ai` — `Tool` + `Toolkit` + `McpServer.layerStdio`, no
+hand-rolled JSON-RPC) exposing the story catalog to an agent. Three
+`Schema`-typed verbs, wired to the `FoldcaseCatalog` service:
+
+- **`foldcase_list_showcases`** — enumerate every Showcase, flagged with whether
+  it carries an introspectable Message schema.
+- **`foldcase_get_showcase_schema`** — introspect a Showcase's Message-union
+  Effect Schema into a JSON Schema document, so an agent constructs a valid
+  typed Message *by construction*. Fails typed (`ShowcaseNotFoundError` /
+  `NoMessageSchemaError`).
+- **`foldcase_run_showcase`** — run a Showcase's `play` headlessly and return the
+  typed pass/fail `ShowcaseReport` (a failing play is `status: "failed"` carrying
+  the serialized error, not a tool error; only an unknown id fails).
+
+```bash
+mise run foldcase:mcp                                     # serve over stdio (an MCP host's command)
+FOLDCASE_SHOWCASE_DIR=src/pwa/src mise run foldcase:mcp   # scan a specific dir (Config)
+```
+
+It **composes with** the runtime `@foldkit/devtools-mcp` (already a dep of
+`src/pwa`, 14 tools): this **catalog** server says *which* Showcases exist,
+exposes their Message JSON Schema, and runs their `play`; devtools-mcp **drives
+the live runtime** (`foldkit_dispatch_message` / `foldkit_get_model` /
+`foldkit_replay`). Together they are the typed self-healing loop — enumerate →
+read the Message schema → dispatch a valid typed Message → assert the
+deterministic Model → run the Showcase → read the structured result → fix →
+re-run.
+
+- `src/mcp/catalog.ts` — the `FoldcaseCatalog` Effect service (`list` /
+  `schemaFor` / `runById`), its typed errors, and the `FOLDCASE_SHOWCASE_DIR`
+  `Config` loader.
+- `src/mcp/tools.ts` — the `Tool.make` definitions + `Toolkit`, bound to the
+  catalog via `makeHandlers`.
+- `src/mcp/server.ts` — the launchable stdio server Layer (logs pinned to stderr;
+  stdout carries the protocol).
