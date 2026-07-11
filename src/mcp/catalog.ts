@@ -1,8 +1,15 @@
 import * as Arr from "effect/Array"
+import * as Config from "effect/Config"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import type * as FileSystem from "effect/FileSystem"
+import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
+import type * as Path from "effect/Path"
+import type { PlatformError } from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 
+import { discoverShowcaseFiles, loadShowcasesFromFiles, type ShowcaseModuleError } from "../cli"
 import { runShowcase, type Showcase, type ShowcaseReport } from "../runner"
 
 /** One entry in the catalog listing: a Showcase id and whether it carries a Message schema. */
@@ -109,4 +116,46 @@ export const makeCatalog = (showcases: ReadonlyArray<Showcase>): FoldcaseCatalog
       ),
     runById: (id) => find(id).pipe(Effect.flatMap(runShowcase)),
   }
+}
+
+/**
+ * Discover every `*.showcase.ts` under `dir` and expose them as a catalog.
+ * Composes the `foldcase test` discovery + module loader, so the MCP server
+ * serves exactly the Showcases `foldcase test` runs. Fails
+ * {@link ShowcaseModuleError} on a malformed catalog.
+ */
+export const loadCatalogFromDir = (
+  dir: string,
+): Effect.Effect<
+  FoldcaseCatalogShape,
+  ShowcaseModuleError | PlatformError,
+  FileSystem.FileSystem | Path.Path
+> =>
+  discoverShowcaseFiles(dir).pipe(
+    Effect.flatMap(loadShowcasesFromFiles),
+    Effect.map(makeCatalog),
+  )
+
+/** Config key for the directory the catalog server scans. Defaults to the cwd. */
+const showcaseDir = Config.string("FOLDCASE_SHOWCASE_DIR").pipe(Config.withDefault("."))
+
+/**
+ * The catalog as an Effect service. `layer` reads the scan directory from
+ * `Config` and loads it from disk; `layerFromShowcases` serves an in-memory set
+ * (for tests and embedding).
+ */
+export class FoldcaseCatalog extends Context.Service<FoldcaseCatalog, FoldcaseCatalogShape>()(
+  "foldcase/FoldcaseCatalog",
+) {
+  /** Live layer: scans `FOLDCASE_SHOWCASE_DIR` (default cwd) for `*.showcase.ts`. */
+  static readonly layer: Layer.Layer<
+    FoldcaseCatalog,
+    ShowcaseModuleError | PlatformError,
+    FileSystem.FileSystem | Path.Path
+  > = Layer.effect(FoldcaseCatalog)(showcaseDir.pipe(Effect.flatMap(loadCatalogFromDir)))
+
+  /** Test/embed layer: serves a fixed set of Showcases with no disk access. */
+  static readonly layerFromShowcases = (
+    showcases: ReadonlyArray<Showcase>,
+  ): Layer.Layer<FoldcaseCatalog> => Layer.succeed(FoldcaseCatalog)(makeCatalog(showcases))
 }

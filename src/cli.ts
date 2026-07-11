@@ -66,6 +66,19 @@ const loadShowcaseFile = (
   }).pipe(Effect.flatMap((module) => readShowcases(path, module)))
 
 /**
+ * Load every showcase file and collect their Showcases in file order. Fails
+ * with a {@link ShowcaseModuleError} if any file is missing or malformed (a
+ * broken catalog is not a test result). Shared by `foldcase test` (run them)
+ * and `foldcase mcp` (serve them as a catalog).
+ */
+export const loadShowcasesFromFiles = (
+  paths: ReadonlyArray<string>,
+): Effect.Effect<ReadonlyArray<Showcase>, ShowcaseModuleError> =>
+  Effect.forEach(paths, loadShowcaseFile, { concurrency: 1 }).pipe(
+    Effect.map((groups) => groups.flat()),
+  )
+
+/**
  * Load every showcase file, collect their Showcases in file order, and run the
  * whole set into one {@link SuiteReport}. Fails with a {@link ShowcaseModuleError}
  * if any file is missing or malformed (a broken catalog is not a test result).
@@ -73,7 +86,4 @@ const loadShowcaseFile = (
 export const runSuiteFromFiles = (
   paths: ReadonlyArray<string>,
 ): Effect.Effect<SuiteReport, ShowcaseModuleError> =>
-  Effect.forEach(paths, loadShowcaseFile, { concurrency: 1 }).pipe(
-    Effect.map((groups) => groups.flat()),
-    Effect.flatMap(runShowcases),
-  )
+  loadShowcasesFromFiles(paths).pipe(Effect.flatMap(runShowcases))
