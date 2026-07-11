@@ -61,3 +61,11 @@ export interface StoryStatus {
   playStatus?: PlayStatus;
   error?: string;
 }
+
+export interface A11yViolation {
+  id: string;
+  impact: "minor" | "moderate" | "serious" | "critical" | null;
+  help: string;
+  helpUrl: string;
+  targets: string[];
+}

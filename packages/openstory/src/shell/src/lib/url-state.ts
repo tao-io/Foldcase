@@ -64,6 +64,7 @@ export const buildStoryIframeUrl = (state: ShellUrlState): string => {
   if (Object.keys(state.globals).length > 0) {
     search.set("globals", stringifyKeyValueList(state.globals));
   }
+  search.set("a11y", "1");
   const queryString = search.toString();
   return `${STORY_PATH_PREFIX}${encodeURIComponent(state.storyId ?? "")}${queryString ? `?${queryString}` : ""}`;
 };

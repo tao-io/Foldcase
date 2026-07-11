@@ -8,6 +8,14 @@ export interface SerializedError {
   docsUrl?: string;
 }
 
+export interface A11yViolation {
+  id: string;
+  impact: "minor" | "moderate" | "serious" | "critical" | null;
+  help: string;
+  helpUrl: string;
+  targets: string[];
+}
+
 export type ShellToStory =
   | { type: "set-args"; args: Record<string, unknown> }
   | { type: "set-globals"; globals: Record<string, unknown> }
@@ -25,6 +33,7 @@ export type StoryToShell =
   | { type: "rendered"; id: string; durationMs: number }
   | { type: "args-changed"; args: Record<string, unknown> }
   | { type: "model-schema"; id: string; schema: Record<string, unknown> }
+  | { type: "a11y"; id: string; violations: A11yViolation[] }
   | { type: "play-status"; status: PlayStatus; error?: SerializedError }
   | {
       type: "console";

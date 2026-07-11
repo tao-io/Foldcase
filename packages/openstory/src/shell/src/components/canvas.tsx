@@ -1,5 +1,5 @@
 import { type RefObject } from "react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Accessibility } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { StoryStatus } from "@/lib/types";
@@ -9,12 +9,19 @@ interface CanvasProps {
   iframeSrc: string;
   status: StoryStatus;
   storyId: string | undefined;
+  a11yViolationCount?: number;
 }
 
 const hasFailure = (status: StoryStatus): boolean =>
   Boolean(status.error) || status.playStatus === "failed";
 
-export const Canvas = ({ iframeRef, iframeSrc, status, storyId }: CanvasProps) => {
+export const Canvas = ({
+  iframeRef,
+  iframeSrc,
+  status,
+  storyId,
+  a11yViolationCount = 0,
+}: CanvasProps) => {
   if (!storyId) {
     return (
       <div className="flex h-full items-center justify-center bg-background text-sm text-muted-foreground">
@@ -33,14 +40,20 @@ export const Canvas = ({ iframeRef, iframeSrc, status, storyId }: CanvasProps) =
           className={cn("h-full w-full border-0")}
         />
       </div>
-      {hasFailure(status) ? (
-        <div className="pointer-events-none absolute right-3 top-3">
+      <div className="pointer-events-none absolute right-3 top-3 flex gap-2">
+        {a11yViolationCount > 0 ? (
+          <Badge variant="destructive" className="pointer-events-auto">
+            <Accessibility className="h-3 w-3" />
+            {`a11y: ${a11yViolationCount}`}
+          </Badge>
+        ) : null}
+        {hasFailure(status) ? (
           <Badge variant="destructive" className="pointer-events-auto">
             <AlertCircle className="h-3 w-3" />
             {status.error ? "Error" : "Play failed"}
           </Badge>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
   );
 };
