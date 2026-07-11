@@ -1,5 +1,6 @@
-This project is a fork of Openstory (https://github.com/millionco/openstory),
-Copyright (c) millionco, licensed under the MIT License (see LICENSE).
+foldcase (https://github.com/tao-io/foldcase) is a fork of Openstory
+(https://github.com/millionco/openstory), Copyright (c) millionco, licensed under
+the MIT License (see LICENSE).
 
 It incorporates the Foldkit framework adapter contributed by John McAndrews
 (binarytide) in pull request millionco/openstory#4 ("feat: add Foldkit framework
