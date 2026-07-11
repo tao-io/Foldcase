@@ -7,5 +7,6 @@ dist
 **/*.tgz
 coverage
 test-results
+**/__screenshots__/__diffs__
 .cursor
 .claude
