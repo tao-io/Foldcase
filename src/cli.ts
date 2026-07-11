@@ -38,8 +38,21 @@ export class ShowcaseModuleError extends Schema.TaggedErrorClass<ShowcaseModuleE
   },
 ) {}
 
-const isShowcase = (value: unknown): value is Showcase =>
-  P.isObject(value) && P.isString(Reflect.get(value, "id")) && P.isFunction(Reflect.get(value, "play"))
+const isShowcase = (value: unknown): value is Showcase => {
+  if (
+    !P.isObject(value) ||
+    !P.isString(Reflect.get(value, "id")) ||
+    !P.isFunction(Reflect.get(value, "play"))
+  ) {
+    return false
+  }
+  // `message` is optional, but when a module declares it, it must be an Effect
+  // Schema: the catalog server feeds it to `Schema.toJsonSchemaDocument`, so a
+  // non-Schema value (from an untrusted `*.showcase.ts`) would defect outside
+  // the declared typed errors. Reject the module as malformed instead.
+  const message = Reflect.get(value, "message")
+  return message === undefined || Schema.isSchema(message)
+}
 
 const readShowcases = (
   path: string,

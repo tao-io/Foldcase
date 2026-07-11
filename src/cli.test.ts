@@ -42,4 +42,11 @@ describe("runSuiteFromFiles", () => {
     expect(error.path).toContain("does-not-exist.ts")
     expect(error.reason.length).toBeGreaterThan(0)
   })
+
+  test("rejects a showcase whose message is not an Effect Schema", async () => {
+    const malformed = `${import.meta.dir}/../test/malformed/bad-message.showcase.ts`
+    const error = await Effect.runPromise(Effect.flip(runSuiteFromFiles([malformed])))
+
+    expect(error._tag).toBe("foldcase/ShowcaseModuleError")
+  })
 })
