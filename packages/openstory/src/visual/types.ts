@@ -36,3 +36,23 @@ export interface VisualReport {
   counts: Record<VisualVerdict, number>;
   verdict: VisualVerdict;
 }
+
+/**
+ * The seam for an optional LLM-judge that resolves an "unresolved" (ambiguous)
+ * visual diff into a decision. Implement `resolve` to inspect the baseline/actual/diff
+ * images (e.g. hand them to a vision model) and return "pass" or "fail"; return
+ * "unresolved" to abstain and leave the diff for a human. No judge is wired by default —
+ * see `applyJudge` in `judge.ts`. This keeps the gate deterministic while leaving a
+ * clean, documented place to plug AI review in later without changing the core.
+ */
+export interface VisualJudge {
+  resolve: (request: VisualJudgeRequest) => Promise<VisualVerdict>;
+}
+
+export interface VisualJudgeRequest {
+  showcaseId: string;
+  mismatchRatio: number;
+  baseline?: Buffer;
+  actual?: Buffer;
+  diff?: Buffer;
+}
