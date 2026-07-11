@@ -135,6 +135,38 @@ describe("foldkit integration: browser render", () => {
     }
   }, 30_000);
 
+  it("emits the Model JSON Schema for schema-driven controls", async () => {
+    const page = await newPage();
+    try {
+      await page.addInitScript(() => {
+        (window as unknown as { __schema?: unknown }).__schema = undefined;
+        window.addEventListener("message", (event) => {
+          const data = event.data as { source?: string; type?: string; schema?: unknown };
+          if (data?.source === "openstory" && data.type === "model-schema") {
+            (window as unknown as { __schema?: unknown }).__schema = data.schema;
+          }
+        });
+      });
+      await page.goto(`${baseUrl}/__story/foldkit-counter--basic`, { waitUntil: "networkidle" });
+
+      const schema = await page
+        .waitForFunction(() => (window as unknown as { __schema?: unknown }).__schema)
+        .then((handle) => handle.jsonValue());
+
+      expect(schema).toMatchObject({
+        type: "object",
+        properties: {
+          label: { type: "string" },
+        },
+      });
+      expect((schema as { properties: Record<string, unknown> }).properties).toHaveProperty(
+        "count",
+      );
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
   it("preserves the accumulated Model across an arg change (no cold remount)", async () => {
     const page = await newPage();
     try {
@@ -167,6 +199,30 @@ describe("foldkit integration: browser render", () => {
       expect(await page.locator("[data-openstory-test='foldkit-count']").textContent()).toBe(
         "Count: 1",
       );
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
+  it("edits a Model field live via set-model without discarding the Model", async () => {
+    const page = await newPage();
+    try {
+      const result = await renderAndCollect(page, `${baseUrl}/__story/foldkit-counter--basic`);
+      expect(result.status).toBe("passed");
+      await expect
+        .poll(() => page.locator("[data-openstory-test='foldkit-count']").textContent())
+        .toBe("Count: 1");
+
+      await page.evaluate((source) => {
+        window.postMessage(
+          { source, type: "set-model", path: ["count"], value: 5 },
+          window.location.origin,
+        );
+      }, SHELL_MESSAGE_SOURCE);
+
+      await expect
+        .poll(() => page.locator("[data-openstory-test='foldkit-count']").textContent())
+        .toBe("Count: 5");
     } finally {
       await page.close();
     }

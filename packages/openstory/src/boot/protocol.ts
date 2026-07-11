@@ -11,6 +11,7 @@ export interface SerializedError {
 export type ShellToStory =
   | { type: "set-args"; args: Record<string, unknown> }
   | { type: "set-globals"; globals: Record<string, unknown> }
+  | { type: "set-model"; path: ReadonlyArray<string>; value: unknown }
   | { type: "rerun-play" }
   | { type: "reload" };
 
@@ -23,6 +24,7 @@ export type StoryToShell =
     }
   | { type: "rendered"; id: string; durationMs: number }
   | { type: "args-changed"; args: Record<string, unknown> }
+  | { type: "model-schema"; id: string; schema: Record<string, unknown> }
   | { type: "play-status"; status: PlayStatus; error?: SerializedError }
   | {
       type: "console";

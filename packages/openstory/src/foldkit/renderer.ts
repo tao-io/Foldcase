@@ -1,6 +1,12 @@
 import { Cause, Effect, Exit, Fiber, Schema } from "effect";
 import { OpenstoryAdapterMissingFrameworkError } from "../errors.js";
-import type { OpenstoryRenderer, RendererMountOpts, RendererUpdateOpts } from "../types.js";
+import type {
+  ModelEdit,
+  OpenstoryRenderer,
+  RendererMountOpts,
+  RendererUpdateOpts,
+} from "../types.js";
+import { setAtPath } from "../utils/set-at-path.js";
 
 interface FoldkitProgramConfig {
   Model: unknown;
@@ -45,6 +51,10 @@ interface FoldkitProgramContainer {
   program: FoldkitProgramConfig | FoldkitProgramFactory;
 }
 
+type MountOptions =
+  | RendererMountOpts<unknown>
+  | (RendererUpdateOpts<unknown> & { container: HTMLElement });
+
 interface FoldkitMounted {
   container: HTMLElement;
   fiber: Fiber.Fiber<void, unknown> | undefined;
@@ -52,6 +62,8 @@ interface FoldkitMounted {
   config: FoldkitProgramConfig | undefined;
   latestModel: unknown;
   hasLatestModel: boolean;
+  modelSchema: Record<string, unknown> | undefined;
+  options: MountOptions | undefined;
 }
 
 let cachedFoldkit: FoldkitRuntimeModule | undefined;
@@ -150,6 +162,16 @@ const surfaceMountFailure = (
   mounted.container.replaceChildren(element);
 };
 
+const deriveModelSchema = (config: FoldkitProgramConfig): Record<string, unknown> | undefined => {
+  const modelSchema = config.Model;
+  if (!Schema.isSchema(modelSchema)) return undefined;
+  try {
+    return Schema.toJsonSchemaDocument(modelSchema).schema;
+  } catch {
+    return undefined;
+  }
+};
+
 const encodeModelForRestore = (config: FoldkitProgramConfig, model: unknown): unknown => {
   const modelSchema = config.Model;
   if (!Schema.isSchema(modelSchema)) return model;
@@ -163,7 +185,7 @@ const encodeModelForRestore = (config: FoldkitProgramConfig, model: unknown): un
 
 const startMount = (
   mounted: FoldkitMounted,
-  options: RendererMountOpts<unknown> | (RendererUpdateOpts<unknown> & { container: HTMLElement }),
+  options: MountOptions,
   restore: { model: unknown } | undefined,
 ): void => {
   const nextRunId = mounted.runId + 1;
@@ -174,10 +196,11 @@ const startMount = (
 
 const mountInto = async (
   mounted: FoldkitMounted,
-  options: RendererMountOpts<unknown> | (RendererUpdateOpts<unknown> & { container: HTMLElement }),
+  options: MountOptions,
   restore: { model: unknown } | undefined,
 ): Promise<void> => {
   mounted.runId += 1;
+  mounted.options = options;
   const currentRunId = mounted.runId;
   interruptMountedFiber(mounted);
   const config = resolveProgramConfig(
@@ -218,6 +241,21 @@ const interruptMountedFiber = (mounted: FoldkitMounted): void => {
   }
 };
 
+const safeDeriveModelSchema = (
+  options: RendererMountOpts<unknown>,
+): Record<string, unknown> | undefined => {
+  try {
+    const config = resolveProgramConfig(
+      options.render(options.args, options.context),
+      options.args,
+      options.context,
+    );
+    return deriveModelSchema(config);
+  } catch {
+    return undefined;
+  }
+};
+
 const defaultRender =
   (component: unknown) =>
   (_args: unknown, _context: unknown): unknown =>
@@ -233,6 +271,8 @@ export const renderer: OpenstoryRenderer<unknown, FoldkitMounted> = {
       config: undefined,
       latestModel: undefined,
       hasLatestModel: false,
+      modelSchema: safeDeriveModelSchema(options),
+      options: undefined,
     };
     startMount(mounted, options, undefined);
     return mounted;
@@ -247,5 +287,12 @@ export const renderer: OpenstoryRenderer<unknown, FoldkitMounted> = {
     mounted.container.replaceChildren();
     mounted.hasLatestModel = false;
     mounted.latestModel = undefined;
+  },
+  describeModel: (mounted) => mounted.modelSchema,
+  setModel: (mounted, edit: ModelEdit) => {
+    if (!mounted.hasLatestModel || mounted.options === undefined) return;
+    const nextModel = setAtPath(mounted.latestModel, edit.path, edit.value);
+    mounted.latestModel = nextModel;
+    startMount(mounted, mounted.options, { model: nextModel });
   },
 };

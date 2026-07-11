@@ -323,6 +323,11 @@ export const boot = (options: BootOptions): void => {
       durationMs: performance.now() - mountStartTime,
     });
 
+    const modelSchema = options.renderer.describeModel?.(mountedHandle);
+    if (modelSchema !== undefined) {
+      sendToShell({ type: "model-schema", id: options.id, schema: modelSchema });
+    }
+
     if (play) {
       sendToShell({ type: "play-status", status: "running" });
       try {
@@ -364,6 +369,15 @@ export const boot = (options: BootOptions): void => {
       case "set-globals": {
         globals = { ...globals, ...message.globals };
         await mountOnce();
+        break;
+      }
+      case "set-model": {
+        if (mountedHandle !== undefined) {
+          options.renderer.setModel?.(mountedHandle, {
+            path: message.path,
+            value: message.value,
+          });
+        }
         break;
       }
       case "rerun-play": {

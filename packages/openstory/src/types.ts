@@ -124,6 +124,13 @@ export interface OpenstoryRenderer<TArgs = unknown, TMounted = unknown> {
   update: (mounted: TMounted, opts: RendererUpdateOpts<TArgs>) => void;
   unmount: (mounted: TMounted) => void;
   defaultRender?: (component: unknown) => (args: TArgs, context: StoryContext<TArgs>) => unknown;
+  describeModel?: (mounted: TMounted) => Record<string, unknown> | undefined;
+  setModel?: (mounted: TMounted, edit: ModelEdit) => void;
+}
+
+export interface ModelEdit {
+  path: ReadonlyArray<string>;
+  value: unknown;
 }
 
 export interface RendererMountOpts<TArgs> {

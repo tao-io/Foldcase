@@ -11,12 +11,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import {
+  modelSchemaToControls,
+  type JsonSchemaNode,
+  type SchemaControl,
+} from "@/lib/model-schema-controls";
 import type { ManifestStory } from "@/lib/types";
 
 interface ControlsPanelProps {
   story: ManifestStory | undefined;
   args: Record<string, unknown>;
+  modelSchema?: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
+  onModelEdit?: (path: ReadonlyArray<string>, value: unknown) => void;
   onReset: () => void;
 }
 
@@ -82,6 +89,24 @@ const resolveControlType = (
   return { control: "computed" };
 };
 
+const schemaControlToArgType = (
+  control: SchemaControl,
+  initialArgs: Record<string, unknown>,
+): ResolvedArgType => ({
+  name: control.name,
+  control: control.control === "unsupported" ? "computed" : control.control,
+  options: control.options ? [...control.options] : undefined,
+  initial: initialArgs[control.name],
+});
+
+const resolveSchemaArgTypes = (
+  modelSchema: Record<string, unknown>,
+  initialArgs: Record<string, unknown>,
+): ResolvedArgType[] =>
+  modelSchemaToControls(modelSchema as JsonSchemaNode).map((control) =>
+    schemaControlToArgType(control, initialArgs),
+  );
+
 const resolveArgTypes = (story: ManifestStory): ResolvedArgType[] => {
   const argTypes = story.argTypes as Record<string, unknown>;
   const initialArgs = story.initialArgs;
@@ -144,10 +169,26 @@ const ControlInput = ({ argType, value, onChange }: ControlInputProps) => {
   return <span className="text-xs italic text-muted-foreground">computed at runtime</span>;
 };
 
-export const ControlsPanel = ({ story, args, onChange, onReset }: ControlsPanelProps) => {
-  const argTypes = useMemo(() => (story ? resolveArgTypes(story) : []), [story]);
+export const ControlsPanel = ({
+  story,
+  args,
+  modelSchema,
+  onChange,
+  onModelEdit,
+  onReset,
+}: ControlsPanelProps) => {
+  const isSchemaMode = modelSchema !== undefined && onModelEdit !== undefined;
+  const argTypes = useMemo(() => {
+    if (isSchemaMode) return resolveSchemaArgTypes(modelSchema, story?.initialArgs ?? {});
+    return story ? resolveArgTypes(story) : [];
+  }, [isSchemaMode, modelSchema, story]);
 
-  if (!story || argTypes.length === 0) return null;
+  if (argTypes.length === 0) return null;
+
+  const handleChange = (name: string, nextValue: unknown): void => {
+    onChange({ ...args, [name]: nextValue });
+    if (isSchemaMode) onModelEdit([name], nextValue);
+  };
 
   return (
     <ScrollArea className="h-full">
@@ -177,7 +218,7 @@ export const ControlsPanel = ({ story, args, onChange, onReset }: ControlsPanelP
                 <ControlInput
                   argType={argType}
                   value={currentValue}
-                  onChange={(nextValue) => onChange({ ...args, [argType.name]: nextValue })}
+                  onChange={(nextValue) => handleChange(argType.name, nextValue)}
                 />
               </div>
             </div>
