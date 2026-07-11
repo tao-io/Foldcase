@@ -3,5 +3,9 @@
   "version": "0.1.0",
   "description": "Foldcase moat — the typed self-healing test loop as a CosmOS Effect-4 tool. `foldcase test` boots each Foldkit portable Showcase headlessly and asserts on the Model via Schema. Built on the tao-io/Foldcase (openstory) boot/manifest; does not fork the core.",
   "type": "module",
-  "bin": { "foldcase": "./src/main.ts" }
+  "bin": { "foldcase": "./src/main.ts" },
+  "exports": {
+    ".": "./src/runner.ts",
+    "./cli": "./src/cli.ts"
+  }
 }
