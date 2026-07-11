@@ -44,12 +44,13 @@ export class ShowcaseCoverageHit extends Schema.Class<ShowcaseCoverageHit>(
 }) {}
 
 /**
- * The whole collector payload: the coverage each Showcase's `play` executed.
- * Aggregate coverage is the union of these downstream — Node's precise-coverage
- * take resets on read, so there is no single cumulative snapshot to lean on.
+ * The whole collector payload: `total` is the cumulative snapshot (denominators
+ * — a file's uncalled functions/lines included), and `showcases` are the
+ * per-`play` deltas (numerators — the code each Showcase actually executed).
  */
 export class RawCoverage extends Schema.Class<RawCoverage>("foldcase/RawCoverage")({
   showcases: Schema.Array(ShowcaseCoverageHit),
+  total: Schema.Array(ScriptHit),
 }) {}
 
 // ─── Pure coverage math ──────────────────────────────────────────────────────

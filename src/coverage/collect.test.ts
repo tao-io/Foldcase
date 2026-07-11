@@ -35,4 +35,26 @@ describe("collectCoverage", () => {
     },
     TIMEOUT_MS,
   )
+
+  test(
+    "instruments a separate module the play calls, marking unexercised code missed",
+    async () => {
+      const report = await Effect.runPromise(
+        collectCoverage(fixtures, [`${fixtures}/counter-logic.showcase.ts`]).pipe(
+          Effect.provide(platform),
+        ),
+      )
+
+      // The play imports `lib/counter` and calls only `increment`; `decrement`
+      // is never run, so the file is partially covered — real instrumentation of
+      // the code the Showcase executed, across a file boundary.
+      const counter = report.files.find((entry) => entry.path.endsWith("lib/counter.ts"))
+      expect(counter).toBeDefined()
+      const covered = counter?.coveredFunctions ?? 0
+      const total = counter?.totalFunctions ?? 0
+      expect(covered).toBeGreaterThan(0)
+      expect(total).toBeGreaterThan(covered)
+    },
+    TIMEOUT_MS,
+  )
 })

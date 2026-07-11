@@ -42,42 +42,33 @@ const sourceOf = (sources: ReadonlyArray<SourceFile>, path: string): string =>
     { onNone: () => "", onSome: (entry) => entry.source },
   )
 
-const fileCoverageOf = (path: string, detail: FileDetail): FileCoverage =>
+const coveredFns = (detail: FileDetail): number => detail.functions.filter((fn) => fn.covered).length
+
+// A file row: line/function *numerators* from `covered` (what ran), *denominators*
+// from `denom` (the file's total executable lines / functions). For the aggregate
+// both are the cumulative snapshot; for a Showcase, `covered` is its own delta.
+const fileCoverageOf = (path: string, covered: FileDetail, denom: FileDetail): FileCoverage =>
   new FileCoverage({
     path,
-    coveredLines: detail.coveredLines.length,
-    executableLines: detail.executableLines.length,
-    coveredFunctions: detail.functions.filter((fn) => fn.covered).length,
-    totalFunctions: detail.functions.length,
+    coveredLines: covered.coveredLines.length,
+    executableLines: denom.executableLines.length,
+    coveredFunctions: coveredFns(covered),
+    totalFunctions: denom.functions.length,
   })
-
-// Union many per-Showcase details for the same file: a line/function counts as
-// covered if it ran in *any* Showcase; the denominators are the union of what
-// each run saw (line numbers and function keys are the identities).
-const unionDetail = (details: ReadonlyArray<FileDetail>): FileDetail => ({
-  executableLines: Arr.dedupe(details.flatMap((detail) => detail.executableLines)),
-  coveredLines: Arr.dedupe(details.flatMap((detail) => detail.coveredLines)),
-  functions: Arr.dedupeWith(
-    details.flatMap((detail) => detail.functions),
-    (a, b) => a.key === b.key,
-  ).map((fn) => ({
-    key: fn.key,
-    covered: details.some((detail) => detail.functions.some((g) => g.key === fn.key && g.covered)),
-  })),
-})
 
 /**
  * Turn decoded collector output into a {@link CoverageReport}: read each unique
- * source once, tally every Showcase's per-`play` coverage, then union those per
- * file into the aggregate `files`. Fails only if a covered source file can't be
- * read (the caller treats coverage as best-effort).
+ * source once, then tally the cumulative `total` into the aggregate `files`, and
+ * each Showcase's per-`play` delta into a breakdown whose denominators come from
+ * that aggregate (so a Showcase reads as "covered X of the file's Y lines").
+ * Fails only if a covered source can't be read (caller treats it best-effort).
  */
 export const buildCoverageReport = Effect.fn("foldcase.coverage.buildCoverageReport")(function* (
   raw: RawCoverage,
 ) {
   const fs = yield* FileSystem.FileSystem
-  const scripts = raw.showcases.flatMap((showcase) => showcase.scripts)
-  const paths = Arr.dedupe(scripts.map((script) => script.path))
+  const allScripts = [...raw.total, ...raw.showcases.flatMap((showcase) => showcase.scripts)]
+  const paths = Arr.dedupe(allScripts.map((script) => script.path))
   const sources = yield* Effect.forEach(
     paths,
     (path) => fs.readFileString(path).pipe(Effect.map((source) => ({ path, source }))),
@@ -86,18 +77,24 @@ export const buildCoverageReport = Effect.fn("foldcase.coverage.buildCoverageRep
   const detailOf = (script: ScriptHit): FileDetail =>
     fileDetail(sourceOf(sources, script.path), script.functions)
 
+  // The cumulative per-file denominators, indexed by path.
+  const aggregate = raw.total.map((script) => ({ path: script.path, detail: detailOf(script) }))
+  const denomFor = (path: string, fallback: FileDetail): FileDetail =>
+    Option.match(
+      Arr.findFirst(aggregate, (entry) => entry.path === path),
+      { onNone: () => fallback, onSome: (entry) => entry.detail },
+    )
+
   return new CoverageReport({
-    files: paths.map((path) =>
-      fileCoverageOf(
-        path,
-        unionDetail(scripts.filter((script) => script.path === path).map(detailOf)),
-      ),
-    ),
+    files: aggregate.map((entry) => fileCoverageOf(entry.path, entry.detail, entry.detail)),
     showcases: raw.showcases.map(
       (showcase) =>
         new ShowcaseCoverage({
           id: showcase.id,
-          files: showcase.scripts.map((script) => fileCoverageOf(script.path, detailOf(script))),
+          files: showcase.scripts.map((script) => {
+            const covered = detailOf(script)
+            return fileCoverageOf(script.path, covered, denomFor(script.path, covered))
+          }),
         }),
     ),
   })
