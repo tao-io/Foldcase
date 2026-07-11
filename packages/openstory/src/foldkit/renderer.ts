@@ -21,7 +21,7 @@ interface FoldkitProgramConfig {
 
 interface FoldkitRuntimeModule {
   Runtime: {
-    makeProgram: (config: FoldkitProgramConfig & { container: HTMLElement }) => {
+    makeApplication: (config: FoldkitProgramConfig & { container: HTMLElement }) => {
       start: (hmrModel?: unknown) => Effect.Effect<void, unknown>;
     };
   };
@@ -173,7 +173,7 @@ const mountInto = async (
   options.container.replaceChildren(host);
   const foldkit = await ensureFoldkit();
   if (mounted.runId !== currentRunId) return;
-  const program = foldkit.Runtime.makeProgram({
+  const program = foldkit.Runtime.makeApplication({
     ...config,
     container: host,
     view: (model) => ({
