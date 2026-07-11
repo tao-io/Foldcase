@@ -29,4 +29,30 @@ describe("runShowcase", () => {
     expect(report.error?.name).toBe("Error")
     expect(report.error?.message).toBe("expected 2 clicks recorded, got 1")
   })
+
+  test("awaits an async play and reports passed on resolution", async () => {
+    const showcase: Showcase = {
+      id: "dialog/opens",
+      play: async () => {
+        await Promise.resolve()
+      },
+    }
+
+    const report = await Effect.runPromise(runShowcase(showcase))
+
+    expect(report.status).toBe("passed")
+  })
+
+  test("awaits an async play and serializes a rejection as failed", async () => {
+    const showcase: Showcase = {
+      id: "dialog/never-opens",
+      play: () => Promise.reject(new TypeError("dialog stayed closed")),
+    }
+
+    const report = await Effect.runPromise(runShowcase(showcase))
+
+    expect(report.status).toBe("failed")
+    expect(report.error?.name).toBe("TypeError")
+    expect(report.error?.message).toBe("dialog stayed closed")
+  })
 })

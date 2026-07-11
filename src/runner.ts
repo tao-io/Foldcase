@@ -14,7 +14,7 @@ import * as Schema from "effect/Schema"
  */
 export interface Showcase {
   readonly id: string
-  readonly play: () => void
+  readonly play: () => void | Promise<void>
 }
 
 /**
@@ -71,7 +71,14 @@ export class ShowcaseReport extends Schema.Class<ShowcaseReport>("ShowcaseReport
  * Showcase without short-circuiting the suite.
  */
 export const runShowcase = (showcase: Showcase): Effect.Effect<ShowcaseReport> =>
-  Effect.try({ try: showcase.play, catch: serializeError }).pipe(
+  Effect.tryPromise({
+    // The async wrapper normalizes both a synchronous throw and a rejected
+    // Promise from `play` into a single failure the catch can serialize.
+    try: async () => {
+      await showcase.play()
+    },
+    catch: serializeError,
+  }).pipe(
     Effect.match({
       onSuccess: () => new ShowcaseReport({ id: showcase.id, status: "passed" }),
       onFailure: (error) => new ShowcaseReport({ id: showcase.id, status: "failed", error }),
