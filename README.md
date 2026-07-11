@@ -23,6 +23,46 @@ mise run foldcase:build         # compile the CLI → tools/foldcase/foldcase
 ./tools/foldcase/foldcase test <dir-or-file>   # run *.showcase.ts under a path
 ```
 
+## `foldcase test --coverage` (Phase 3.9b — story-coverage)
+
+Adds a **V8 line/function coverage** summary of the code each Showcase's
+`play` actually executes (its `view`/`update` path), both **per-Showcase** and
+**aggregate**. Coverage is **additive** — it never changes the run's pass/fail
+exit code (that stays the suite's job); a collection failure degrades to a
+warning.
+
+```bash
+mise run foldcase:test:coverage [showcase-dir]        # default `.`
+./tools/foldcase/foldcase test <dir-or-file> --coverage
+```
+
+```
+coverage:
+  …/Button.showcase.ts  lines 42/48 (88%)  fns 6/7 (86%)
+
+1 file(s) · lines 42/48 (88%) · fns 6/7 (86%)
+
+by showcase:
+  ✓ button/default   lines 30/48 (63%)
+  ✓ button/disabled  lines 24/48 (50%)
+```
+
+**How & honest scope.** Bun exposes no programmatic V8 precise coverage
+(node:inspector's Coverage domain is unsupported, `NODE_V8_COVERAGE` is ignored,
+`bun:jsc.codeCoverageForFile` is broken), so `--coverage` spawns a small Node
+instrument (`src/coverage/collector.mjs`) that runs the Showcases under Node's
+inspector `Profiler` and imports the `.showcase.ts` files via Node's native
+type-stripping. Consequences:
+
+- **Node is required on PATH**, and `--coverage` **runs from source** — the
+  collector is spawned, not bundled into the compiled `foldcase` binary.
+- **Per-Showcase attribution is real:** each `play` is measured between precise-
+  coverage takes; aggregate is the union of the per-Showcase results.
+- Coverage is filtered to source files **under the target root** (excludes
+  `node_modules`, the runner, and this tool's own files). A Showcase that only
+  loads under Bun (Bun-specific APIs, DOM) won't be covered — the Bun suite still
+  reports its pass/fail correctly.
+
 ## Authoring a Showcase
 
 A Showcase is the seam between the runner and content — deliberately blind to
@@ -81,6 +121,11 @@ const report = await Effect.runPromise(runShowcase(clickCounter))
   (dynamic-import modules; typed `ShowcaseModuleError` on a bad catalog).
 - `src/main.ts` — the imperative shell: the `foldcase` bin (BunRuntime + platform
   layers, argv, stdout, exit code).
+- `src/coverage/` — `--coverage` (Phase 3.9b): `coverage.ts` (the collector
+  contract Schemas + the pure c8-style block-coverage `tallyFile`/`fileDetail`),
+  `report.ts` (`buildCoverageReport` union + `formatCoverage`), `collect.ts` (the
+  Effect subprocess collector, typed `CoverageCollectionError`), and
+  `collector.mjs` (the Node V8 precise-coverage instrument).
 
 ## `foldcase mcp` (Phase 1.2)
 

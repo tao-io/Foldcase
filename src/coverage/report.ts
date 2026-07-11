@@ -110,15 +110,17 @@ interface Ratio {
   readonly executable: number
 }
 
-/** Sum covered vs executable lines across every file in the report. */
-export const overallLines = (report: CoverageReport): Ratio =>
-  report.files.reduce<Ratio>(
+const sumLines = (files: ReadonlyArray<FileCoverage>): Ratio =>
+  files.reduce<Ratio>(
     (acc, file) => ({
       covered: acc.covered + file.coveredLines,
       executable: acc.executable + file.executableLines,
     }),
     { covered: 0, executable: 0 },
   )
+
+/** Sum covered vs executable lines across every file in the report. */
+export const overallLines = (report: CoverageReport): Ratio => sumLines(report.files)
 
 /** Sum covered vs total functions across every file in the report. */
 export const overallFunctions = (report: CoverageReport): Ratio =>
@@ -137,11 +139,20 @@ const pct = (covered: number, total: number): number =>
 const formatFile = (file: FileCoverage): string =>
   `  ${file.path}  lines ${file.coveredLines}/${file.executableLines} (${pct(file.coveredLines, file.executableLines)}%)  fns ${file.coveredFunctions}/${file.totalFunctions} (${pct(file.coveredFunctions, file.totalFunctions)}%)`
 
+const formatShowcase = (showcase: ShowcaseCoverage): string => {
+  const ratio = sumLines(showcase.files)
+  return `  ✓ ${showcase.id}  lines ${ratio.covered}/${ratio.executable} (${pct(ratio.covered, ratio.executable)}%)`
+}
+
 /** Render a coverage report as a human-readable summary (formatSuite style). */
 export const formatCoverage = (report: CoverageReport): string => {
-  const lines = report.files.map(formatFile)
+  const files = report.files.map(formatFile)
   const totalLines = overallLines(report)
   const totalFns = overallFunctions(report)
   const summary = `${report.files.length} file(s) · lines ${totalLines.covered}/${totalLines.executable} (${pct(totalLines.covered, totalLines.executable)}%) · fns ${totalFns.covered}/${totalFns.executable} (${pct(totalFns.covered, totalFns.executable)}%)`
-  return [...lines, "", summary].join("\n")
+  // Per-Showcase attribution — the differentiator over a flat aggregate report.
+  const perShowcase = Arr.isReadonlyArrayEmpty(report.showcases)
+    ? []
+    : ["", "by showcase:", ...report.showcases.map(formatShowcase)]
+  return [...files, "", summary, ...perShowcase].join("\n")
 }

@@ -68,6 +68,8 @@ describe("overallLines / formatCoverage", () => {
       expect(text).toContain("lines")
       expect(text).toContain("67%") // 2/3 lines
       expect(text).toContain("1 file")
+      // Per-Showcase attribution is visible, not just the aggregate.
+      expect(text).toContain("demo/one")
     })
   })
 })
