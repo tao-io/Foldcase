@@ -23,6 +23,13 @@ export interface Showcase {
    * `foldkit_get_message_schema`). Absent for framework-agnostic showcases.
    */
   readonly message?: Schema.Top
+  /**
+   * Optional Model Schema for the component under showcase. When present, the
+   * `foldcase docs` generator introspects it into a Model Schema table (the
+   * static peer of `message`). Mirrors the `message` seam — optional and
+   * backward-compatible; absent for framework-agnostic showcases.
+   */
+  readonly model?: Schema.Top
 }
 
 /**

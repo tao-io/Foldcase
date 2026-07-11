@@ -46,12 +46,16 @@ const isShowcase = (value: unknown): value is Showcase => {
   ) {
     return false
   }
-  // `message` is optional, but when a module declares it, it must be an Effect
-  // Schema: the catalog server feeds it to `Schema.toJsonSchemaDocument`, so a
-  // non-Schema value (from an untrusted `*.showcase.ts`) would defect outside
-  // the declared typed errors. Reject the module as malformed instead.
-  const message = Reflect.get(value, "message")
-  return message === undefined || Schema.isSchema(message)
+  // `message`/`model` are optional, but when a module declares either it must be
+  // an Effect Schema: the catalog and docs generator feed it to
+  // `Schema.toJsonSchemaDocument`, so a non-Schema value (from an untrusted
+  // `*.showcase.ts`) would defect outside the declared typed errors. Reject the
+  // module as malformed instead.
+  const isSchemaOrAbsent = (key: string): boolean => {
+    const candidate = Reflect.get(value, key)
+    return candidate === undefined || Schema.isSchema(candidate)
+  }
+  return isSchemaOrAbsent("message") && isSchemaOrAbsent("model")
 }
 
 const readShowcases = (
