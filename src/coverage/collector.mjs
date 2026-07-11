@@ -22,40 +22,43 @@
 // uses process.stdout/stderr + node:inspector + JSON, kept out of the Effect
 // domain lint scope via .oxlintrc ignore.
 
-import { register } from "node:module"
+import { registerHooks } from "node:module"
 import { Session } from "node:inspector/promises"
 import { pathToFileURL, fileURLToPath } from "node:url"
 
 // Node's native type-stripping runs `.ts` files but, unlike Bun/tsx, does NOT
 // add extensions to relative imports — realistic showcases import components as
-// `./Button` (no extension). Register a resolve hook that retries a failed
-// relative specifier with the usual source extensions so those imports load.
-const resolverHook = `
-export async function resolve(specifier, context, next) {
-  try {
-    return await next(specifier, context)
-  } catch (error) {
-    const relative = specifier.startsWith("./") || specifier.startsWith("../")
-    if (relative && !/\\.[mc]?[jt]sx?$/.test(specifier)) {
-      for (const ext of [".ts", ".tsx", ".mts", ".js", ".mjs"]) {
-        try {
-          return await next(specifier + ext, context)
-        } catch {
-          // try the next extension
+// `./Button` (no extension). A synchronous resolve hook (registerHooks, the
+// non-deprecated in-thread API) retries a failed relative specifier with the
+// usual source extensions so those imports load.
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context)
+    } catch (error) {
+      const relative = specifier.startsWith("./") || specifier.startsWith("../")
+      if (relative && !/\.[mc]?[jt]sx?$/.test(specifier)) {
+        for (const ext of [".ts", ".tsx", ".mts", ".js", ".mjs"]) {
+          try {
+            return nextResolve(specifier + ext, context)
+          } catch {
+            // try the next extension
+          }
         }
       }
+      throw error
     }
-    throw error
-  }
-}
-`
-register(`data:text/javascript,${encodeURIComponent(resolverHook)}`)
+  },
+})
 
 const [rootDir, ...files] = process.argv.slice(2)
+// Match on a directory boundary (trailing "/") so root `…/src` does not also
+// swallow a sibling `…/src-old/…`.
 const rootUrl = pathToFileURL(rootDir).href
+const rootPrefix = rootUrl.endsWith("/") ? rootUrl : `${rootUrl}/`
 
 // Keep only file:// scripts under the target root, excluding dependencies.
-const underRoot = (url) => url.startsWith(rootUrl) && !url.includes("/node_modules/")
+const underRoot = (url) => url.startsWith(rootPrefix) && !url.includes("/node_modules/")
 
 // Convert a V8 script coverage entry to our { path, functions } shape.
 const toScript = (entry) => ({

@@ -65,6 +65,13 @@ export const collectCoverage = Effect.fn("foldcase.coverage.collectCoverage")(fu
     })
   }
 
+  // The collector exits 0 even when it skips an unimportable Showcase (best
+  // effort), reporting the skip on stderr — surface it so a silently-missing
+  // Showcase is visible rather than a quietly partial report.
+  if (output.stderr.trim() !== "") {
+    yield* Effect.logWarning(`foldcase coverage: ${output.stderr.trim()}`)
+  }
+
   const raw = yield* decodeRaw(output.stdout).pipe(
     Effect.mapError(
       (cause) => new CoverageCollectionError({ reason: `undecodable coverage output: ${cause}` }),
