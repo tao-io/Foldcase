@@ -110,3 +110,23 @@ export const runShowcases = (showcases: ReadonlyArray<Showcase>): Effect.Effect<
       })
     }),
   )
+
+// REPORTING
+
+/** Process exit code for a suite: 0 when everything passed, 1 on any failure. */
+export const suiteExitCode = (suite: SuiteReport): 0 | 1 => (suite.failed > 0 ? 1 : 0)
+
+const formatReport = (report: ShowcaseReport): string => {
+  if (report.status === "passed") {
+    return `  ✓ ${report.id}`
+  }
+  const reason = report.error === undefined ? "failed" : report.error.message
+  return `  ✗ ${report.id} — ${reason}`
+}
+
+/** Render a suite as a human-readable summary for the CLI. */
+export const formatSuite = (suite: SuiteReport): string => {
+  const lines = suite.reports.map(formatReport)
+  const summary = `${suite.total} total · ${suite.passed} passed · ${suite.failed} failed`
+  return [...lines, "", summary].join("\n")
+}
