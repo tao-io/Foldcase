@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 
-import { runShowcases } from "./runner"
+import { runShowcases, SuiteReport } from "./runner"
 import type { Showcase } from "./runner"
 
 describe("runShowcases", () => {
@@ -38,5 +39,27 @@ describe("runShowcases", () => {
     expect(suite.total).toBe(0)
     expect(suite.passed).toBe(0)
     expect(suite.failed).toBe(0)
+  })
+
+  test("a SuiteReport survives a JSON encode/decode round-trip", async () => {
+    const showcases: ReadonlyArray<Showcase> = [
+      { id: "button/default", play: () => {} },
+      {
+        id: "button/counter",
+        play: () => {
+          // oxlint-disable-next-line effect/avoid-untagged-errors -- simulating a Story assertion throw at the boundary.
+          throw new Error("counter did not rise")
+        },
+      },
+    ]
+    const suite = await Effect.runPromise(runShowcases(showcases))
+
+    const wire = JSON.parse(JSON.stringify(suite))
+    const decoded = Schema.decodeUnknownSync(SuiteReport)(wire)
+
+    expect(decoded.total).toBe(2)
+    expect(decoded.failed).toBe(1)
+    const failed = decoded.reports.find((report) => report.status === "failed")
+    expect(failed?.error?.message).toBe("counter did not rise")
   })
 })
