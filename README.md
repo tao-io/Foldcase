@@ -38,7 +38,18 @@ export interface Showcase {
 
 The optional `message` is the component's Message-union Effect Schema; the
 `foldcase mcp` catalog server introspects it into a JSON Schema so an agent can
-construct a valid typed Message. Absent for framework-agnostic showcases.
+construct a valid typed Message. The optional `model` is the component's Model
+Schema — its static peer, consumed by `foldcase docs` (below) to table the
+Model. Both are absent for framework-agnostic showcases.
+
+```ts
+export interface Showcase {
+  readonly id: string
+  readonly play: () => void | Promise<void>
+  readonly message?: Schema.Top // Message-union schema (see `foldcase mcp` / `foldcase docs`)
+  readonly model?: Schema.Top // Model schema (see `foldcase docs`)
+}
+```
 
 For a **Foldkit** component, `play` is a `Story` that dispatches typed Messages
 and asserts on the `Model` (no DOM, no view). Because `Story` needs the
@@ -109,3 +120,41 @@ re-run.
   catalog via `makeHandlers`.
 - `src/mcp/server.ts` — the launchable stdio server Layer (logs pinned to stderr;
   stdout carries the protocol).
+
+## `foldcase docs` (Phase 3.8 — autodocs)
+
+The **Model/Message Schema-table generator**: for each discovered Showcase it
+introspects the `message?` (Message-union) and `model?` Effect Schemas into a
+JSON Schema document — reusing the **same `Schema.toJsonSchemaDocument` path as
+`foldcase mcp`** — and renders a Markdown table per component, then writes one
+`<slug(id)>.md` per Showcase to an output directory.
+
+- The **Message** table is `Message | Field | Type | Optional` — one row per
+  `_tag` → payload field (a payload-less tag reads `_(no payload)_`).
+- The **Model** table is `Field | Type | Optional`.
+- Types are humanised: the `number | "NaN" | "Infinity" | "-Infinity"` encoding
+  collapses to `number`, `Array<T>` reads `T[]`, a named `Schema.Class` field
+  resolves to its `$ref` definition name, and the optional `null` branch is
+  dropped (optionality is the `Optional` column). Output is **sorted** (showcases
+  by id, fields by name, variants by tag) for deterministic diffs.
+- A Showcase declaring **neither** schema is documented with a graceful note, not
+  treated as a failure.
+
+```bash
+mise run foldcase:docs <showcase-dir> [out-dir]      # e.g. mise run foldcase:docs src/pwa/src docs/schemas
+./tools/foldcase/foldcase docs [dir] [out-dir]       # out-dir defaults to FOLDCASE_DOCS_DIR (./foldcase-docs)
+```
+
+This tool delivers only the **Markdown Schema-table** part of Storybook-style
+autodocs. **MDX and in-shell (in-browser) autodoc rendering are FORK-side**
+(openstory, `github.com/tao-io/Foldcase`) and out of scope here — this CosmOS
+tool emits clean, Allspark-friendly Markdown that a fork shell or a docs bundle
+can embed.
+
+- `src/docs/schema-table.ts` — the pure core: introspect + decode a Schema into a
+  typed `JsonSchemaDocument`, extract `FieldDoc` / `MessageVariant` shapes, and
+  render the Markdown tables. `SchemaIntrospectionError` on an un-introspectable
+  schema.
+- `src/docs/generate.ts` — `renderShowcaseDoc` (one titled doc per Showcase),
+  `generateShowcaseDocs` (sorted), and `writeShowcaseDocs` (write `<slug>.md`
+  files).
