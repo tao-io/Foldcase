@@ -27,11 +27,16 @@ freely. MIT permits this; attribution to millionco + binarytide is in `LICENSE` 
   without the exact-beta ERESOLVE skew).
 
 ## Roadmap
-1. **Rename the internals** `openstory` → `foldcase` (package name, `bin`, and the public
-   `openstory/foldkit` export → `foldcase/foldkit`). This is a real refactor and changes the
-   consumer import — Bina's Showcase lab imports `openstory/foldkit` today; migrate together.
-2. **Green on 0.127:** re-point the adapter's integration fixture + `foldkit-render.test.ts`
-   off beta.66/0.104, `pnpm build`, run tests.
+1. ~~**Rename the internals** `openstory` → `foldcase`~~ **DONE** (v0.1.0): package `name`
+   + `bin` → `foldcase`; the self-referential adapter specifiers (`openstory/{react,foldkit,
+   solid,vue,svelte}` + `openstory/boot`) → `foldcase/*`, so generated stories import
+   `foldcase/foldkit`. Internal runtime plumbing the prebuilt React shell relies on stays
+   `openstory` on purpose (`/__openstory/*` routes, `#openstory-root`, `data-openstory-*`,
+   the `openstory` postMessage source). Consumers import `foldcase/foldkit`.
+2. ~~**Green on 0.127:**~~ **DONE**: the foldkit integration fixture is pointed at effect
+   `4.0.0-beta.88` / foldkit `^0.127.0`; codegen-assertion tests updated to the foldcase
+   specifiers. Full suite green (242 passed, 6 skipped) incl. the chromium foldkit render
+   test. Consumable artifact: `pnpm pack` → `foldcase-0.1.0.tgz` (carries LICENSE + NOTICE).
 3. **Foldkit-native dev instruments:** per-component **DevTools overlay** (Foldkit
    `@foldkit/devtools` `overlay` — a story-set `devTools` already flows through the adapter's
    `makeApplication({ ...config })`); **DevTools → MCP relay** in the dev server (foldkit
