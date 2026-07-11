@@ -69,3 +69,9 @@ export interface A11yViolation {
   helpUrl: string;
   targets: string[];
 }
+
+export interface MessageLogEntry {
+  tag: string;
+  payload: Record<string, unknown>;
+  ts: number;
+}

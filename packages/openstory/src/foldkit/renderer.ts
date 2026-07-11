@@ -1,5 +1,7 @@
 import { Cause, Effect, Exit, Fiber, Schema } from "effect";
+import { PARENT_MESSAGE_SOURCE } from "../constants.js";
 import { OpenstoryAdapterMissingFrameworkError } from "../errors.js";
+import { describeDispatchedMessage } from "./message-log.js";
 import type {
   ModelEdit,
   OpenstoryRenderer,
@@ -109,6 +111,26 @@ const resolveProgramConfig = (
 const documentTitle = (context: { name: string; title: string }): string =>
   context.title ? `${context.name} - ${context.title}` : context.name;
 
+const emitDispatchedMessage = (message: unknown): void => {
+  const shape = describeDispatchedMessage(message);
+  if (shape === undefined) return;
+  if (typeof window === "undefined" || !window.parent) return;
+  try {
+    window.parent.postMessage(
+      {
+        source: PARENT_MESSAGE_SOURCE,
+        type: "message",
+        tag: shape.tag,
+        payload: shape.payload,
+        ts: Date.now(),
+      },
+      window.location.origin,
+    );
+  } catch {
+    /* parent may be cross-origin when opened standalone */
+  }
+};
+
 const renderProgramBody = (
   foldkit: FoldkitRuntimeModule,
   config: FoldkitProgramConfig,
@@ -118,7 +140,10 @@ const renderProgramBody = (
     slotId: "openstory-story",
     model,
     view: config.view,
-    toParentMessage: (message) => message,
+    toParentMessage: (message) => {
+      emitDispatchedMessage(message);
+      return message;
+    },
   });
 
 const createFoldkitHost = (): HTMLElement => {

@@ -16,6 +16,12 @@ export interface A11yViolation {
   targets: string[];
 }
 
+/** Pure shape of a dispatched message (tag + payload); `ts` is stamped at post time. */
+export interface MessageLogEntryShape {
+  tag: string;
+  payload: Record<string, unknown>;
+}
+
 export type ShellToStory =
   | { type: "set-args"; args: Record<string, unknown> }
   | { type: "set-globals"; globals: Record<string, unknown> }
@@ -34,6 +40,7 @@ export type StoryToShell =
   | { type: "args-changed"; args: Record<string, unknown> }
   | { type: "model-schema"; id: string; schema: Record<string, unknown> }
   | { type: "a11y"; id: string; violations: A11yViolation[] }
+  | { type: "message"; tag: string; payload: Record<string, unknown>; ts: number }
   | { type: "play-status"; status: PlayStatus; error?: SerializedError }
   | {
       type: "console";

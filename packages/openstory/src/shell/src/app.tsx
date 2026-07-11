@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { A11yPanel } from "@/components/a11y-panel";
+import { ActionsPanel } from "@/components/actions-panel";
 import { Canvas } from "@/components/canvas";
 import { ControlsPanel } from "@/components/controls-panel";
 import { StoryTree } from "@/components/story-tree";
@@ -96,6 +97,8 @@ export const App = () => {
     (selectedStory !== undefined && Object.keys(selectedStory.argTypes).length > 0);
 
   const hasA11y = comms.a11yViolations.length > 0;
+
+  const hasActions = comms.messages.length > 0;
 
   const iframeSrc = useMemo(
     () => buildStoryIframeUrl({ storyId: selectedStoryId, args, globals }),
@@ -254,9 +257,10 @@ export const App = () => {
               status={comms.status}
               storyId={selectedStoryId}
               a11yViolationCount={comms.a11yViolations.length}
+              messageCount={comms.messages.length}
             />
           </div>
-          {hasControls || hasA11y ? (
+          {hasControls || hasA11y || hasActions ? (
             <>
               <Separator />
               <div
@@ -280,6 +284,14 @@ export const App = () => {
                     {hasControls ? <Separator orientation="vertical" /> : null}
                     <div className="w-80 shrink-0 overflow-hidden">
                       <A11yPanel violations={comms.a11yViolations} />
+                    </div>
+                  </>
+                ) : null}
+                {hasActions ? (
+                  <>
+                    {hasControls || hasA11y ? <Separator orientation="vertical" /> : null}
+                    <div className="w-80 shrink-0 overflow-hidden">
+                      <ActionsPanel messages={comms.messages} />
                     </div>
                   </>
                 ) : null}
