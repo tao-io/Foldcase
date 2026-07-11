@@ -18,3 +18,6 @@ export const SIDEBAR_WIDTH_PX = 288;
 
 /** Cap the actions message log so a chatty story can't grow it unbounded. */
 export const MESSAGE_LOG_LIMIT = 200;
+
+/** Cap the interactions step ledger so a looping play can't grow it unbounded. */
+export const STEP_LOG_LIMIT = 200;

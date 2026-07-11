@@ -18,6 +18,7 @@ import type {
 } from "../types.js";
 import { escapeHtml } from "../utils/escape-html.js";
 import { runA11yAudit } from "./a11y.js";
+import { createInstrumentedStep } from "./play-steps.js";
 import { serializeError, type ShellToStory, type StoryToShell } from "./protocol.js";
 
 export interface BootOptions {
@@ -136,13 +137,6 @@ const parseUrlState = (search: string): UrlState => {
   };
 };
 
-const wrapStepError = (stepName: string, cause: unknown): unknown => {
-  if (cause instanceof Error) {
-    cause.message = `step "${stepName}" failed: ${cause.message}`;
-  }
-  return cause;
-};
-
 const buildStoryContext = (options: BuildContextOptions): StoryContext => {
   const title = readString(options.meta, "title") ?? "";
   const name = readString(options.story, "name") ?? options.exportName;
@@ -158,13 +152,7 @@ const buildStoryContext = (options: BuildContextOptions): StoryContext => {
     parameters: options.parameters,
     canvasElement: options.container,
     abortSignal: options.abortSignal,
-    step: async (stepName, body) => {
-      try {
-        await body();
-      } catch (cause) {
-        throw wrapStepError(stepName, cause);
-      }
-    },
+    step: createInstrumentedStep(sendToShell),
     hooks: {},
   };
 };
