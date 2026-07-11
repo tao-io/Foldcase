@@ -15,6 +15,14 @@ import * as Schema from "effect/Schema"
 export interface Showcase {
   readonly id: string
   readonly play: () => void | Promise<void>
+  /**
+   * Optional Message-union Schema for the component under showcase. When
+   * present, the `foldcase mcp` catalog server introspects it into a JSON
+   * Schema so an agent can construct a valid typed Message by construction
+   * (the static, per-Showcase counterpart to devtools-mcp's runtime
+   * `foldkit_get_message_schema`). Absent for framework-agnostic showcases.
+   */
+  readonly message?: Schema.Top
 }
 
 /**
