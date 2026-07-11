@@ -21,5 +21,11 @@
     "types": ["node"]
   },
   "include": ["src", "tests", "vite.config.ts"],
-  "exclude": ["**/node_modules/**", "dist", "src/shell/**", "tests/integration/fixtures/**"]
+  "exclude": [
+    "**/node_modules/**",
+    "dist",
+    "src/shell/**",
+    "tests/shell-dom/**",
+    "tests/integration/fixtures/**"
+  ]
 }

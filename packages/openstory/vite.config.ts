@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+import react from "@vitejs/plugin-react";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import vue from "@vitejs/plugin-vue";
 import solid from "vite-plugin-solid";
@@ -55,6 +57,12 @@ export default defineConfig({
     },
   ],
   test: {
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.d.ts", "src/shell/src/main.tsx"],
+    },
     projects: [
       {
         test: {
@@ -77,6 +85,18 @@ export default defineConfig({
               inline: ["svelte", /\.svelte$/],
             },
           },
+        },
+      },
+      {
+        plugins: [react()],
+        resolve: {
+          conditions: ["browser", "development"],
+          alias: { "@": fileURLToPath(new URL("./src/shell/src", import.meta.url)) },
+        },
+        test: {
+          name: "shell",
+          include: ["tests/shell-dom/**/*.test.tsx"],
+          environment: "happy-dom",
         },
       },
       {
