@@ -6,6 +6,8 @@ import * as P from "effect/Predicate"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 
+import { generateShowcaseDocs, type ShowcaseDoc } from "./docs/generate"
+import type { SchemaIntrospectionError } from "./docs/schema-table"
 import { runShowcases, type Showcase, type SuiteReport } from "./runner"
 
 const SHOWCASE_SUFFIX = ".showcase.ts"
@@ -104,3 +106,14 @@ export const runSuiteFromFiles = (
   paths: ReadonlyArray<string>,
 ): Effect.Effect<SuiteReport, ShowcaseModuleError> =>
   loadShowcasesFromFiles(paths).pipe(Effect.flatMap(runShowcases))
+
+/**
+ * Load every showcase file and render one autodoc per Showcase (Model/Message
+ * Schema tables). Fails {@link ShowcaseModuleError} on a broken catalog, or
+ * {@link SchemaIntrospectionError} when a declared Schema can't be introspected.
+ * Shared by `foldcase docs` (the imperative shell resolves + writes the output).
+ */
+export const docsFromFiles = (
+  paths: ReadonlyArray<string>,
+): Effect.Effect<ReadonlyArray<ShowcaseDoc>, ShowcaseModuleError | SchemaIntrospectionError> =>
+  loadShowcasesFromFiles(paths).pipe(Effect.flatMap(generateShowcaseDocs))

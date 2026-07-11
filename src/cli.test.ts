@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { BunFileSystem, BunPath } from "@effect/platform-bun"
 
-import { discoverShowcaseFiles, runSuiteFromFiles } from "./cli"
+import { discoverShowcaseFiles, docsFromFiles, runSuiteFromFiles } from "./cli"
 
 const fixture = (name: string): string => `${import.meta.dir}/../test/fixtures/${name}`
 const fixtures = `${import.meta.dir}/../test/fixtures`
@@ -18,7 +18,7 @@ describe("discoverShowcaseFiles", () => {
     expect(files.length).toBeGreaterThanOrEqual(1)
     expect(files.every((path) => path.endsWith(".showcase.ts"))).toBe(true)
     expect(files.some((path) => path.endsWith("sample.showcase.ts"))).toBe(true)
-    const ascending = files.every((path, index) => (files.at(index - 1) ?? "") <= path)
+    const ascending = files.every((path, index) => index === 0 || (files[index - 1] ?? "") <= path)
     expect(ascending).toBe(true)
   })
 })
@@ -48,5 +48,21 @@ describe("runSuiteFromFiles", () => {
     const error = await Effect.runPromise(Effect.flip(runSuiteFromFiles([malformed])))
 
     expect(error._tag).toBe("foldcase/ShowcaseModuleError")
+  })
+})
+
+describe("docsFromFiles", () => {
+  test("renders a Model/Message Schema table autodoc per Showcase", async () => {
+    const docs = await Effect.runPromise(docsFromFiles([fixture("schema.showcase.ts")]))
+
+    expect(docs.map((doc) => doc.id)).toEqual(["counter/schema"])
+    const markdown = docs[0]?.markdown ?? ""
+    expect(markdown).toContain("# counter/schema")
+    expect(markdown).toContain("## Messages")
+    expect(markdown).toContain("`Increment`")
+    expect(markdown).toContain("`SetLabel`")
+    expect(markdown).toContain("## Model")
+    expect(markdown).toContain("`count`")
+    expect(markdown).toContain("number")
   })
 })

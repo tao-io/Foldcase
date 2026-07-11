@@ -1,7 +1,9 @@
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
+import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 
 import type { Showcase } from "../runner"
@@ -57,6 +59,41 @@ export const renderShowcaseDoc = Effect.fn("foldcase.docs.renderShowcaseDoc")(fu
 })
 
 const byId = Order.mapInput(Order.String, (showcase: Showcase) => showcase.id)
+
+/** A Showcase autodoc written to disk: its Showcase id and the absolute file path. */
+export class WrittenDoc extends Schema.Class<WrittenDoc>("WrittenDoc")({
+  id: Schema.String,
+  path: Schema.String,
+}) {}
+
+// Replace any run of filesystem-unsafe characters (notably the `/` in a
+// Showcase id) with a single hyphen so the id maps to one flat filename.
+const slug = (id: string): string => id.replaceAll(/[^a-zA-Z0-9._-]+/g, "-")
+
+/**
+ * Write one `<slug(id)>.md` file per Showcase autodoc into `outDir` (created
+ * recursively), returning a {@link WrittenDoc} per file in input order. The
+ * imperative shell resolves `outDir` from a CLI argument / Config.
+ */
+export const writeShowcaseDocs = Effect.fn("foldcase.docs.writeShowcaseDocs")(function* (
+  outDir: string,
+  docs: ReadonlyArray<ShowcaseDoc>,
+) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const dir = path.resolve(outDir)
+  yield* fs.makeDirectory(dir, { recursive: true })
+  return yield* Effect.forEach(
+    docs,
+    (doc) =>
+      Effect.gen(function* () {
+        const file = path.join(dir, `${slug(doc.id)}.md`)
+        yield* fs.writeFileString(file, doc.markdown)
+        return new WrittenDoc({ id: doc.id, path: file })
+      }),
+    { concurrency: 1 },
+  )
+})
 
 /**
  * Render an autodoc per Showcase, sorted by id for deterministic output. Fails

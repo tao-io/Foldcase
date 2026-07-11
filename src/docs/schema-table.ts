@@ -90,7 +90,8 @@ const isNumberNoiseEnum = (node: JsonNode): boolean =>
   node.enum !== undefined &&
   node.enum.every((value) => P.isString(value) && Arr.contains(NUMBER_NOISE, value))
 
-const refName = (ref: string): string => Arr.lastNonEmpty(ref.split("/")) ?? ref
+const refName = (ref: string): string =>
+  Arr.last(ref.split("/")).pipe(Option.getOrElse(() => ref))
 
 const renderLiteral = (value: unknown): string => (P.isString(value) ? `"${value}"` : String(value))
 
@@ -108,8 +109,9 @@ export const renderType = (node: JsonNode): string => {
   }
   if (node.anyOf !== undefined) {
     const branches = node.anyOf.filter((branch) => branch.type !== "null")
-    if (branches.some((branch) => branch.type === "number") && branches.every(isNumberNoiseEnum)) {
-      // every non-number branch is the NaN/Infinity noise → a plain number
+    const nonNumber = branches.filter((branch) => branch.type !== "number")
+    if (branches.length !== nonNumber.length && nonNumber.every(isNumberNoiseEnum)) {
+      // a number branch plus only the NaN/Infinity noise → a plain number
       return "number"
     }
     return Arr.dedupe(branches.map(renderType)).join(" | ")

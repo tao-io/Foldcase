@@ -56,9 +56,10 @@ describe("modelTableFor", () => {
     expect(markdown).toContain("| Field | Type | Optional |")
 
     // Effect encodes a plain number as `number | "NaN" | "Infinity" | …`; the
-    // table collapses that noise back to a bare `number`.
-    expect(rowFor("clicks")).toContain("| number |")
-    expect(rowFor("clicks")).toContain("no")
+    // table collapses that noise back to a bare `number` — the row is exactly
+    // `| \`clicks\` | number | no |`, carrying no NaN/Infinity leakage.
+    expect(rowFor("clicks")).toBe("| `clicks` | number | no |")
+    expect(rowFor("clicks")).not.toContain("NaN")
 
     // An Array<string> reads as `string[]`.
     expect(rowFor("tags")).toContain("string[]")
