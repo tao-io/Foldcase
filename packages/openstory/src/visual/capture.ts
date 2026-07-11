@@ -1,6 +1,10 @@
 import type { Page } from "playwright";
 
-import { OPENSTORY_ROOT_ELEMENT_ID, PARENT_MESSAGE_SOURCE, STORY_PATH_PREFIX } from "../constants.js";
+import {
+  OPENSTORY_ROOT_ELEMENT_ID,
+  PARENT_MESSAGE_SOURCE,
+  STORY_PATH_PREFIX,
+} from "../constants.js";
 
 export interface CaptureShowcaseOptions {
   page: Page;

@@ -3,7 +3,11 @@ import { PNG } from "pngjs";
 
 import { comparePng } from "../../src/visual/compare.js";
 
-const solidPng = (width: number, height: number, rgba: [number, number, number, number]): Buffer => {
+const solidPng = (
+  width: number,
+  height: number,
+  rgba: [number, number, number, number],
+): Buffer => {
   const png = new PNG({ width, height });
   for (let index = 0; index < width * height; index += 1) {
     png.data[index * 4] = rgba[0];

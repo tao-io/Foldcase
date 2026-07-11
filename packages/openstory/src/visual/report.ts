@@ -59,9 +59,7 @@ export const formatReport = (report: VisualReport): string => {
 
   if (report.counts.unresolved > 0) {
     lines.push("");
-    lines.push(
-      "  unresolved = changed, needs a decision. Re-run with --update to accept the new",
-    );
+    lines.push("  unresolved = changed, needs a decision. Re-run with --update to accept the new");
     lines.push("  baselines, or plug in a VisualJudge to auto-resolve (see src/visual/judge.ts).");
   }
 
