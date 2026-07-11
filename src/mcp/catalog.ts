@@ -5,7 +5,7 @@ import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
-import type * as Path from "effect/Path"
+import * as Path from "effect/Path"
 import type { PlatformError } from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 
@@ -131,10 +131,15 @@ export const loadCatalogFromDir = (
   ShowcaseModuleError | PlatformError,
   FileSystem.FileSystem | Path.Path
 > =>
-  discoverShowcaseFiles(dir).pipe(
-    Effect.flatMap(loadShowcasesFromFiles),
-    Effect.map(makeCatalog),
-  )
+  Effect.gen(function* () {
+    // Resolve to an absolute dir first: discovered paths are dynamically
+    // imported, and `import()` resolves a relative path against the importing
+    // module, not the cwd, so a relative FOLDCASE_SHOWCASE_DIR would not load.
+    const path = yield* Path.Path
+    const files = yield* discoverShowcaseFiles(path.resolve(dir))
+    const showcases = yield* loadShowcasesFromFiles(files)
+    return makeCatalog(showcases)
+  })
 
 /** Config key for the directory the catalog server scans. Defaults to the cwd. */
 const showcaseDir = Config.string("FOLDCASE_SHOWCASE_DIR").pipe(Config.withDefault("."))
@@ -150,7 +155,7 @@ export class FoldcaseCatalog extends Context.Service<FoldcaseCatalog, FoldcaseCa
   /** Live layer: scans `FOLDCASE_SHOWCASE_DIR` (default cwd) for `*.showcase.ts`. */
   static readonly layer: Layer.Layer<
     FoldcaseCatalog,
-    ShowcaseModuleError | PlatformError,
+    ShowcaseModuleError | PlatformError | Config.ConfigError,
     FileSystem.FileSystem | Path.Path
   > = Layer.effect(FoldcaseCatalog)(showcaseDir.pipe(Effect.flatMap(loadCatalogFromDir)))
 

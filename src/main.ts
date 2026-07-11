@@ -12,11 +12,13 @@ import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 
 import { discoverShowcaseFiles, runSuiteFromFiles } from "./cli"
+import { FoldcaseMcpServer } from "./mcp/server"
 import { formatSuite, suiteExitCode } from "./runner"
 
 const PlatformLive = Layer.mergeAll(BunFileSystem.layer, BunPath.layer)
 
-const usage = "usage: foldcase test [dir-or-file]   (defaults to the current directory)"
+const usage =
+  "usage: foldcase <test [dir-or-file] | mcp>   (test defaults to the current directory; mcp serves the catalog over stdio)"
 
 // A single place to set the process exit code. Non-zero must mean "did not run
 // clean" so CI never green-lights a run that discovered nothing or misfired.
@@ -49,16 +51,18 @@ const test = Effect.fn("foldcase.test")(function* (target: string) {
   return yield* exitWith(suiteExitCode(suite))
 })
 
-const main = Effect.fn("foldcase.main")(function* () {
-  const [, , subcommand, target] = process.argv
-  // Only `test` runs the suite. Anything else (a typo like `tset`, or no
-  // subcommand) prints usage to stderr and exits non-zero so automation can
-  // never pass without actually running Foldcase.
-  if (subcommand !== "test") {
-    yield* Console.error(usage)
-    return yield* exitWith(1)
-  }
-  return yield* test(target ?? ".")
-})
+// Anything but a known subcommand (a typo like `tset`, or none) prints usage to
+// stderr and exits non-zero so automation can never pass without running Foldcase.
+const printUsage = Console.error(usage).pipe(Effect.andThen(exitWith(1)))
 
-BunRuntime.runMain(main().pipe(Effect.provide(PlatformLive)))
+const [, , subcommand, target] = process.argv
+
+// `mcp` is a long-running stdio server (a launchable Layer), not a one-shot
+// command, so it dispatches before the exit-code-returning `test` path.
+if (subcommand === "mcp") {
+  BunRuntime.runMain(Layer.launch(FoldcaseMcpServer))
+} else if (subcommand === "test") {
+  BunRuntime.runMain(test(target ?? ".").pipe(Effect.provide(PlatformLive)))
+} else {
+  BunRuntime.runMain(printUsage)
+}
