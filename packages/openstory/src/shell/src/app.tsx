@@ -90,7 +90,9 @@ export const App = () => {
     return manifest.stories.find((entry) => entry.id === selectedStoryId);
   }, [manifest, selectedStoryId]);
 
-  const hasControls = selectedStory !== undefined && Object.keys(selectedStory.argTypes).length > 0;
+  const hasControls =
+    comms.modelSchema !== undefined ||
+    (selectedStory !== undefined && Object.keys(selectedStory.argTypes).length > 0);
 
   const iframeSrc = useMemo(
     () => buildStoryIframeUrl({ storyId: selectedStoryId, args, globals }),
@@ -137,6 +139,13 @@ export const App = () => {
     setArgs({});
     if (selectedStory) comms.setArgs(selectedStory.initialArgs);
   }, [selectedStory, comms]);
+
+  const handleModelEdit = useCallback(
+    (path: ReadonlyArray<string>, value: unknown) => {
+      comms.setModel(path, value);
+    },
+    [comms],
+  );
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -253,7 +262,9 @@ export const App = () => {
                 <ControlsPanel
                   story={selectedStory}
                   args={args}
+                  modelSchema={comms.modelSchema}
                   onChange={handleArgsChange}
+                  onModelEdit={handleModelEdit}
                   onReset={handleArgsReset}
                 />
               </div>

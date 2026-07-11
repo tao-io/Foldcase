@@ -4,17 +4,27 @@ import type { PlayStatus, StoryStatus } from "@/lib/types";
 
 interface IframeIncomingMessage {
   source?: string;
-  type?: "ready" | "rendered" | "args-changed" | "play-status" | "console" | "error";
+  type?:
+    | "ready"
+    | "rendered"
+    | "args-changed"
+    | "play-status"
+    | "console"
+    | "error"
+    | "model-schema";
   status?: PlayStatus;
   error?: { name: string; message: string };
   id?: string;
   args?: Record<string, unknown>;
+  schema?: Record<string, unknown>;
 }
 
 export interface IframeCommsApi {
   status: StoryStatus;
+  modelSchema: Record<string, unknown> | undefined;
   setArgs: (args: Record<string, unknown>) => void;
   setGlobals: (globals: Record<string, unknown>) => void;
+  setModel: (path: ReadonlyArray<string>, value: unknown) => void;
   rerunPlay: () => void;
   reload: () => void;
 }
@@ -24,9 +34,11 @@ export const useIframeComms = (
   storyId: string | undefined,
 ): IframeCommsApi => {
   const [status, setStatus] = useState<StoryStatus>({ rendered: false });
+  const [modelSchema, setModelSchema] = useState<Record<string, unknown> | undefined>(undefined);
 
   useEffect(() => {
     setStatus({ rendered: false });
+    setModelSchema(undefined);
   }, [storyId]);
 
   useEffect(() => {
@@ -35,6 +47,10 @@ export const useIframeComms = (
       if (!data || data.source !== PARENT_MESSAGE_SOURCE) return;
       if (data.type === "rendered") {
         setStatus((previous) => ({ ...previous, rendered: true, error: undefined }));
+        return;
+      }
+      if (data.type === "model-schema" && data.schema) {
+        setModelSchema(data.schema);
         return;
       }
       if (data.type === "play-status" && data.status) {
@@ -65,8 +81,10 @@ export const useIframeComms = (
 
   return {
     status,
+    modelSchema,
     setArgs: (args) => postToStory({ type: "set-args", args }),
     setGlobals: (globals) => postToStory({ type: "set-globals", globals }),
+    setModel: (path, value) => postToStory({ type: "set-model", path, value }),
     rerunPlay: () => postToStory({ type: "rerun-play" }),
     reload: () => postToStory({ type: "reload" }),
   };
