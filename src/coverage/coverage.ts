@@ -26,10 +26,31 @@ export class FunctionHit extends Schema.Class<FunctionHit>("foldcase/FunctionHit
   ranges: Schema.Array(RangeHit),
 }) {}
 
-/** Precise coverage for one script (source file), attributed to a Showcase. */
+/**
+ * Precise coverage for one script, keyed by its absolute source `path` (the
+ * collector normalizes V8's `file://` url before emitting).
+ */
 export class ScriptHit extends Schema.Class<ScriptHit>("foldcase/ScriptHit")({
-  url: Schema.String,
+  path: Schema.String,
   functions: Schema.Array(FunctionHit),
+}) {}
+
+/** Per-Showcase precise coverage: the scripts its `play` executed (delta). */
+export class ShowcaseCoverageHit extends Schema.Class<ShowcaseCoverageHit>(
+  "foldcase/ShowcaseCoverageHit",
+)({
+  id: Schema.String,
+  scripts: Schema.Array(ScriptHit),
+}) {}
+
+/**
+ * The whole collector payload: per-Showcase deltas plus the `total` cumulative
+ * snapshot (so aggregate coverage is authoritative from V8, not reconstructed
+ * by zipping deltas whose function lists may differ under lazy compilation).
+ */
+export class RawCoverage extends Schema.Class<RawCoverage>("foldcase/RawCoverage")({
+  showcases: Schema.Array(ShowcaseCoverageHit),
+  total: Schema.Array(ScriptHit),
 }) {}
 
 // ─── Pure coverage math ──────────────────────────────────────────────────────
