@@ -1,0 +1,73 @@
+# @cosmos/foldcase
+
+The **Foldcase moat** as a CosmOS Effect-4 tool: the typed, deterministic
+self-healing test loop. Storybook's loop pokes the DOM and reads untyped
+callbacks; Foldcase's dispatches a typed Message from an introspectable Schema
+and asserts on a deterministic, replayable Foldkit `Model`. Same loop, no
+guessing, no flake.
+
+This package is the Foldcase-native moat (Phase 1.1). It is built on the CosmOS
+stack (Bun + Effect v4, `bun test`, oxlint + patched tsc gates), separate from
+the openstory fork-core (`github.com/tao-io/Foldcase`, which stays pnpm/vite and
+tracks upstream). Full plan: `/Users/tao/Projects/foldcase/docs/ai-native-roadmap.md` §5.
+
+## `foldcase test`
+
+Boots each **Showcase** headlessly, runs its `play`, and reports a
+Schema-decoded pass/fail per Showcase plus rolled-up counts. Exit code is 1 on
+any failure.
+
+```bash
+mise run foldcase:test          # the tool's own bun-test suite (G2 gate)
+mise run foldcase:build         # compile the CLI → tools/foldcase/foldcase
+./tools/foldcase/foldcase test <dir-or-file>   # run *.showcase.ts under a path
+```
+
+## Authoring a Showcase
+
+A Showcase is the seam between the runner and content — deliberately blind to
+how the `play` is produced:
+
+```ts
+export interface Showcase {
+  readonly id: string
+  readonly play: () => void | Promise<void> // throws on assertion failure
+}
+```
+
+For a **Foldkit** component, `play` is a `Story` that dispatches typed Messages
+and asserts on the `Model` (no DOM, no view). Because `Story` needs the
+component's own closure (foldkit + its effect), Foldkit showcases live in the
+app under test and run in its vitest closure. The canonical example is the
+dogfood at `src/pwa/src/showcase/foldcase.dogfood.test.ts`:
+
+```ts
+const clickCounter: Showcase = {
+  id: 'showcase/click-counter',
+  play: () =>
+    Story.story(
+      update,
+      Story.with(initialModel),
+      Story.message(ClickedButton()),
+      Story.message(ClickedButton()),
+      Story.model((model) => expect(model.clicks).toBe(2)),
+    ),
+}
+const report = await Effect.runPromise(runShowcase(clickCounter))
+```
+
+## Layout
+
+- `src/runner.ts` — the framework-agnostic core: `Showcase`, `runShowcase`,
+  `runShowcases`, the Schema `ShowcaseReport` / `SuiteReport`, the fork-compatible
+  `SerializedError`, and `formatSuite` / `suiteExitCode`.
+- `src/cli.ts` — `discoverShowcaseFiles` (walk a dir) + `runSuiteFromFiles`
+  (dynamic-import modules; typed `ShowcaseModuleError` on a bad catalog).
+- `src/main.ts` — the imperative shell: the `foldcase` bin (BunRuntime + platform
+  layers, argv, stdout, exit code).
+
+## Next (Phase 1.2)
+
+`foldcase mcp` — the catalog MCP server (list Showcases, get argTypes / Effect
+Schema, run a Showcase's play → typed pass/fail), composing with the runtime
+`@foldkit/devtools-mcp` (`dispatch_message` / `get_model` / `replay`).
