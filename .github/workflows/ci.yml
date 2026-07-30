@@ -27,9 +27,9 @@ jobs:
         uses: jdx/mise-action@v2
 
       - name: Install dependencies
-        # No `--frozen-lockfile` yet: bun.lock lands with the first real
-        # install, and this workflow should switch to it at that point.
-        run: bun install
+        # bun.lock is committed, so CI installs exactly what a local run does
+        # and a drifted lockfile fails the job instead of being papered over.
+        run: bun install --frozen-lockfile
 
       - name: Patch tsc for @effect/language-service
         # TypeScript plugins are tsserver-only, so without this the typecheck

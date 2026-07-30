@@ -184,11 +184,11 @@ data you can act on rather than a string you have to parse.
 
 ## Status
 
-The `core` branch is a new line. The runner, the MCP server, the docs generator, and the
-coverage collector are being moved into it with their history; the toolchain, the working
-rules, and the decisions are already here. The previous line — an Openstory fork with a
-React shell, CSF-3 stories, and a Vite dev server — lives on the `foldkit` branch and is
-not carried forward. See
+The `core` branch is the live line. The runner, the MCP server, the docs generator, and the
+coverage collector are here with their history, and the two gates the decisions promised —
+the toolchain fence and the derivation spine — run with the rest of the suite. The previous
+line — an Openstory fork with a React shell, CSF-3 stories, and a Vite dev server — lives on
+the `foldkit` branch and is not carried forward. See
 [ADR-0002](docs/adr/0002-bun-effect-foldkit-only.md).
 
 ## Contributing
