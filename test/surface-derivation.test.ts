@@ -201,9 +201,11 @@ const SURFACE_DIRECTORIES = ["src/mcp/", "src/docs/", "src/coverage/", "src/lab/
  * Effect-based loader, so it imports the files it is handed — the file list
  * still comes from the one loader, but the import does not.
  *
- * ADR-0001's Enforcement section does not name this exception; it should be
- * amended to, or the collector should be given the loaded catalog rather than
- * the file paths. Until then it is declared here, and pinned to one entry.
+ * ADR-0001 › Amendment 1 settles it: a `play` is a closure, so a loaded catalog
+ * cannot cross a process boundary as data, and V8 precise coverage is only
+ * meaningful inside the instrumented process. The exception is structural, and
+ * it is bounded here — one entry, and the collector attributes coverage to the
+ * declared Showcases rather than deciding which ones exist.
  */
 const DECLARED_SECOND_LOADER: ReadonlyArray<string> = ["src/coverage/collector.mjs"]
 
