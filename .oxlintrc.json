@@ -1,0 +1,104 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  // Foldcase lint config. It is the CosmOS backend config minus the two
+  // vendored `jsPlugins` — `@cosmos/oxlint-plugin-effect` (59 Effect-4 idiom
+  // rules) and `@cosmos/oxlint-plugin-cosmos` (CosmOS ADR rules). Both are
+  // `"private": true` packages consumed over a `file:` path inside the CosmOS
+  // repo, so a standalone repo cannot resolve them. See docs/adr/0002 › Open
+  // questions: until that is settled, the Effect-4 *idiom* rules
+  // (`avoid-process-env`, `use-console-service`, `prefer-effect-fn`,
+  // `avoid-untagged-errors`, …) are NOT mechanically enforced here — only
+  // @effect/language-service (via the patched `tsc`) covers the semantic half.
+  "plugins": ["typescript", "import", "oxc", "eslint", "unicorn", "node"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "ignorePatterns": [
+    "**/dist",
+    "**/build",
+    "**/node_modules",
+    "**/.tsbuildinfo",
+    // The Node V8 precise-coverage instrument is a deliberate `.mjs` file that
+    // runs OUTSIDE the Bun/Effect world (see docs/adr/0002 › the coverage
+    // exception); the Effect-4 idiom rules do not apply to it.
+    "src/coverage/collector.mjs"
+  ],
+  "rules": {
+    // `_tag` / `_op` are Effect discriminant idioms — never flag them.
+    "eslint/no-underscore-dangle": "off",
+
+    // --- effect-smol base (self-contained) ----------------------------------
+    // Import hygiene
+    "typescript/consistent-type-imports": ["error", { "fixStyle": "inline-type-imports" }],
+    "typescript/no-import-type-side-effects": "error",
+    "import/no-duplicates": "error",
+    "import/no-self-import": "error",
+    "import/no-empty-named-blocks": "error",
+    // TypeScript cleanup
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-unnecessary-type-constraint": "error",
+    "typescript/no-useless-empty-export": "error",
+    // Code quality
+    "eslint/no-var": "error",
+    "eslint/no-useless-constructor": "error",
+    "unicorn/no-abusive-eslint-disable": "error",
+    "eslint/no-unneeded-ternary": "error",
+    "eslint/no-useless-concat": "error",
+    "oxc/misrefactored-assign-op": "error",
+    "unicorn/prefer-array-flat-map": "error",
+    "unicorn/no-accessor-recursion": "error",
+    // Tuned off (match effect-smol)
+    "oxc/no-map-spread": "off",
+    "eslint/object-shorthand": "off",
+    "eslint/no-shadow": "off",
+    "eslint/no-unused-vars": "off",
+    "eslint/require-yield": "off",
+    "eslint/no-fallthrough": "off",
+    "eslint/no-await-in-loop": "off",
+    "unicorn/no-new-array": "off",
+    "unicorn/consistent-function-scoping": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    "typescript/no-explicit-any": "off",
+    "typescript/no-empty-interface": "off",
+    "typescript/ban-ts-comment": "off",
+    "typescript/no-namespace": "off",
+    "typescript/no-non-null-assertion": "off",
+    "typescript/no-dynamic-delete": "off",
+    "typescript/no-invalid-void-type": "off",
+    "typescript/no-unsafe-function-type": "off",
+    "typescript/unified-signatures": "off",
+    "typescript/no-empty-object-type": "off",
+    "typescript/no-confusing-non-null-assertion": "off",
+    "typescript/array-type": ["error", { "default": "generic", "readonly": "generic" }],
+    "typescript/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+
+    // --- ADR-0002 scope fence (syntactic half) ------------------------------
+    // This repo is Bun + Effect-4 + Foldkit. No React, no Solid/Vue/Svelte, no
+    // Vite/turbo toolchain, and no CSF-3 (`foldcase/react` and friends live on
+    // the `foldkit` branch). The full fence — lockfiles, file extensions,
+    // `*.stories.ts` — is gated by test/stack.test.ts, which catches what a
+    // lint rule cannot see.
+    "eslint/no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["react", "react-dom", "react/*", "react-dom/*"],
+            "message": "ADR-0002: no React in this repo. The React shell stays on the `foldkit` branch."
+          },
+          {
+            "group": ["solid-js", "solid-js/*", "vue", "svelte", "svelte/*"],
+            "message": "ADR-0002: Foldkit is the only supported framework in this line."
+          },
+          {
+            "group": ["vite", "vite/*", "vitest", "vitest/*"],
+            "message": "ADR-0002: the toolchain is Bun (`bun test`, `bun build`), not Vite/Vitest."
+          }
+        ]
+      }
+    ]
+  }
+}

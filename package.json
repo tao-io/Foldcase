@@ -1,0 +1,69 @@
+{
+  "name": "foldcase",
+  "version": "0.2.0",
+  "description": "The typed, deterministic test loop for Foldkit Showcases. `foldcase test` boots each Showcase headlessly and asserts on the Model, `foldcase docs` tables its Model/Message schemas, and `foldcase mcp` serves the catalog to an agent.",
+  "keywords": [
+    "foldkit",
+    "effect",
+    "bun",
+    "showcase",
+    "component-testing",
+    "mcp",
+    "tea",
+    "elm-architecture"
+  ],
+  "homepage": "https://github.com/tao-io/Foldcase",
+  "bugs": {
+    "url": "https://github.com/tao-io/Foldcase/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tao-io/Foldcase.git"
+  },
+  "license": "MIT",
+  "author": "tao-io",
+  "contributors": [
+    "Aiden Bai (Openstory — the fork this line descends from; see NOTICE)"
+  ],
+  "type": "module",
+  "bin": {
+    "foldcase": "./src/main.ts"
+  },
+  "exports": {
+    ".": "./src/runner.ts",
+    "./cli": "./src/cli.ts",
+    "./mcp": "./src/mcp/server.ts",
+    "./mcp/catalog": "./src/mcp/catalog.ts",
+    "./mcp/tools": "./src/mcp/tools.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "peerDependencies": {
+    "@effect/platform-bun": ">=4.0.0-beta.90",
+    "effect": ">=4.0.0-beta.90"
+  },
+  "peerDependenciesMeta": {
+    "@effect/platform-bun": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@effect/language-service": "^0.86.2",
+    "@effect/platform-bun": "4.0.0-beta.90",
+    "@types/bun": "latest",
+    "effect": "4.0.0-beta.90",
+    "oxlint": "1.71.0",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,47 @@
+# Foldcase — the typed test loop for Foldkit Showcases (Bun + Effect-4).
+# mise owns the toolchain pin and every check command; there is deliberately no
+# duplicate `scripts` block in package.json, so a task can never drift from its
+# npm twin.
+
+[tools]
+bun = "1.3.14"
+# `lint` runs oxlint through `bunx`; pin it here so the mise shim resolves a
+# concrete version (matches the `oxlint` devDependency in package.json).
+"npm:oxlint" = "1.71.0"
+
+[tasks.setup]
+description = "One-time: patch tsc so the @effect/language-service plugin loads outside the editor"
+# TypeScript plugins are tsserver-only, so `tsc --noEmit` would not see the
+# Effect diagnostics without this patch. Idempotent; re-run after `bun install`.
+run = """
+set -e
+bunx effect-language-service patch
+echo 'foldcase: tsc patched for @effect/language-service'
+"""
+
+[tasks.test]
+description = "The bun test suite (co-located *.test.ts, every module tested through its interface)"
+# `--isolate` gives each file a fresh global object, so results are
+# deterministic and order-independent. Not `--parallel`: subprocess/fs tests
+# race each other for no real gain.
+run = "bun test --isolate"
+
+[tasks.lint]
+description = "Syntactic gate: oxlint over src (Effect-4 idioms, import hygiene, TS cleanup)"
+run = "bunx oxlint src test"
+
+[tasks."lint:fix"]
+description = "oxlint autofix (safe fixes + suggestions)"
+run = "bunx oxlint src test --fix --fix-suggestions"
+
+[tasks.typecheck]
+description = "Semantic gate: patched tsc --noEmit (TS types block; Effect diagnostics ride along)"
+run = "bunx tsc --noEmit"
+
+[tasks."lint:effect"]
+description = "@effect/language-service diagnostics over the whole project (standalone report)"
+run = "bunx effect-language-service diagnostics --project tsconfig.json"
+
+[tasks.build]
+description = "Compile the `foldcase` CLI to a single Bun binary at ./foldcase"
+run = "bun build src/main.ts --compile --outfile foldcase"
