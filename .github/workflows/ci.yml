@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [core, main]
+  pull_request:
+
+# The three checks are exactly the ones AGENTS.md tells you to run locally
+# (`mise run lint` / `typecheck` / `test`). There is no second CI path, so a
+# green local run is a green CI run.
+jobs:
+  check:
+    name: ${{ matrix.task }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [lint, typecheck, test]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        # mise.toml is the single source for the bun and oxlint versions.
+        uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        # No `--frozen-lockfile` yet: bun.lock lands with the first real
+        # install, and this workflow should switch to it at that point.
+        run: bun install
+
+      - name: Patch tsc for @effect/language-service
+        # TypeScript plugins are tsserver-only, so without this the typecheck
+        # job would silently skip the Effect diagnostics.
+        run: mise run setup
+
+      - name: ${{ matrix.task }}
+        run: mise run ${{ matrix.task }}
