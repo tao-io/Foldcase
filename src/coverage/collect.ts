@@ -3,6 +3,7 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
+import type { Showcase } from "../runner"
 import { RawCoverage } from "./coverage"
 import { buildCoverageReport } from "./report"
 
@@ -28,10 +29,16 @@ const decodeRaw = Schema.decodeUnknownEffect(Schema.fromJsonString(RawCoverage))
  * Run every Showcase file under Node with V8 precise coverage and build a
  * {@link CoverageReport}. Node is required (Bun has no programmatic precise
  * coverage); `rootDir` scopes coverage to the Showcase sources under test.
+ *
+ * `showcases` is the catalog already loaded by the one loader (ADR-0001): the
+ * report's per-Showcase breakdown is a projection of those records, so the
+ * collector's process-boundary re-import can only *attribute* coverage, never
+ * decide which Showcases exist.
  */
 export const collectCoverage = Effect.fn("foldcase.coverage.collectCoverage")(function* (
   rootDir: string,
   files: ReadonlyArray<string>,
+  showcases: ReadonlyArray<Showcase>,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const command = ChildProcess.make("node", [collectorPath, rootDir, ...files], {
@@ -77,7 +84,7 @@ export const collectCoverage = Effect.fn("foldcase.coverage.collectCoverage")(fu
       (cause) => new CoverageCollectionError({ reason: `undecodable coverage output: ${cause}` }),
     ),
   )
-  return yield* buildCoverageReport(raw).pipe(
+  return yield* buildCoverageReport(raw, showcases).pipe(
     Effect.mapError(
       (cause) =>
         new CoverageCollectionError({ reason: `could not read a covered source: ${String(cause)}` }),

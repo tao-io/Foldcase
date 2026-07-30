@@ -3,6 +3,7 @@ import { BunChildProcessSpawner, BunFileSystem, BunPath } from "@effect/platform
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
+import { loadShowcasesFromFiles } from "../cli"
 import { collectCoverage } from "./collect"
 
 const fixtures = `${import.meta.dir}/../../test/fixtures`
@@ -17,8 +18,10 @@ describe("collectCoverage", () => {
   test(
     "runs the Showcases under Node and reports per-Showcase + aggregate coverage",
     async () => {
+      const files = [`${fixtures}/sample.showcase.ts`]
       const report = await Effect.runPromise(
-        collectCoverage(fixtures, [`${fixtures}/sample.showcase.ts`]).pipe(
+        loadShowcasesFromFiles(files).pipe(
+          Effect.flatMap((showcases) => collectCoverage(fixtures, files, showcases)),
           Effect.provide(platform),
         ),
       )
@@ -39,8 +42,10 @@ describe("collectCoverage", () => {
   test(
     "instruments a separate module the play calls, marking unexercised code missed",
     async () => {
+      const files = [`${fixtures}/counter-logic.showcase.ts`]
       const report = await Effect.runPromise(
-        collectCoverage(fixtures, [`${fixtures}/counter-logic.showcase.ts`]).pipe(
+        loadShowcasesFromFiles(files).pipe(
+          Effect.flatMap((showcases) => collectCoverage(fixtures, files, showcases)),
           Effect.provide(platform),
         ),
       )

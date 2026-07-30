@@ -436,6 +436,8 @@ describe("ADR-0001 — every surface derives from the definition", () => {
     )
     expect(derivers.toSorted()).toEqual([
       "src/cli.ts",
+      "src/coverage/collect.ts",
+      "src/coverage/report.ts",
       "src/docs/generate.ts",
       "src/main.ts",
       "src/mcp/catalog.ts",

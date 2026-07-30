@@ -12,12 +12,12 @@ import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 
-import { discoverShowcaseFiles, docsFromFiles, runSuiteFromFiles } from "./cli"
+import { discoverShowcaseFiles, docsFromFiles, loadShowcasesFromFiles } from "./cli"
 import { collectCoverage } from "./coverage/collect"
 import { formatCoverage } from "./coverage/report"
 import { writeShowcaseDocs } from "./docs/generate"
 import { FoldcaseMcpServer } from "./mcp/server"
-import { formatSuite, suiteExitCode } from "./runner"
+import { formatSuite, type Showcase, runShowcases, suiteExitCode } from "./runner"
 
 // The spawner (for `--coverage`'s Node subprocess) needs FileSystem/Path, so it
 // wraps the fs/path layers; the whole bundle backs every one-shot subcommand.
@@ -57,8 +57,9 @@ const resolveTarget = Effect.fn("foldcase.resolveTarget")(function* (target: str
 const reportCoverage = Effect.fn("foldcase.test.coverage")(function* (
   root: string,
   files: ReadonlyArray<string>,
+  showcases: ReadonlyArray<Showcase>,
 ) {
-  const report = yield* collectCoverage(root, files)
+  const report = yield* collectCoverage(root, files, showcases)
   yield* Console.log(`\ncoverage:\n${formatCoverage(report)}`)
 }, Effect.catchTag("foldcase/CoverageCollectionError", (error) =>
   Console.error(`foldcase: coverage unavailable — ${error.reason}`),
@@ -72,10 +73,13 @@ const test = Effect.fn("foldcase.test")(function* (target: string, coverage: boo
     yield* Console.error(`foldcase: no *.showcase.ts found under ${target}`)
     return yield* exitWith(1)
   }
-  const suite = yield* runSuiteFromFiles(files)
+  // Load once: the suite runs the loaded catalog and coverage projects it, so
+  // both surfaces see exactly the same Showcase records (ADR-0001, one loader).
+  const showcases = yield* loadShowcasesFromFiles(files)
+  const suite = yield* runShowcases(showcases)
   yield* Console.log(formatSuite(suite))
   if (coverage) {
-    yield* reportCoverage(root, files)
+    yield* reportCoverage(root, files, showcases)
   }
   return yield* exitWith(suiteExitCode(suite))
 })

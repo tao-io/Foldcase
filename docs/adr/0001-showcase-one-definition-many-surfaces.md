@@ -64,7 +64,7 @@ The surfaces, and what each one projects:
 | **CI test runner** | `foldcase test` | Runs each `play`; reports a Schema-decoded `ShowcaseReport` per Showcase and a rolled-up `SuiteReport`; the exit code is the suite verdict. |
 | **Agent tools** | `foldcase mcp` | `list` from the ids, `schemaFor` from `message`, `runById` from `play` — three Schema-typed MCP verbs, no hand-rolled JSON-RPC. |
 | **Markdown autodocs** | `foldcase docs` | Introspects `message` and `model` into JSON Schema through the *same* path the MCP surface uses, then renders one table per component. |
-| **Coverage attribution** | `foldcase test --coverage` | Measures V8 precise coverage around each `play`, so lines are attributed per Showcase and rolled up by union. |
+| **Coverage attribution** | `foldcase test --coverage` | Measures V8 precise coverage around each `play`, then reports one row per declared `Showcase` (see Amendment 1, 2026-07-31), rolled up by union. |
 | **Browser lab shell** | *not built yet* | Must also be a projection. When it lands, it renders from the declaration, not from a DOM crawl or a source parse. |
 
 Two structural rules make this hold:
@@ -135,8 +135,9 @@ The mechanically-checkable clauses are gated, not left to review:
   1. **A second shape** — the `Showcase` shape (an `id` + `play` pair) declared as an
      interface or type anywhere other than `src/runner.ts`.
   2. **A second loader** — a dynamic `import(` of a `*.showcase.ts` path in any file
-     other than `src/cli.ts`, and any surface module under `src/mcp/`, `src/docs/`,
-     `src/coverage/`, or a future `src/lab/` that reads showcase files directly.
+     other than `src/cli.ts` and the one loader declared in Amendment 1, and any surface
+     module under `src/mcp/`, `src/docs/`, `src/coverage/`, or a future `src/lab/` that
+     reads showcase files directly.
   3. **A surface parser** — a source parse or DOM query used to recover component facts
      (`oxc-parser`, `fast-glob` over `*.stories.*`, `querySelector` on a canvas) in any
      surface module.
@@ -148,3 +149,62 @@ The mechanically-checkable clauses are gated, not left to review:
 - **Judgment, not gated (by design):** whether a proposed new `Showcase` field is really
   needed by more than one surface, and whether a surface's output is *useful*. The gate
   can prove there is one definition; it cannot prove the definition is the right one.
+
+## Amendment 1 — 2026-07-31: the coverage surface
+
+Porting Foldcase to a Node-runnable distribution ([ADR-0002](0002-bun-effect-foldkit-only.md)
+› Amendment 1) surfaced two places where `--coverage` did not keep the promise this ADR
+makes for it. Both are settled here. The decision above is unchanged; this section says
+what it means for the one surface that runs outside the Effect world.
+
+### 1. The coverage collector is a second loader, and stays one
+
+`src/coverage/collector.mjs` dynamically imports the `*.showcase.ts` files it is handed.
+The Enforcement section forbade that and granted no exception for it, so the gate carried
+the exception instead of the ADR — a rule that lives only in its own test.
+
+**Decision: the process boundary is a declared exception. The collector keeps its import.**
+
+The alternative — hand the collector a loaded catalog instead of file paths — cannot be
+built. A `Showcase` is `{ id, play }` and `play` is a *closure* (ADR-0001 › the seam that
+lets the core stay framework-blind). A closure does not serialize, so it cannot cross a
+process boundary as data. And the measurement is only meaningful *inside* the instrumented
+process: V8 precise coverage records what the inspector saw the running process execute,
+so the play must be called under Node's `Profiler`, not called here and reported there.
+The second import is therefore structural, not convenience.
+
+The exception is bounded, and the boundary is what the gate checks:
+
+- **exactly one file** — `src/coverage/collector.mjs`, pinned by
+  `test/surface-derivation.test.ts` (`DECLARED_SECOND_LOADER`), the same file
+  ADR-0002 already names as the single non-TypeScript source;
+- **it does not decide the catalog** — the file list still comes from the one loader, and
+  since this amendment the report's per-Showcase rows are projected from the loaded
+  `Showcase` records (below), so the collector can only *attribute* coverage, never
+  invent, rename or drop a Showcase.
+
+### 2. `--coverage` now really is a projection of the record
+
+The table above claimed `--coverage` derives from the `Showcase` record, but `src/coverage/*`
+never imported the `Showcase` type: it attributed coverage by a bare `id: string` read back
+out of the collector's JSON. The claim was false, and the cost was real — a Showcase whose
+file the collector could not import simply vanished from the report, leaving a partial
+report that looked complete.
+
+**Decision: make it derive, rather than correct the table.**
+
+`buildCoverageReport(raw, showcases)` and `collectCoverage(root, files, showcases)` now take
+the catalog the one loader already produced, and the per-Showcase breakdown is built by
+walking those records:
+
+- every declared Showcase gets a row, in declaration order;
+- a Showcase the collector skipped shows up as `no coverage collected` instead of
+  disappearing (its `0/0` would otherwise round to 100%, the one number that must never
+  stand for "not measured");
+- an id the catalog does not declare is dropped.
+
+`foldcase test` loads the catalog once and hands the same records to the runner and to
+coverage, so the two surfaces can no longer disagree about which Showcases exist. The
+positive half of `test/surface-derivation.test.ts` now lists `src/coverage/collect.ts` and
+`src/coverage/report.ts` among the modules that take `Showcase` from `src/runner.ts`, which
+is the mechanical form of this claim.

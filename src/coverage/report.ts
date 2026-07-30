@@ -4,6 +4,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
+import type { Showcase } from "../runner"
 import { type FileDetail, fileDetail, type RawCoverage, type ScriptHit } from "./coverage"
 
 // ─── The emitted coverage report ─────────────────────────────────────────────
@@ -62,9 +63,16 @@ const fileCoverageOf = (path: string, covered: FileDetail, denom: FileDetail): F
  * each Showcase's per-`play` delta into a breakdown whose denominators come from
  * that aggregate (so a Showcase reads as "covered X of the file's Y lines").
  * Fails only if a covered source can't be read (caller treats it best-effort).
+ *
+ * The breakdown is a projection of `showcases` — the declared {@link Showcase}
+ * records (ADR-0001) — not of whatever ids the collector emitted: every declared
+ * Showcase gets a row in declaration order, a Showcase the collector skipped
+ * shows up with no files rather than vanishing, and an id the catalog does not
+ * declare is dropped.
  */
 export const buildCoverageReport = Effect.fn("foldcase.coverage.buildCoverageReport")(function* (
   raw: RawCoverage,
+  showcases: ReadonlyArray<Showcase>,
 ) {
   const fs = yield* FileSystem.FileSystem
   const allScripts = [...raw.total, ...raw.showcases.flatMap((showcase) => showcase.scripts)]
@@ -85,13 +93,20 @@ export const buildCoverageReport = Effect.fn("foldcase.coverage.buildCoverageRep
       { onNone: () => fallback, onSome: (entry) => entry.detail },
     )
 
+  // The collector's attribution, looked up by the declared Showcase's id.
+  const scriptsFor = (id: string): ReadonlyArray<ScriptHit> =>
+    Option.match(
+      Arr.findFirst(raw.showcases, (hit) => hit.id === id),
+      { onNone: () => [], onSome: (hit) => hit.scripts },
+    )
+
   return new CoverageReport({
     files: aggregate.map((entry) => fileCoverageOf(entry.path, entry.detail, entry.detail)),
-    showcases: raw.showcases.map(
+    showcases: showcases.map(
       (showcase) =>
         new ShowcaseCoverage({
           id: showcase.id,
-          files: showcase.scripts.map((script) => {
+          files: scriptsFor(showcase.id).map((script) => {
             const covered = detailOf(script)
             return fileCoverageOf(script.path, covered, denomFor(script.path, covered))
           }),
@@ -137,6 +152,12 @@ const formatFile = (file: FileCoverage): string =>
   `  ${file.path}  lines ${file.coveredLines}/${file.executableLines} (${pct(file.coveredLines, file.executableLines)}%)  fns ${file.coveredFunctions}/${file.totalFunctions} (${pct(file.coveredFunctions, file.totalFunctions)}%)`
 
 const formatShowcase = (showcase: ShowcaseCoverage): string => {
+  // A declared Showcase the collector never reached has no files at all. Its
+  // ratio would be 0/0, which `pct` reads as 100% — so say "not measured"
+  // rather than print the one number that would be a lie.
+  if (Arr.isReadonlyArrayEmpty(showcase.files)) {
+    return `  ? ${showcase.id}  no coverage collected`
+  }
   const ratio = sumLines(showcase.files)
   return `  ✓ ${showcase.id}  lines ${ratio.covered}/${ratio.executable} (${pct(ratio.covered, ratio.executable)}%)`
 }
