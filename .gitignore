@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+/foldcase
+*.tgz
+*.tsbuildinfo
+
+# Generated output
+/foldcase-docs/
+coverage/
+
+# Local / editor
+.DS_Store
+.env
+.claude/
+.cursor/
+
+# Artifacts left behind by the pre-`core` fork toolchain (see the `foldkit`
+# branch); ignored so they never sneak into this line.
+.turbo/
+.next/

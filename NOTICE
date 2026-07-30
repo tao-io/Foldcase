@@ -1,0 +1,32 @@
+Foldcase (https://github.com/tao-io/Foldcase)
+
+## Lineage
+
+Foldcase began as tao-io's fork of Openstory
+(https://github.com/millionco/openstory), Copyright (c) millionco, licensed
+under the MIT License (see LICENSE).
+
+That fork incorporated the Foldkit framework adapter contributed by John
+McAndrews (binarytide) in pull request millionco/openstory#4 ("feat: add Foldkit
+framework adapter"), also provided under the MIT License.
+
+The fork line — the Openstory core, the React shell, the CSF-3 catalog, and the
+pnpm/turbo/vite toolchain — is preserved in this repository on the `foldkit`
+branch (which tracks `main`, which tracks upstream). It is history, not a
+dependency of this line.
+
+## This line
+
+The `core` line is a new codebase: a Bun + Effect-4 CLI for Foldkit Showcases,
+written by tao-io and licensed under the same MIT License. It carries the
+Openstory copyright forward because it keeps two things derived from the fork:
+
+- The **Showcase play contract** — a `play` thunk that throws on assertion
+  failure — which is Openstory's boot play-runner contract.
+- The **`SerializedError` shape** (`name` / `message` / `stack` / `code` /
+  `docsUrl`), which mirrors Openstory's boot protocol so a Foldcase report and
+  an Openstory `play-status` describe a failure the same way.
+
+The original MIT copyright and permission notice in LICENSE is retained in
+full. Modifications and new work in this repository are offered under the same
+MIT License.
