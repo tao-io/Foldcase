@@ -38,7 +38,17 @@ export class ShowcaseModuleError extends Schema.TaggedErrorClass<ShowcaseModuleE
     path: Schema.String,
     reason: Schema.String,
   },
-) {}
+) {
+  /**
+   * A schema-backed error carries its payload in fields, so its inherited
+   * `Error.message` is empty and a runtime that prints an unhandled failure
+   * shows only the tag. Render the payload instead, so the user reads *which*
+   * file would not load and *why*.
+   */
+  override get message(): string {
+    return `${this.path}: ${this.reason}`
+  }
+}
 
 const isShowcase = (value: unknown): value is Showcase => {
   if (

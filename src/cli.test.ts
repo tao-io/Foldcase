@@ -43,6 +43,19 @@ describe("runSuiteFromFiles", () => {
     expect(error.reason.length).toBeGreaterThan(0)
   })
 
+  test("the failure a runtime prints carries the path and the reason", async () => {
+    // The CLI shell hands an unhandled failure to `runMain`, which prints the
+    // error's `message`. An empty message reads as "foldcase/ShowcaseModuleError:"
+    // and tells the user nothing about *why* the module would not load.
+    const error = await Effect.runPromise(
+      Effect.flip(runSuiteFromFiles([fixture("does-not-exist.ts")])),
+    )
+
+    expect(error.message).toContain("does-not-exist.ts")
+    expect(error.message).toContain(error.reason)
+    expect(String(error)).toContain(error.reason)
+  })
+
   test("rejects a showcase whose message is not an Effect Schema", async () => {
     const malformed = `${import.meta.dir}/../test/malformed/bad-message.showcase.ts`
     const error = await Effect.runPromise(Effect.flip(runSuiteFromFiles([malformed])))
