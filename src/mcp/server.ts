@@ -7,9 +7,9 @@ import type { PlatformError } from "effect/PlatformError"
 import type * as Stdio from "effect/Stdio"
 import { McpServer } from "effect/unstable/ai"
 
-import { FoldcaseCatalog } from "./catalog"
-import type { ShowcaseModuleError } from "../cli"
-import { FoldcaseHandlers, FoldcaseToolkit } from "./tools"
+import { FoldcaseCatalog } from "./catalog.js"
+import type { ShowcaseModuleError } from "../cli.js"
+import { FoldcaseHandlers, FoldcaseToolkit } from "./tools.js"
 
 const SERVER_NAME = "foldcase-mcp"
 const SERVER_VERSION = "0.1.0"

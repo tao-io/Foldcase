@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { formatSuite, ShowcaseReport, SerializedError, suiteExitCode, SuiteReport } from "./runner"
+import { formatSuite, ShowcaseReport, SerializedError, suiteExitCode, SuiteReport } from "./runner.js"
 
 const passing = new ShowcaseReport({ id: "button/default", status: "passed" })
 const failing = new ShowcaseReport({

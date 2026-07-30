@@ -1,0 +1,28 @@
+// The emit config (ADR-0002 › Amendment 1). `tsconfig.json` type-checks the
+// whole project against Bun's globals; this one *compiles* `src/` to `dist/`
+// for Node, Vite and Bun alike — one `.js` plus one `.d.ts` per source file.
+//
+// `tsc` is a compiler, not a bundler: nothing is inlined, nothing is rewritten
+// but the extension, so the published tree is the source tree. Module
+// resolution is NodeNext, which is why every relative import in `src/` carries
+// a `.js` extension.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowImportingTsExtensions": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmit": false,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    // Outside `dist/`: the build info is a local cache, not a published file.
+    "tsBuildInfoFile": "tsconfig.build.tsbuildinfo",
+    // Emit for Node, not for Bun: nothing under `src/` may use a Bun global.
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts"]
+}

@@ -339,7 +339,25 @@ describe("ADR-0001 — a surface parser", () => {
   })
 })
 
-// ── 4. Exports drift ─────────────────────────────────────────────────────────
+// ── 4. Exports drift ─────────────────────────────────────────────────
+//
+// A surface can never be published under a path that does not derive, because
+// the path is not there. Since ADR-0002 › Amendment 1 the published paths are
+// build outputs (`dist/*.js` + `dist/*.d.ts`), and that turns the obvious form
+// of this gate into a trap: checking only the built file would make the suite
+// pass on a machine that has run `mise run build` and fail on a clean checkout,
+// which is the same as not checking at all.
+//
+// So the gate checks the *mapping* instead, and the build output on top of it:
+//
+//   1. always — every entry point maps back to a source file under `src/` that
+//      exists (`./dist/mcp/server.js` → `./src/mcp/server.ts`). This is the
+//      clause that actually prevents drift, and it holds on a clean checkout.
+//   2. when `dist/` is present — the built file is there too, so a stale or
+//      partial build cannot be published.
+//
+// A published path that is neither a build output nor `package.json` has no
+// source to map to, and is reported by the first clause.
 
 const entryPoints = (value: unknown): ReadonlyArray<string> => {
   if (typeof value === "string") {
@@ -351,53 +369,134 @@ const entryPoints = (value: unknown): ReadonlyArray<string> => {
   return []
 }
 
+/** Every published entry point: `exports` (through condition maps) plus `bin`. */
+export const publishedEntryPoints = (manifest: unknown): ReadonlyArray<string> => {
+  const { bin, exports } = manifest as { bin?: unknown; exports?: unknown }
+  return [...entryPoints(exports), ...entryPoints(bin)]
+}
+
 /**
- * Every published entry point that resolves to nothing. A surface can never be
- * published under a path that does not derive, because the path is not there.
+ * The source file a published entry point is built from, if it is a build
+ * output. `./package.json` is published as itself, so it is its own source.
  */
-export const missingEntryPoints = (
+export const entryPointSource = (entry: string): string | undefined => {
+  if (entry === "./package.json") {
+    return entry
+  }
+  if (!entry.startsWith("./dist/")) {
+    return undefined
+  }
+  const stem = entry.replace(/^\.\/dist\//, "./src/")
+  if (stem.endsWith(".d.ts")) {
+    return `${stem.slice(0, -".d.ts".length)}.ts`
+  }
+  if (stem.endsWith(".js")) {
+    return `${stem.slice(0, -".js".length)}.ts`
+  }
+  return undefined
+}
+
+/**
+ * Entry points with no source behind them: either not a build output at all, or
+ * a build output whose `src/` original has been renamed or deleted. Checkable
+ * on a clean checkout, which is the point.
+ */
+export const sourcelessEntryPoints = (
   manifest: unknown,
   exists: (path: string) => boolean,
-): ReadonlyArray<string> => {
-  const { bin, exports } = manifest as { bin?: unknown; exports?: unknown }
-  return [...entryPoints(exports), ...entryPoints(bin)].filter((entry) => !exists(entry))
-}
+): ReadonlyArray<string> =>
+  publishedEntryPoints(manifest).filter((entry) => {
+    const source = entryPointSource(entry)
+    return source === undefined || !exists(source)
+  })
+
+/** Entry points missing from an existing build — a stale or partial `dist/`. */
+export const unbuiltEntryPoints = (
+  manifest: unknown,
+  exists: (path: string) => boolean,
+): ReadonlyArray<string> => publishedEntryPoints(manifest).filter((entry) => !exists(entry))
 
 const MANIFEST: unknown = JSON.parse(read("package.json"))
 
+const onDisk = (path: string): boolean => existsSync(`${REPO_ROOT}/${path}`)
+
 describe("ADR-0001 — exports drift", () => {
-  test("names an entry point that resolves to nothing, through condition maps too", () => {
-    const present = new Set(["./src/runner.ts", "./src/main.ts"])
+  test("maps a build output back to the source it is compiled from", () => {
+    expect(entryPointSource("./dist/runner.js")).toBe("./src/runner.ts")
+    expect(entryPointSource("./dist/mcp/server.d.ts")).toBe("./src/mcp/server.ts")
+    expect(entryPointSource("./dist/main.bun.js")).toBe("./src/main.bun.ts")
+    expect(entryPointSource("./package.json")).toBe("./package.json")
+    // Not a build output: publishing source, or a path from nowhere.
+    expect(entryPointSource("./src/runner.ts")).toBeUndefined()
+    expect(entryPointSource("./dist/runner.wasm")).toBeUndefined()
+  })
+
+  test("names an entry point with no source behind it, through condition maps too", () => {
+    const present = new Set(["./src/runner.ts", "./src/main.ts", "./package.json"])
     const exists = (path: string): boolean => present.has(path)
     expect(
-      missingEntryPoints(
-        { exports: { ".": "./src/runner.ts" }, bin: { foldcase: "./src/main.ts" } },
+      sourcelessEntryPoints(
+        {
+          exports: { ".": { types: "./dist/runner.d.ts", import: "./dist/runner.js" } },
+          bin: { foldcase: "./dist/main.js" },
+        },
         exists,
       ),
     ).toEqual([])
     expect(
-      missingEntryPoints(
+      sourcelessEntryPoints(
         {
           exports: {
-            ".": "./src/runner.ts",
-            "./lab": { bun: "./src/lab/index.ts", default: "./src/lab/index.js" },
+            ".": { types: "./dist/runner.d.ts", import: "./dist/runner.js" },
+            "./lab": { types: "./dist/lab/index.d.ts", import: "./dist/lab/index.js" },
+            "./raw": "./src/runner.ts",
+
           },
-          bin: { foldcase: "./src/gone.ts" },
+          bin: { foldcase: "./dist/gone.js" },
         },
         exists,
       ),
-    ).toEqual(["./src/lab/index.ts", "./src/lab/index.js", "./src/gone.ts"])
+    ).toEqual([
+      "./dist/lab/index.d.ts",
+      "./dist/lab/index.js",
+      // Publishing `.ts` source is exactly what Amendment 1 stopped doing.
+      "./src/runner.ts",
+      "./dist/gone.js",
+    ])
   })
 
-  test("every published entry point is a file that exists", () => {
-    expect(missingEntryPoints(MANIFEST, (path) => existsSync(`${REPO_ROOT}/${path}`))).toEqual([])
+  test("names an entry point an existing build did not produce", () => {
+    const built = new Set(["./dist/runner.js", "./package.json"])
+    expect(
+      unbuiltEntryPoints(
+        { exports: { ".": { types: "./dist/runner.d.ts", import: "./dist/runner.js" } } },
+        (path) => built.has(path),
+      ),
+    ).toEqual(["./dist/runner.d.ts"])
+  })
+
+  test("every published entry point derives from a source that exists", () => {
+    expect(sourcelessEntryPoints(MANIFEST, onDisk)).toEqual([])
+  })
+
+  test("and — when there is a build — the build really produced them", () => {
+    // Conditional on purpose: a clean checkout has no `dist/`, and a gate that
+    // demanded one would fail for everyone who has not built yet. When a build
+    // is present it must be complete.
+    if (!onDisk("dist")) {
+      return
+    }
+    expect(unbuiltEntryPoints(MANIFEST, onDisk)).toEqual([])
   })
 })
 
 // ── The positive half: every surface derives from the definition ─────────────
 
 const SHOWCASE_IDENTIFIER = /\bShowcase\b/
-const IMPORTS_FROM_RUNNER = /from\s+["']\.{1,2}(?:\/\.\.)*\/runner["']/
+// NodeNext-style relative specifiers carry a `.js` extension even though the
+// file on disk is `runner.ts` (ADR-0002 › Amendment 1: the package is built by
+// `tsc`), so the extension is optional here.
+const IMPORTS_FROM_RUNNER = /from\s+["']\.{1,2}(?:\/\.\.)*\/runner(?:\.js)?["']/
 
 /**
  * Modules that name a `Showcase` without importing the type from

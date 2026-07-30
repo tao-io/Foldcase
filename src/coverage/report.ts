@@ -4,8 +4,8 @@ import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
-import type { Showcase } from "../runner"
-import { type FileDetail, fileDetail, type RawCoverage, type ScriptHit } from "./coverage"
+import type { Showcase } from "../runner.js"
+import { type FileDetail, fileDetail, type RawCoverage, type ScriptHit } from "./coverage.js"
 
 // ─── The emitted coverage report ─────────────────────────────────────────────
 

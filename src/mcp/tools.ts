@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { Tool, Toolkit } from "effect/unstable/ai"
 
-import { ShowcaseReport } from "../runner"
+import { ShowcaseReport } from "../runner.js"
 import {
   CatalogListing,
   FoldcaseCatalog,
@@ -10,7 +10,7 @@ import {
   NoMessageSchemaError,
   ShowcaseNotFoundError,
   ShowcaseSchema,
-} from "./catalog"
+} from "./catalog.js"
 
 /** The `{ showcase_id }` parameter shared by the id-addressed catalog tools. */
 class ShowcaseIdInput extends Schema.Class<ShowcaseIdInput>("ShowcaseIdInput")({

@@ -9,8 +9,8 @@ import * as Path from "effect/Path"
 import type { PlatformError } from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 
-import { discoverShowcaseFiles, loadShowcasesFromFiles, type ShowcaseModuleError } from "../cli"
-import { runShowcase, type Showcase, type ShowcaseReport } from "../runner"
+import { discoverShowcaseFiles, loadShowcasesFromFiles, type ShowcaseModuleError } from "../cli.js"
+import { runShowcase, type Showcase, type ShowcaseReport } from "../runner.js"
 
 /** One entry in the catalog listing: a Showcase id and whether it carries a Message schema. */
 export class ShowcaseSummary extends Schema.Class<ShowcaseSummary>("ShowcaseSummary")({

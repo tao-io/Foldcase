@@ -3,9 +3,9 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
-import type { Showcase } from "../runner"
-import { RawCoverage } from "./coverage"
-import { buildCoverageReport } from "./report"
+import type { Showcase } from "../runner.js"
+import { RawCoverage } from "./coverage.js"
+import { buildCoverageReport } from "./report.js"
 
 /**
  * `foldcase test --coverage` could not collect V8 coverage: Node was missing or
@@ -21,7 +21,7 @@ export class CoverageCollectionError extends Schema.TaggedErrorClass<CoverageCol
 // next to this module so `bun run`/`mise` find it on disk (a compiled binary
 // would need it shipped alongside — `--coverage` runs from source, as the gates
 // do).
-const collectorPath = `${import.meta.dir}/collector.mjs`
+const collectorPath = `${import.meta.dirname}/collector.mjs`
 
 const decodeRaw = Schema.decodeUnknownEffect(Schema.fromJsonString(RawCoverage))
 

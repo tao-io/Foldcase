@@ -3,7 +3,7 @@ import { BunFileSystem, BunPath } from "@effect/platform-bun"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
-import { loadCatalogFromDir } from "./catalog"
+import { loadCatalogFromDir } from "./catalog.js"
 
 const fixtures = `${import.meta.dir}/../../test/fixtures`
 const PlatformLive = Layer.mergeAll(BunFileSystem.layer, BunPath.layer)

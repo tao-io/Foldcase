@@ -19,12 +19,12 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 
-import { discoverShowcaseFiles, docsFromFiles, loadShowcasesFromFiles } from "./cli"
-import { collectCoverage } from "./coverage/collect"
-import { formatCoverage } from "./coverage/report"
-import { writeShowcaseDocs } from "./docs/generate"
-import { FoldcaseMcpServer } from "./mcp/server"
-import { formatSuite, runShowcases, type Showcase, suiteExitCode } from "./runner"
+import { discoverShowcaseFiles, docsFromFiles, loadShowcasesFromFiles } from "./cli.js"
+import { collectCoverage } from "./coverage/collect.js"
+import { formatCoverage } from "./coverage/report.js"
+import { writeShowcaseDocs } from "./docs/generate.js"
+import { FoldcaseMcpServer } from "./mcp/server.js"
+import { formatSuite, runShowcases, type Showcase, suiteExitCode } from "./runner.js"
 
 /** The one-line usage banner, printed to stderr for an unknown subcommand. */
 export const usage =

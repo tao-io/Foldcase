@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import * as Effect from "effect/Effect"
 
-import { runShowcase, type Showcase } from "./runner"
+import { runShowcase, type Showcase } from "./runner.js"
 
 describe("runShowcase", () => {
   test("reports passed when the Showcase play succeeds", async () => {

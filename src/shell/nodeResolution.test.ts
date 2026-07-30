@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { resolutionCandidates, resolveTypeScriptSource } from "./nodeResolution"
+import { resolutionCandidates, resolveTypeScriptSource } from "./nodeResolution.js"
 
 describe("resolutionCandidates", () => {
   test("retries a bare relative specifier with the source extensions", () => {

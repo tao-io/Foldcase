@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
-import type { Showcase } from "../runner"
-import { generateShowcaseDocs, renderShowcaseDoc } from "./generate"
+import type { Showcase } from "../runner.js"
+import { generateShowcaseDocs, renderShowcaseDoc } from "./generate.js"
 
 const Message = Schema.Union([
   Schema.TaggedStruct("Increment", {}),

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { tallyFile } from "./coverage"
+import { tallyFile } from "./coverage.js"
 
 // A tiny deterministic source: three 4-char lines, each followed by a newline.
 //   line 1: offsets  0– 3  (\n at 4)

@@ -3,7 +3,7 @@ import { BunServices } from "@effect/platform-bun"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 
-import { Command, parseCommand, run } from "./program"
+import { Command, parseCommand, run } from "./program.js"
 
 const fixtures = `${import.meta.dir}/../test/fixtures`
 

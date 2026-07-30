@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
-import { messageTableFor, modelTableFor } from "./schema-table"
+import { messageTableFor, modelTableFor } from "./schema-table.js"
 
 const MessageUnion = Schema.Union([
   Schema.TaggedStruct("Clicked", {}),

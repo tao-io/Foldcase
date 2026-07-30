@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
-import { runShowcases, SuiteReport } from "./runner"
-import type { Showcase } from "./runner"
+import { runShowcases, SuiteReport } from "./runner.js"
+import type { Showcase } from "./runner.js"
 
 describe("runShowcases", () => {
   test("aggregates a suite report with pass/fail counts and per-Showcase reports", async () => {

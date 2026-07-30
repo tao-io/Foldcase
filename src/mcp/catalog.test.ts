@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
-import type { Showcase } from "../runner"
-import { makeCatalog, ShowcaseNotFoundError } from "./catalog"
+import type { Showcase } from "../runner.js"
+import { makeCatalog, ShowcaseNotFoundError } from "./catalog.js"
 
 // A representative Message-union schema, standing in for the typed Message
 // union a real Foldkit Showcase attaches so the catalog can introspect it.

@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { BunFileSystem, BunPath } from "@effect/platform-bun"
 
-import { discoverShowcaseFiles, docsFromFiles, runSuiteFromFiles } from "./cli"
+import { discoverShowcaseFiles, docsFromFiles, runSuiteFromFiles } from "./cli.js"
 
 const fixture = (name: string): string => `${import.meta.dir}/../test/fixtures/${name}`
 const fixtures = `${import.meta.dir}/../test/fixtures`

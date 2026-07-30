@@ -366,3 +366,190 @@ describe("ADR-0002 — the runtime fence", () => {
     }
   })
 })
+
+// ── 8. A bundler ─────────────────────────────────────────────────────────────
+//
+// ADR-0002 › Amendment 1: the published artifact is built by plain
+// `tsc -b tsconfig.build.json`. `tsc` is a compiler — one `.js` and one `.d.ts`
+// per source file — so the published tree is the source tree and a consumer's
+// own bundler sees ordinary ESM. No bundler is a dependency, and no task calls
+// one. `bun build --compile` went with them: a compiled binary resolves
+// `import(path)` inside its own `/$bunfs` and so can never load an external
+// `*.showcase.ts`, which is the tool's whole job.
+
+const BUNDLERS = ["vite", "vitest", "tsup", "esbuild", "rollup", "webpack", "parcel", "rspack"]
+
+/** Bundlers declared in any dependency block of a package manifest. */
+export const bundlerDependencies = (manifest: unknown): ReadonlyArray<string> => {
+  const blocks = manifest as Record<string, Record<string, string> | undefined>
+  return DEPENDENCY_BLOCKS.flatMap((block) => Object.keys(blocks[block] ?? {})).filter((name) =>
+    BUNDLERS.includes(name),
+  )
+}
+
+// `bun build` is the bundler; `bunx tsc` and `bun test` are not.
+const BUNDLER_INVOCATION = new RegExp(
+  `(^|[\\s;&|])(bun\\s+build|${BUNDLERS.join("|")})([\\s;&|]|$)`,
+  "m",
+)
+
+/** The `run` body of every `[tasks.<name>]` in a mise manifest, by task name. */
+export const miseTasks = (manifest: string): ReadonlyArray<readonly [string, string]> => {
+  const header = /^\[tasks\.(?:"([^"]+)"|([^\]]+))\]$/gm
+  const headers = [...manifest.matchAll(header)]
+  return headers.map((match, index) => {
+    const end = headers[index + 1]?.index ?? manifest.length
+    const body = manifest.slice(match.index + match[0].length, end)
+    const triple = /run\s*=\s*"""([\s\S]*?)"""/.exec(body)
+    const single = /run\s*=\s*"((?:[^"\\]|\\.)*)"/.exec(body)
+    return [match[1] ?? match[2] ?? "", triple?.[1] ?? single?.[1] ?? ""] as const
+  })
+}
+
+/** Tasks whose command line invokes a bundler. */
+export const bundlerTasks = (
+  tasks: ReadonlyArray<readonly [string, string]>,
+): ReadonlyArray<string> =>
+  tasks.filter(([, command]) => BUNDLER_INVOCATION.test(command)).map(([name]) => name)
+
+const MISE_TOML = readFileSync(`${REPO_ROOT}/mise.toml`, "utf8")
+
+describe("ADR-0002 — a bundler", () => {
+  test("names a bundler dependency in any block", () => {
+    expect(bundlerDependencies({ devDependencies: { typescript: "6" } })).toEqual([])
+    expect(
+      bundlerDependencies({ devDependencies: { tsup: "8", esbuild: "0.2" }, dependencies: { rollup: "4" } }),
+    ).toEqual(["rollup", "tsup", "esbuild"])
+  })
+
+  test("reads a mise task body, single-line or triple-quoted", () => {
+    const manifest = [
+      '[tools]',
+      'bun = "1.3.14"',
+      '[tasks.lint]',
+      'run = "bunx oxlint src test"',
+      '[tasks.build]',
+      'run = """',
+      'set -e',
+      'bunx tsc -b tsconfig.build.json',
+      '"""',
+    ].join("\n")
+    expect(miseTasks(manifest)).toEqual([
+      ["lint", "bunx oxlint src test"],
+      ["build", "\nset -e\nbunx tsc -b tsconfig.build.json\n"],
+    ])
+  })
+
+  test("names a task that invokes a bundler, and spares `bunx tsc` and `bun test`", () => {
+    expect(
+      bundlerTasks([
+        ["test", "bun test --isolate"],
+        ["build", "bunx tsc -b tsconfig.build.json"],
+      ]),
+    ).toEqual([])
+    expect(
+      bundlerTasks([
+        ["build", "bun build src/main.ts --compile --outfile foldcase"],
+        ["web", "vite build"],
+        ["pack", "tsup src/index.ts"],
+      ]),
+    ).toEqual(["build", "web", "pack"])
+  })
+
+  test("the repository declares no bundler and calls none", () => {
+    expect(bundlerDependencies(PACKAGE_JSON)).toEqual([])
+    expect(bundlerTasks(miseTasks(MISE_TOML))).toEqual([])
+  })
+
+  test("and the build task really is `tsc -b` — the rule is not vacuous", () => {
+    const build = miseTasks(MISE_TOML).find(([name]) => name === "build")?.[1] ?? ""
+    expect(build).toContain("tsc -b")
+    expect(build).toContain("tsconfig.build.json")
+  })
+})
+
+// ── 9. The published shape ───────────────────────────────────────────────────
+//
+// ADR-0002 › Amendment 1: the package is consumable from Node, Vite and Bun
+// alike, in the same shape the Foldkit package itself publishes — every
+// `exports` subpath a `{ "types", "import" }` pair into `dist/`, `bin` into
+// `dist/`, `files` shipping the build output rather than the source, and
+// `engines` naming Node.
+
+interface PublishedManifest {
+  readonly exports?: Record<string, unknown>
+  readonly bin?: Record<string, string>
+  readonly files?: ReadonlyArray<string>
+  readonly engines?: Record<string, string>
+}
+
+/** `exports` subpaths that are not a `{ types, import }` pair pointing into `dist/`. */
+export const malformedExports = (manifest: unknown): ReadonlyArray<string> =>
+  Object.entries((manifest as PublishedManifest).exports ?? {})
+    // `./package.json` is the one entry that is itself, not a build output.
+    .filter(([subpath]) => subpath !== "./package.json")
+    .filter(([, target]) => {
+      const conditions = target as { types?: unknown; import?: unknown } | string
+      if (typeof conditions !== "object" || conditions === null) {
+        return true
+      }
+      const { import: imported, types } = conditions
+      return (
+        Object.keys(conditions).length !== 2 ||
+        typeof types !== "string" ||
+        typeof imported !== "string" ||
+        !types.startsWith("./dist/") ||
+        !types.endsWith(".d.ts") ||
+        !imported.startsWith("./dist/") ||
+        !imported.endsWith(".js")
+      )
+    })
+    .map(([subpath]) => subpath)
+
+/** `bin` entries that do not point at a built `dist/*.js`. */
+export const unbuiltBins = (manifest: unknown): ReadonlyArray<string> =>
+  Object.entries((manifest as PublishedManifest).bin ?? {})
+    .filter(([, target]) => !target.startsWith("./dist/") || !target.endsWith(".js"))
+    .map(([name]) => name)
+
+describe("ADR-0002 — the published shape", () => {
+  test("names an exports subpath that is not a types/import pair into dist/", () => {
+    expect(
+      malformedExports({
+        exports: {
+          ".": { types: "./dist/runner.d.ts", import: "./dist/runner.js" },
+          "./package.json": "./package.json",
+        },
+      }),
+    ).toEqual([])
+    expect(
+      malformedExports({
+        exports: {
+          "./source": "./src/runner.ts",
+          "./partial": { import: "./dist/x.js" },
+          "./extra": { types: "./dist/x.d.ts", import: "./dist/x.js", require: "./dist/x.cjs" },
+          "./outside": { types: "./src/x.d.ts", import: "./src/x.js" },
+        },
+      }),
+    ).toEqual(["./source", "./partial", "./extra", "./outside"])
+  })
+
+  test("names a bin that is not a build output", () => {
+    expect(unbuiltBins({ bin: { foldcase: "./dist/main.js" } })).toEqual([])
+    expect(unbuiltBins({ bin: { foldcase: "./src/main.ts", other: "./dist/x.mjs" } })).toEqual([
+      "foldcase",
+      "other",
+    ])
+  })
+
+  test("package.json publishes the built shape", () => {
+    const manifest = PACKAGE_JSON as PublishedManifest
+    expect(malformedExports(PACKAGE_JSON)).toEqual([])
+    expect(unbuiltBins(PACKAGE_JSON)).toEqual([])
+    // `files` ships the build output, not the TypeScript sources.
+    expect(manifest.files).toContain("dist")
+    expect(manifest.files).not.toContain("src")
+    // Node is a supported runtime now, and it has to say so.
+    expect(manifest.engines?.node).toBeString()
+  })
+})

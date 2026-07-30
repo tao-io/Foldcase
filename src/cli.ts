@@ -6,9 +6,9 @@ import * as P from "effect/Predicate"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 
-import { generateShowcaseDocs, type ShowcaseDoc } from "./docs/generate"
-import type { SchemaIntrospectionError } from "./docs/schema-table"
-import { runShowcases, type Showcase, type SuiteReport } from "./runner"
+import { generateShowcaseDocs, type ShowcaseDoc } from "./docs/generate.js"
+import type { SchemaIntrospectionError } from "./docs/schema-table.js"
+import { runShowcases, type Showcase, type SuiteReport } from "./runner.js"
 
 const SHOWCASE_SUFFIX = ".showcase.ts"
 

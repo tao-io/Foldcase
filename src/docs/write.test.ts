@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 
-import { ShowcaseDoc, writeShowcaseDocs } from "./generate"
+import { ShowcaseDoc, writeShowcaseDocs } from "./generate.js"
 
 const PlatformLive = Layer.mergeAll(BunFileSystem.layer, BunPath.layer)
 

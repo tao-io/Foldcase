@@ -5,9 +5,12 @@ on:
     branches: [core, main]
   pull_request:
 
-# The three checks are exactly the ones AGENTS.md tells you to run locally
-# (`mise run lint` / `typecheck` / `test`). There is no second CI path, so a
-# green local run is a green CI run.
+# The four checks are exactly the ones AGENTS.md tells you to run locally
+# (`mise run lint` / `typecheck` / `test` / `build`). There is no second CI
+# path, so a green local run is a green CI run. `build` is here because the
+# published artifact is now a compiled `dist/` (ADR-0002 › Amendment 1): a tree
+# that type-checks can still fail to emit, and that must not be found at
+# release time.
 jobs:
   check:
     name: ${{ matrix.task }}
@@ -16,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [lint, typecheck, test]
+        task: [lint, typecheck, test, build]
 
     steps:
       - name: Checkout

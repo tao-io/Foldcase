@@ -1,4 +1,5 @@
-# Foldcase — the typed test loop for Foldkit Showcases (Bun + Effect-4).
+# Foldcase — the typed test loop for Foldkit Showcases (Effect-4; Bun is the
+# development toolchain, the published artifact runs on Node and Bun alike).
 # mise owns the toolchain pin and every check command; there is deliberately no
 # duplicate `scripts` block in package.json, so a task can never drift from its
 # npm twin.
@@ -43,5 +44,16 @@ description = "@effect/language-service diagnostics over the whole project (stan
 run = "bunx effect-language-service diagnostics --project tsconfig.json"
 
 [tasks.build]
-description = "Compile the `foldcase` CLI to a single Bun binary at ./foldcase"
-run = "bun build src/main.ts --compile --outfile foldcase"
+description = "Compile src/ to dist/ with tsc — .js + .d.ts per file, no bundler (ADR-0002 › Amendment 1)"
+# `tsc -b` is the whole build. The collector is deliberately not TypeScript, so
+# tsc does not move it; copy it beside its compiled caller. The exec bit is for
+# running ./dist/main.js directly — npm sets it on `bin` at install time.
+run = """
+set -e
+rm -rf dist
+bunx tsc -b tsconfig.build.json
+mkdir -p dist/coverage
+cp src/coverage/collector.mjs dist/coverage/collector.mjs
+chmod +x dist/main.js dist/main.bun.js
+echo 'foldcase: built dist/'
+"""

@@ -13,7 +13,7 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun"
 import * as Effect from "effect/Effect"
 
-import { run } from "./program"
+import { run } from "./program.js"
 
 const setExitCode = (code: number): void => {
   process.exitCode = code

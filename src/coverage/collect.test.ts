@@ -3,8 +3,8 @@ import { BunChildProcessSpawner, BunFileSystem, BunPath } from "@effect/platform
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 
-import { loadShowcasesFromFiles } from "../cli"
-import { collectCoverage } from "./collect"
+import { loadShowcasesFromFiles } from "../cli.js"
+import { collectCoverage } from "./collect.js"
 
 const fixtures = `${import.meta.dir}/../../test/fixtures`
 const platform = BunChildProcessSpawner.layer.pipe(

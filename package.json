@@ -1,6 +1,6 @@
 {
   "name": "foldcase",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "The typed, deterministic test loop for Foldkit Showcases. `foldcase test` boots each Showcase headlessly and asserts on the Model, `foldcase docs` tables its Model/Message schemas, and `foldcase mcp` serves the catalog to an agent.",
   "keywords": [
     "foldkit",
@@ -27,18 +27,35 @@
   ],
   "type": "module",
   "bin": {
-    "foldcase": "./src/main.ts"
+    "foldcase": "./dist/main.js",
+    "foldcase-bun": "./dist/main.bun.js"
   },
   "exports": {
-    ".": "./src/runner.ts",
-    "./cli": "./src/cli.ts",
-    "./mcp": "./src/mcp/server.ts",
-    "./mcp/catalog": "./src/mcp/catalog.ts",
-    "./mcp/tools": "./src/mcp/tools.ts",
+    ".": {
+      "types": "./dist/runner.d.ts",
+      "import": "./dist/runner.js"
+    },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js"
+    },
+    "./mcp": {
+      "types": "./dist/mcp/server.d.ts",
+      "import": "./dist/mcp/server.js"
+    },
+    "./mcp/catalog": {
+      "types": "./dist/mcp/catalog.d.ts",
+      "import": "./dist/mcp/catalog.js"
+    },
+    "./mcp/tools": {
+      "types": "./dist/mcp/tools.d.ts",
+      "import": "./dist/mcp/tools.js"
+    },
     "./package.json": "./package.json"
   },
+  "sideEffects": false,
   "files": [
-    "src",
+    "dist",
     "README.md",
     "LICENSE",
     "NOTICE"
@@ -47,6 +64,7 @@
     "access": "public"
   },
   "engines": {
+    "node": ">=22.18.0",
     "bun": ">=1.3.14"
   },
   "peerDependencies": {

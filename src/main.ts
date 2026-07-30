@@ -16,8 +16,8 @@ import { registerHooks } from "node:module"
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import * as Effect from "effect/Effect"
 
-import { run } from "./program"
-import { resolveTypeScriptSource } from "./shell/nodeResolution"
+import { run } from "./program.js"
+import { resolveTypeScriptSource } from "./shell/nodeResolution.js"
 
 registerHooks({ resolve: resolveTypeScriptSource })
 

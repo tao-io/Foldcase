@@ -3,9 +3,9 @@ import { BunFileSystem } from "@effect/platform-bun"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 
-import type { Showcase } from "../runner"
-import { RawCoverage, ScriptHit } from "./coverage"
-import { buildCoverageReport, CoverageReport, FileCoverage, formatCoverage, overallLines } from "./report"
+import type { Showcase } from "../runner.js"
+import { RawCoverage, ScriptHit } from "./coverage.js"
+import { buildCoverageReport, CoverageReport, FileCoverage, formatCoverage, overallLines } from "./report.js"
 
 /** A declared Showcase, reduced to what the coverage projection reads: its id. */
 const showcase = (id: string): Showcase => ({ id, play: () => {} })

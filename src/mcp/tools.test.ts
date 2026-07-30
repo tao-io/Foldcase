@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
-import type { Showcase } from "../runner"
-import { makeCatalog } from "./catalog"
-import { FoldcaseToolkit, makeHandlers } from "./tools"
+import type { Showcase } from "../runner.js"
+import { makeCatalog } from "./catalog.js"
+import { FoldcaseToolkit, makeHandlers } from "./tools.js"
 
 const passing: Showcase = { id: "sample/passes", play: () => {} }
 const withSchema: Showcase = {

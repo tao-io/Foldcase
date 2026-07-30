@@ -6,14 +6,14 @@ import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 
-import type { Showcase } from "../runner"
+import type { Showcase } from "../runner.js"
 import {
   introspectDocument,
   messageVariants,
   modelFields,
   renderMessageTable,
   renderModelTable,
-} from "./schema-table"
+} from "./schema-table.js"
 
 /** A rendered autodoc for one Showcase: its id and the Markdown Schema tables. */
 export class ShowcaseDoc extends Schema.Class<ShowcaseDoc>("ShowcaseDoc")({
