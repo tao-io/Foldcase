@@ -51,16 +51,21 @@
   },
   "peerDependencies": {
     "@effect/platform-bun": ">=4.0.0-beta.90",
+    "@effect/platform-node": ">=4.0.0-beta.90",
     "effect": ">=4.0.0-beta.90"
   },
   "peerDependenciesMeta": {
     "@effect/platform-bun": {
+      "optional": true
+    },
+    "@effect/platform-node": {
       "optional": true
     }
   },
   "devDependencies": {
     "@effect/language-service": "^0.86.2",
     "@effect/platform-bun": "4.0.0-beta.90",
+    "@effect/platform-node": "4.0.0-beta.90",
     "@types/bun": "latest",
     "effect": "4.0.0-beta.90",
     "oxlint": "1.71.0",

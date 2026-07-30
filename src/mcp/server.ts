@@ -1,8 +1,10 @@
-import { BunFileSystem, BunPath, BunStdio } from "@effect/platform-bun"
 import type * as Config from "effect/Config"
+import type * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
+import type * as Path from "effect/Path"
 import type { PlatformError } from "effect/PlatformError"
+import type * as Stdio from "effect/Stdio"
 import { McpServer } from "effect/unstable/ai"
 
 import { FoldcaseCatalog } from "./catalog"
@@ -14,6 +16,10 @@ const SERVER_VERSION = "0.1.0"
 
 /**
  * The `foldcase mcp` catalog server as a launchable Layer, over stdio.
+ *
+ * Runtime-agnostic: the FileSystem, Path and Stdio implementations come from
+ * the context, so the same Layer launches under Bun and under Node. Only the
+ * shells (`src/main.ts`, `src/main.bun.ts`) name a runtime.
  *
  * Registers the {@link FoldcaseToolkit} verbs (list / get-schema / run) against
  * the {@link FoldcaseCatalog} loaded from `FOLDCASE_SHOWCASE_DIR`, and runs the
@@ -27,13 +33,11 @@ const SERVER_VERSION = "0.1.0"
  */
 export const FoldcaseMcpServer: Layer.Layer<
   never,
-  ShowcaseModuleError | PlatformError | Config.ConfigError
+  ShowcaseModuleError | PlatformError | Config.ConfigError,
+  FileSystem.FileSystem | Path.Path | Stdio.Stdio
 > = McpServer.toolkit(FoldcaseToolkit).pipe(
   Layer.provideMerge(FoldcaseHandlers),
   Layer.provide(FoldcaseCatalog.layer),
   Layer.provide(McpServer.layerStdio({ name: SERVER_NAME, version: SERVER_VERSION })),
-  Layer.provide(BunStdio.layer),
-  Layer.provide(BunFileSystem.layer),
-  Layer.provide(BunPath.layer),
   Layer.provide(Layer.succeed(Logger.LogToStderr)(true)),
 )

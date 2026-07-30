@@ -441,9 +441,9 @@ describe("ADR-0001 — every surface derives from the definition", () => {
       "src/coverage/collect.ts",
       "src/coverage/report.ts",
       "src/docs/generate.ts",
-      "src/main.ts",
       "src/mcp/catalog.ts",
       "src/mcp/tools.ts",
+      "src/program.ts",
     ])
   })
 })

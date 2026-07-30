@@ -156,3 +156,114 @@ bundled*. Consequences, stated plainly rather than hidden:
    dev server. Foldkit's own tooling is Vite-based, which collides with the toolchain
    fence above. Whether the lab lives here, in a sibling package, or is dropped is
    undecided.
+
+## Amendment 1 — 2026-07-31: a runtime-agnostic core, thin per-runtime shells
+
+Open question 2 above — *"Should Foldcase publish a transpiled, Node-runnable build next
+to the Bun-native source?"* — is now answered **yes**, and it is the amendment this ADR
+predicted would come first. The record below stands as written; this section says what
+changed and why. The decision has three parts.
+
+### 1. The runtime fence moves
+
+The original fence was **"Bun only"**. It is now **a runtime-agnostic core plus thin
+per-runtime shells**:
+
+- **The core is runtime-agnostic Effect.** `src/runner.ts`, `src/cli.ts`, `src/program.ts`,
+  `src/docs/*`, `src/mcp/*` and `src/coverage/*` name no runtime. The platform services
+  they need — `FileSystem`, `Path`, `ChildProcessSpawner`, `Stdio` — arrive from the Effect
+  context, and `src/program.ts` *returns* the exit code rather than writing to `process`.
+- **A shell binds exactly one runtime.** `src/main.ts` is the Node shell
+  (`@effect/platform-node`, `NodeRuntime`, `NodeServices.layer`); `src/main.bun.ts` is the
+  Bun shell (`@effect/platform-bun`, `BunRuntime`, `BunServices.layer`). Each is about
+  fifteen lines: bind a runtime, hand the program `process.argv`, write back the exit code.
+  Logic that appears in a shell is a bug.
+- **The one thing a shell may know is its own runtime's quirks.** Node strips TypeScript
+  types but does not rewrite relative specifiers, so a showcase importing `./Button` or
+  `./Button.js` does not resolve there; the Node shell installs a `registerHooks` resolver
+  for it. Bun resolves both itself and its shell installs nothing. The *policy* (which
+  candidates to try) lives in `src/shell/nodeResolution.ts` and is unit-tested; only the
+  `node:module` call sits in the shell.
+
+This also settles the third contradiction the port found: `@effect/platform-bun` was
+declared an **optional** peer while `src/main.ts` and `src/mcp/server.ts` imported it
+unconditionally, so the `bin` hard-required an optional dependency. Now the MCP server
+Layer takes `FileSystem | Path | Stdio` from the context like everything else, both
+platform packages are optional peers, and each is optional *truthfully*: a consumer needs
+only the one their shell runs, and the library entry points (`foldcase`, `foldcase/cli`,
+`foldcase/mcp`) need neither.
+
+### 2. The published artifact is a `tsc`-built `dist/`, not `.ts` source
+
+`exports` and `bin` used to point at `src/*.ts`, which only Bun can consume. They now point
+at `dist/*.js` with a `.d.ts` beside each, in the same `{ "types", "import" }` shape the
+Foldkit package itself publishes — which is what makes it installable from npm and usable
+from Node and Vite as well as Bun. `files` ships `dist`, `engines` names Node, and the
+version restarts at **`0.1.0`**: nothing was ever published under the `core` line, so the
+clean number wins.
+
+**The build is plain `tsc -b tsconfig.build.json`. No bundler.** This is the part of the
+original fence that *tightens* rather than relaxes:
+
+- **`tsc` is a compiler, not a bundler.** It emits one `.js` + one `.d.ts` per source file
+  and rewrites nothing else, so the published tree is the source tree and a consumer's own
+  bundler (Vite, or none) sees ordinary ESM.
+- **`bun build --compile` is dropped as a release artifact**, and not only on principle. A
+  compiled Bun binary resolves `import(path)` inside its embedded `/$bunfs`, so
+  `./foldcase test <dir>` could never load an external `*.showcase.ts` file: the artifact
+  was broken by construction for the tool's primary command. Loading arbitrary
+  user TypeScript at runtime is what Foldcase *is*, so a single-file binary is the wrong
+  shape for it.
+- **No bundler is a dependency, and none is invoked.** Vite, Vitest, turbo and the rest
+  stay banned exactly as before; `tsc` joins Bun in the toolchain rather than replacing the
+  ban.
+
+`src/coverage/collector.mjs` is copied into `dist/` by the build, because `tsc` moves
+TypeScript and this file is deliberately not TypeScript. It remains the one declared
+non-TypeScript source (see *The one declared exception*).
+
+### 3. What does not change
+
+- **No React, Solid, Vue or Svelte** — in source, in tests, or in `devDependencies`.
+- **No CSF-3.** A catalog is still `export const showcases` in a `*.showcase.ts` file.
+- **No Vite and no Vitest as *our* dependencies.** Foldcase is now *consumable* from a Vite
+  project; it does not become a Vite project.
+- **Effect stays a peer dependency**, so a consumer and Foldcase share one Effect instance.
+- **Bun stays the development toolchain**: `bun test` is the suite, `bun install` the
+  package manager, `mise` the version pin.
+- **TDD stays mandatory**, one vertical slice at a time.
+
+### Consequences
+
+- **The audience cost named in *Consequences* above is paid off.** A Foldkit user on Node +
+  npm/pnpm + Vite can install and run Foldcase. That was the accepted cost of the original
+  decision and the stated trigger for revisiting it.
+- **Two shells is two code paths to keep honest**, so the fence is gated rather than
+  reviewed (below). The shells are small enough that "keep them thin" is checkable by eye,
+  and the gate checks the part that is not.
+- **`foldcase test` under Node needs a Node that strips types** — Node 22.18 or newer,
+  which `engines` states. Under Bun any supported Bun works. Nothing else in the package
+  needs more than Node 18.
+- **`--coverage` still spawns Node**, and now for a second reason: it is the only runtime
+  with programmatic V8 precise coverage. Under the Node shell the spawn is the same runtime
+  the CLI is already running on, which makes the exception less strange, not more.
+
+### Enforcement (added by this amendment)
+
+`test/stack.test.ts` gains three clauses, each proven to fire on a planted violation:
+
+7. **The runtime fence** — only the two declared shells import an `@effect/platform-*`
+   package; each imports exactly the one it is named for; and every package a shell binds
+   is declared in `peerDependencies` *and* marked optional in `peerDependenciesMeta`.
+8. **No bundler** — no bundler is declared as a dependency, and no build task invokes one.
+   `mise.toml`'s `build` task must run `tsc -b`.
+9. **The published shape** — every `exports` subpath is a `{ "types", "import" }` pair
+   pointing into `dist/`, `bin` points into `dist/`, `files` ships `dist` and not `src`,
+   and `engines` names Node.
+
+`test/surface-derivation.test.ts` › *Exports drift* keeps its job across the change: an
+entry point is now checked against **the source it is built from**, and additionally
+against the build output whenever `dist/` is present. A gate that only passed after a build
+would be a trap — green on a developer's machine, red on a clean checkout — so it is the
+mapping from `dist/x.js` back to `src/x.ts` that is always enforced, and the built file on
+top of it when there is one.

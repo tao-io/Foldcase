@@ -300,3 +300,69 @@ describe("ADR-0002 — a .env file", () => {
     expect(dotenvFiles(FILES)).toEqual([])
   })
 })
+
+// ── 7. The runtime fence: a runtime-agnostic core, thin per-runtime shells ───
+//
+// ADR-0002 › Amendment 1 moved the fence from "Bun only" to "one core, many
+// shells". The core is runtime-agnostic Effect; only a shell binds a runtime,
+// and a shell binds exactly one. That is what makes the same `dist/` runnable
+// under Node and under Bun.
+
+/** The declared shells. Adding one is a deliberate edit to this list. */
+const SHELLS: Readonly<Record<string, string>> = {
+  "src/main.ts": "@effect/platform-node",
+  "src/main.bun.ts": "@effect/platform-bun",
+}
+
+const PLATFORM_IMPORT = /(?:from|import)\s*\(?\s*["'`](@effect\/platform-[a-z-]+)["'`]/g
+
+/** Every `@effect/platform-*` package a module imports, deduplicated. */
+export const platformImports = (source: string): ReadonlyArray<string> => [
+  ...new Set([...source.matchAll(PLATFORM_IMPORT)].map((match) => match[1] as string)),
+]
+
+/** The shipped modules: TypeScript under `src/`, minus the co-located tests. */
+const SHIPPED = FILES.filter(
+  (file) => file.startsWith("src/") && file.endsWith(".ts") && !file.endsWith(".test.ts"),
+)
+
+const readSource = (file: string): string => readFileSync(`${REPO_ROOT}/${file}`, "utf8")
+
+describe("ADR-0002 — the runtime fence", () => {
+  test("reads every platform package a module binds, and nothing else", () => {
+    expect(platformImports('import * as Effect from "effect/Effect"')).toEqual([])
+    expect(
+      platformImports('import { NodeRuntime } from "@effect/platform-node"\nimport { NodeServices } from "@effect/platform-node"'),
+    ).toEqual(["@effect/platform-node"])
+    expect(
+      platformImports('import { BunRuntime } from "@effect/platform-bun"\nawait import("@effect/platform-node")'),
+    ).toEqual(["@effect/platform-bun", "@effect/platform-node"])
+  })
+
+  test("only the declared shells bind a runtime", () => {
+    const binders = SHIPPED.filter((file) => platformImports(readSource(file)).length > 0)
+    expect(binders.toSorted()).toEqual(Object.keys(SHELLS).toSorted())
+  })
+
+  test("each shell binds exactly the one runtime it is named for", () => {
+    for (const [shell, platform] of Object.entries(SHELLS)) {
+      expect(FILES).toContain(shell)
+      expect(platformImports(readSource(shell))).toEqual([platform])
+    }
+  })
+
+  test("every bound platform package is declared an optional peer", () => {
+    // The core needs neither package, and a consumer only needs the one their
+    // shell uses — so both are optional peers, and `peerDependenciesMeta` has
+    // to say so for each. An undeclared or non-optional binding is a lie in the
+    // manifest, which is what this checks.
+    const manifest = PACKAGE_JSON as {
+      peerDependencies?: Record<string, string>
+      peerDependenciesMeta?: Record<string, { optional?: boolean }>
+    }
+    for (const platform of Object.values(SHELLS)) {
+      expect(manifest.peerDependencies?.[platform]).toBeString()
+      expect(manifest.peerDependenciesMeta?.[platform]?.optional).toBe(true)
+    }
+  })
+})
