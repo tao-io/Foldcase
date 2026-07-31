@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import { Tool } from "effect/unstable/ai"
 
 import type { Showcase } from "../runner.js"
 import { makeCatalog } from "./catalog.js"
@@ -24,6 +26,22 @@ describe("FoldcaseToolkit", () => {
         "foldcase_run_showcase",
       ]),
     )
+  })
+
+  test("every verb is annotated read-only, non-destructive and closed-world", () => {
+    // The three verbs read the declared catalog and run a `play` in-process.
+    // Effect's defaults are the opposite (`destructiveHint: true`,
+    // `readOnlyHint: false`, `openWorldHint: true`), and an MCP host reads those
+    // hints to decide whether a tool needs confirmation — so an unannotated
+    // Foldcase tool asks the user's permission to read a file listing.
+    for (const tool of Object.values(FoldcaseToolkit.tools)) {
+      expect([tool.name, Context.get(tool.annotations, Tool.Readonly)]).toEqual([tool.name, true])
+      expect([tool.name, Context.get(tool.annotations, Tool.Destructive)]).toEqual([
+        tool.name,
+        false,
+      ])
+      expect([tool.name, Context.get(tool.annotations, Tool.OpenWorld)]).toEqual([tool.name, false])
+    }
   })
 })
 

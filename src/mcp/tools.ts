@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { Tool, Toolkit } from "effect/unstable/ai"
 
+
 import { ShowcaseReport } from "../runner.js"
 import {
   CatalogListing,
@@ -24,12 +25,22 @@ class ShowcaseIdInput extends Schema.Class<ShowcaseIdInput>("ShowcaseIdInput")({
  * Enumerate the Showcase catalog. The static, headless counterpart to
  * devtools-mcp's live `foldkit_list_runtimes`: it says *which* Showcases exist
  * (from the `*.showcase.ts` files) so an agent can pick one to inspect or run.
+ *
+ * Every verb below carries the same three hints, because every verb reads the
+ * declared catalog and writes nothing. Effect's unannotated defaults are the
+ * opposite — `readOnlyHint: false`, `destructiveHint: true`,
+ * `openWorldHint: true` — and an MCP host reads those hints when it decides
+ * whether a call needs the user's confirmation, so leaving them unset makes
+ * listing a catalog look like a destructive act on the open world.
  */
 const ListShowcases = Tool.make("foldcase_list_showcases", {
   description:
     "List every Showcase in the catalog, each flagged with whether it carries an introspectable Message schema. The entry point for driving Foldcase: enumerate, then foldcase_get_showcase_schema to learn a Message payload shape, then foldcase_run_showcase to assert its play.",
   success: CatalogListing,
 })
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
 
 /**
  * Introspect a Showcase's Message-union Schema into a JSON Schema document so an
@@ -44,6 +55,9 @@ const GetShowcaseSchema = Tool.make("foldcase_get_showcase_schema", {
   success: ShowcaseSchema,
   failure: Schema.Union([ShowcaseNotFoundError, NoMessageSchemaError]),
 })
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
 
 /**
  * Run a Showcase's `play` headlessly and report the typed pass/fail. Composes
@@ -58,6 +72,12 @@ const RunShowcase = Tool.make("foldcase_run_showcase", {
   success: ShowcaseReport,
   failure: ShowcaseNotFoundError,
 })
+  // Read-only in the sense the MCP hint means: a `play` asserts on a pure
+  // `update` and leaves no trace outside this process. It is also closed-world
+  // — it can only reach the Showcases the catalog declares.
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
 
 /** The Foldcase catalog toolkit: the three verbs the MCP server exposes. */
 export const FoldcaseToolkit = Toolkit.make(ListShowcases, GetShowcaseSchema, RunShowcase)
