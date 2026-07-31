@@ -15,9 +15,19 @@ import {
   renderModelTable,
 } from "./schema-table.js"
 
-/** A rendered autodoc for one Showcase: its id and the Markdown Schema tables. */
-export class ShowcaseDoc extends Schema.Class<ShowcaseDoc>("ShowcaseDoc")({
-  id: Schema.String,
+/**
+ * A rendered autodoc for one component: its name, the Showcase ids it was
+ * derived from, and the Markdown Schema tables.
+ *
+ * A *component* is the set of Showcases that declare the same Message and Model
+ * schemas — which, in a real showcase file, is every Showcase of one component,
+ * because they share the declared schema objects. Keying the output on the
+ * Showcase id instead produced one identical file per Showcase: five files for
+ * a component with five Showcases, differing only in their title.
+ */
+export class ComponentDoc extends Schema.Class<ComponentDoc>("ComponentDoc")({
+  component: Schema.String,
+  showcases: Schema.Array(Schema.String),
   markdown: Schema.String,
 }) {}
 
@@ -42,27 +52,90 @@ const modelSection = Effect.fn("foldcase.docs.modelSection")(function* (showcase
 })
 
 /**
- * Render one Showcase's autodoc: a titled Markdown document with a Message
- * Schema table and/or a Model Schema table. A Showcase declaring neither is
- * documented with a graceful note, not treated as a failure. Fails
- * {@link SchemaIntrospectionError} only when a declared Schema cannot be
- * introspected.
+ * The name of the component a group of Showcases documents: the `/`-separated
+ * id namespace they all share (`ui/picker/initial` + `ui/picker/filtering` →
+ * `ui/picker`). A lone Showcase keeps its whole id, so a one-Showcase component
+ * is named exactly as it was before. Ids with nothing in common fall back to
+ * the first of them, so the name is always something a reader can look up.
  */
-export const renderShowcaseDoc = Effect.fn("foldcase.docs.renderShowcaseDoc")(function* (
-  showcase: Showcase,
-) {
-  const message = yield* messageSection(showcase)
-  const model = yield* modelSection(showcase)
-  const sections = Arr.getSomes([message, model])
-  const body = Arr.isReadonlyArrayEmpty(sections) ? NO_SCHEMA_NOTE : sections.join("\n\n")
-  return new ShowcaseDoc({ id: showcase.id, markdown: `# ${showcase.id}\n\n${body}\n` })
-})
+const componentName = (showcases: ReadonlyArray<Showcase>): string => {
+  const segments = showcases.map((showcase) => showcase.id.split("/"))
+  const first = segments[0] ?? []
+  const shared = first.filter((segment, index) =>
+    segments.every((candidate) => candidate[index] === segment),
+  )
+  return shared.length === 0 ? (showcases[0]?.id ?? "") : shared.join("/")
+}
+
+/**
+ * Whether two Showcases document the same component: they declare the very same
+ * Message and Model schemas. Declaring *nothing* is not a match — two opaque
+ * Showcases have no reason to share a document just because neither says
+ * anything.
+ */
+const sameComponent = (left: Showcase, right: Showcase): boolean =>
+  (left.message !== undefined || left.model !== undefined) &&
+  left.message === right.message &&
+  left.model === right.model
+
+/**
+ * Group Showcases into components, keeping the first-seen order of each group.
+ * The grouping is by declaration, not by position, so a component whose
+ * Showcases are split across files still lands in one document.
+ */
+const componentsOf = (
+  showcases: ReadonlyArray<Showcase>,
+): ReadonlyArray<ReadonlyArray<Showcase>> => {
+  const groups: Array<Array<Showcase>> = []
+  for (const showcase of showcases) {
+    const group = groups.find((candidate) => sameComponent(candidate[0] as Showcase, showcase))
+    if (group === undefined) {
+      groups.push([showcase])
+    } else {
+      group.push(showcase)
+    }
+  }
+  return groups
+}
 
 const byId = Order.mapInput(Order.String, (showcase: Showcase) => showcase.id)
 
-/** A Showcase autodoc written to disk: its Showcase id and the absolute file path. */
+/**
+ * Render one component's autodoc: a titled Markdown document with a Message
+ * Schema table and/or a Model Schema table. Every Showcase in the group
+ * declares the same schemas, so the tables are read from the first of them and
+ * the rest are listed by id. A component declaring neither schema is documented
+ * with a graceful note, not treated as a failure. Fails
+ * {@link SchemaIntrospectionError} only when a declared Schema cannot be
+ * introspected.
+ */
+export const renderComponentDoc = Effect.fn("foldcase.docs.renderComponentDoc")(function* (
+  group: ReadonlyArray<Showcase>,
+) {
+  const showcases = Arr.sort(group, byId)
+  const head = showcases[0] as Showcase
+  const message = yield* messageSection(head)
+  const model = yield* modelSection(head)
+  const sections = Arr.getSomes([message, model])
+  const body = Arr.isReadonlyArrayEmpty(sections) ? NO_SCHEMA_NOTE : sections.join("\n\n")
+  const component = componentName(showcases)
+  // With the ids out of the filename, the document is the only place that says
+  // which Showcases stand behind these tables. A lone Showcase is already named
+  // by the title, so listing it again would be noise.
+  const covered =
+    showcases.length === 1
+      ? []
+      : [`Showcases: ${showcases.map((showcase) => `\`${showcase.id}\``).join(", ")}`]
+  return new ComponentDoc({
+    component,
+    showcases: showcases.map((showcase) => showcase.id),
+    markdown: [`# ${component}`, ...covered, body].join("\n\n") + "\n",
+  })
+})
+
+/** A component autodoc written to disk: the component name and the absolute path. */
 export class WrittenDoc extends Schema.Class<WrittenDoc>("WrittenDoc")({
-  id: Schema.String,
+  component: Schema.String,
   path: Schema.String,
 }) {}
 
@@ -71,13 +144,13 @@ export class WrittenDoc extends Schema.Class<WrittenDoc>("WrittenDoc")({
 const slug = (id: string): string => id.replaceAll(/[^a-zA-Z0-9._-]+/g, "-")
 
 /**
- * Write one `<slug(id)>.md` file per Showcase autodoc into `outDir` (created
- * recursively), returning a {@link WrittenDoc} per file in input order. The
- * imperative shell resolves `outDir` from a CLI argument / Config.
+ * Write one `<slug(component)>.md` file per component autodoc into `outDir`
+ * (created recursively), returning a {@link WrittenDoc} per file in input
+ * order. The imperative shell resolves `outDir` from a CLI argument / Config.
  */
-export const writeShowcaseDocs = Effect.fn("foldcase.docs.writeShowcaseDocs")(function* (
+export const writeComponentDocs = Effect.fn("foldcase.docs.writeComponentDocs")(function* (
   outDir: string,
-  docs: ReadonlyArray<ShowcaseDoc>,
+  docs: ReadonlyArray<ComponentDoc>,
 ) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
@@ -87,21 +160,26 @@ export const writeShowcaseDocs = Effect.fn("foldcase.docs.writeShowcaseDocs")(fu
     docs,
     (doc) =>
       Effect.gen(function* () {
-        const file = path.join(dir, `${slug(doc.id)}.md`)
+        const file = path.join(dir, `${slug(doc.component)}.md`)
         yield* fs.writeFileString(file, doc.markdown)
-        return new WrittenDoc({ id: doc.id, path: file })
+        return new WrittenDoc({ component: doc.component, path: file })
       }),
     { concurrency: 1 },
   )
 })
 
+const byComponent = Order.mapInput(Order.String, (doc: ComponentDoc) => doc.component)
+
 /**
- * Render an autodoc per Showcase, sorted by id for deterministic output. Fails
- * {@link SchemaIntrospectionError} if any Showcase's declared Schema is
+ * Render an autodoc per component, sorted by name for deterministic output.
+ * Fails {@link SchemaIntrospectionError} if any declared Schema is
  * un-introspectable.
  */
-export const generateShowcaseDocs = Effect.fn("foldcase.docs.generateShowcaseDocs")(function* (
+export const generateComponentDocs = Effect.fn("foldcase.docs.generateComponentDocs")(function* (
   showcases: ReadonlyArray<Showcase>,
 ) {
-  return yield* Effect.forEach(Arr.sort(showcases, byId), renderShowcaseDoc, { concurrency: 1 })
+  const docs = yield* Effect.forEach(componentsOf(showcases), renderComponentDoc, {
+    concurrency: 1,
+  })
+  return Arr.sort(docs, byComponent)
 })

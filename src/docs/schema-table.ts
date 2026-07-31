@@ -26,6 +26,14 @@ class JsonNode extends Schema.Class<JsonNode>("JsonNode")({
   anyOf: Schema.optional(Schema.Array(Schema.suspend((): Schema.Codec<JsonNode> => JsonNode))),
   enum: Schema.optional(Schema.Array(Schema.Unknown)),
   $ref: Schema.optional(Schema.String),
+  /**
+   * The declared type's own name, carried over from the Schema's `expected`
+   * annotation by {@link introspectDocument}. It is the only thing in the
+   * document that survives the encoding: a `Duration` field is a number or a
+   * tagged union once serialized, and its name is the fact a Model table exists
+   * to report.
+   */
+  expected: Schema.optional(Schema.String),
 }) {}
 
 /**
@@ -54,8 +62,18 @@ export class SchemaIntrospectionError extends Schema.TaggedErrorClass<SchemaIntr
 const decodeDocument = Schema.decodeUnknownEffect(JsonSchemaDocument)
 
 /**
- * Introspect a Schema into a decoded {@link JsonSchemaDocument}, reusing the
- * same `Schema.toJsonSchemaDocument` path the Phase-1.2 catalog server uses.
+ * Introspect a Schema into a decoded {@link JsonSchemaDocument}.
+ *
+ * Two deliberate departures from the plain `Schema.toJsonSchemaDocument` the
+ * MCP catalog serves:
+ *
+ * - **`Schema.toType`** — the *decoded* side, the Model and Message a Foldkit
+ *   app actually holds, rather than the wire form. A table documenting a Model
+ *   should say `Duration`, not the number it serializes to.
+ * - **`includeAnnotationKey`** for `expected` — the declared type's own name.
+ *   It is the only identity that survives the projection, and it is a supported
+ *   option rather than a reach into the Schema AST.
+ *
  * `id` labels failures so the generator can name the offending Showcase.
  */
 export const introspectDocument = Effect.fn("foldcase.docs.introspectDocument")(function* (
@@ -63,7 +81,10 @@ export const introspectDocument = Effect.fn("foldcase.docs.introspectDocument")(
   schema: Schema.Top,
 ) {
   const raw = yield* Effect.try({
-    try: () => Schema.toJsonSchemaDocument(schema),
+    try: () =>
+      Schema.toJsonSchemaDocument(Schema.toType(schema), {
+        includeAnnotationKey: (key) => key === "expected",
+      }),
     catch: (cause) => new SchemaIntrospectionError({ id, reason: String(cause) }),
   })
   return yield* decodeDocument(raw).pipe(
@@ -101,19 +122,6 @@ const renderEnum = (values: ReadonlyArray<unknown>): string => values.map(render
 const tagOf = (node: JsonNode): Option.Option<string> =>
   Option.fromNullishOr(node.properties?._tag?.enum?.[0]).pipe(Option.filter(P.isString))
 
-/**
- * Effect encodes some named types as a tagged union of their representations,
- * with no title to identify the whole. `Schema.Duration` is the one that shows
- * up in a Foldkit Model: it serializes as `Infinity | NegativeInfinity | Nanos
- * | Millis`, and without this the table fell through to the bare `object`
- * catch-all — a field the reader learns nothing about. The encoding's tag set
- * is the only identity the JSON Schema carries, so it is what we match on.
- */
-const NAMED_TAGGED_ENCODINGS: ReadonlyArray<{
-  readonly tags: ReadonlyArray<string>
-  readonly name: string
-}> = [{ tags: ["Infinity", "NegativeInfinity", "Nanos", "Millis"], name: "Duration" }]
-
 const sameTags = (left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean => {
   const [a, b] = [Arr.sort(left, Order.String), Arr.sort(right, Order.String)]
   return a.length === b.length && a.every((tag, index) => b[index] === tag)
@@ -143,17 +151,6 @@ const optionValueNode = (node: JsonNode): Option.Option<Option.Option<JsonNode>>
 /** Whether a node is an `Option` encoding — an always-present, possibly-empty field. */
 const isOptionNode = (node: JsonNode): boolean => Option.isSome(optionValueNode(node))
 
-/** The name of the encoding a union of tagged branches stands for, if it is one. */
-const namedEncoding = (branches: ReadonlyArray<JsonNode>): Option.Option<string> => {
-  const tags = Arr.getSomes(branches.map(tagOf))
-  if (tags.length !== branches.length) {
-    return Option.none()
-  }
-  return Arr.findFirst(NAMED_TAGGED_ENCODINGS, (encoding) => sameTags(encoding.tags, tags)).pipe(
-    Option.map((encoding) => encoding.name),
-  )
-}
-
 /**
  * Render a JSON Schema node as a compact, human-readable type string. Collapses
  * the `number | "NaN" | "Infinity" | "-Infinity"` encoding Effect emits for a
@@ -178,11 +175,13 @@ export const renderType = (node: JsonNode): string => {
         onSome: renderType,
       })}>`
     }
-    const named = namedEncoding(branches)
-    if (Option.isSome(named)) {
-      return named.value
+    if (node.expected !== undefined) {
+      return node.expected
     }
     return Arr.dedupe(branches.map(renderType)).join(" | ")
+  }
+  if (node.expected !== undefined) {
+    return node.expected
   }
   if (node.enum !== undefined) {
     return renderEnum(node.enum)
@@ -240,8 +239,23 @@ const fieldsOf = (node: JsonNode, excludeTag: boolean): ReadonlyArray<FieldDoc> 
  * Field-level `$ref`s are intentionally left unresolved — a field renders as its
  * definition name (e.g. `Priority`), not an inlined sub-object.
  */
-const resolveRef = (document: JsonSchemaDocument, node: JsonNode): JsonNode =>
-  node.$ref === undefined ? node : (document.definitions[refName(node.$ref)] ?? node)
+const resolveRef = (document: JsonSchemaDocument, node: JsonNode): JsonNode => {
+  // The chain can be more than one link long: on the decoded side a named class
+  // resolves `M` → `M1`, and only the last link carries the properties. Bounded
+  // by the number of definitions so a self-referential schema cannot loop.
+  let current = node
+  for (let hop = 0; hop <= R.size(document.definitions); hop += 1) {
+    if (current.$ref === undefined) {
+      return current
+    }
+    const next = document.definitions[refName(current.$ref)]
+    if (next === undefined || next === current) {
+      return current
+    }
+    current = next
+  }
+  return current
+}
 
 /** The resolved object nodes of a Message schema: a union's `anyOf` branches, or the lone struct. */
 const objectNodes = (document: JsonSchemaDocument): ReadonlyArray<JsonNode> => {

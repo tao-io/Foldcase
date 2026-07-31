@@ -6,7 +6,7 @@ import * as P from "effect/Predicate"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 
-import { generateShowcaseDocs, type ShowcaseDoc } from "./docs/generate.js"
+import { type ComponentDoc, generateComponentDocs } from "./docs/generate.js"
 import type { SchemaIntrospectionError } from "./docs/schema-table.js"
 import {
   runShowcases,
@@ -171,12 +171,12 @@ export const runCatalog = (load: CatalogLoad): Effect.Effect<SuiteReport> =>
 export const docsFromFiles = (
   paths: ReadonlyArray<string>,
 ): Effect.Effect<
-  { readonly docs: ReadonlyArray<ShowcaseDoc>; readonly failures: CatalogLoad["failures"] },
+  { readonly docs: ReadonlyArray<ComponentDoc>; readonly failures: CatalogLoad["failures"] },
   SchemaIntrospectionError
 > =>
   loadShowcasesFromFiles(paths).pipe(
     Effect.flatMap((load) =>
-      generateShowcaseDocs(load.showcases).pipe(
+      generateComponentDocs(load.showcases).pipe(
         Effect.map((docs) => ({ docs, failures: load.failures })),
       ),
     ),

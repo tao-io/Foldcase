@@ -79,16 +79,25 @@ describe("a `|` inside a rendered type", () => {
 
 class DurationModel extends Schema.Class<DurationModel>("DurationModel")({
   timeout: Schema.Duration,
+  defaultDuration: Schema.DurationFromMillis,
 }) {}
 
 describe("a Duration field", () => {
-  test("documents as Duration, not as the four-branch encoding it serializes to", async () => {
-    // Effect encodes a Duration as a tagged union of its representations
-    // (Infinity | NegativeInfinity | Nanos | Millis) and emits no title for it,
-    // so the table used to fall through to the bare `object` catch-all.
+  test("documents as Duration, not as the encoding it serializes to", async () => {
     const markdown = await Effect.runPromise(modelTableFor(DurationModel))
 
+    // `Schema.Duration` serializes as a tagged union of its representations
+    // (Infinity | NegativeInfinity | Nanos | Millis), which the table used to
+    // render with the bare `object` catch-all.
     expect(cellsOf(rowFor(markdown, "timeout"))).toEqual(["`timeout`", "Duration", "no"])
+    // `Schema.DurationFromMillis` — what a Foldkit Model actually declares —
+    // serializes as a plain number, so the table called it `number`. The field
+    // the Model holds is a Duration, and that is what a Model table documents.
+    expect(cellsOf(rowFor(markdown, "defaultDuration"))).toEqual([
+      "`defaultDuration`",
+      "Duration",
+      "no",
+    ])
   })
 })
 

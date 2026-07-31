@@ -22,7 +22,7 @@ import * as Path from "effect/Path"
 import { discoverShowcaseFiles, docsFromFiles, loadShowcasesFromFiles, runCatalog } from "./cli.js"
 import { collectCoverage } from "./coverage/collect.js"
 import { formatCoverage } from "./coverage/report.js"
-import { writeShowcaseDocs } from "./docs/generate.js"
+import { writeComponentDocs } from "./docs/generate.js"
 import { FoldcaseMcpServer } from "./mcp/server.js"
 import { formatSuite, type Showcase, suiteExitCode } from "./runner.js"
 
@@ -142,7 +142,7 @@ const docs = Effect.fn("foldcase.docs")(function* (
     onNone: () => docsDir,
     onSome: Effect.succeed,
   })
-  const written = yield* writeShowcaseDocs(outDir, generated)
+  const written = yield* writeComponentDocs(outDir, generated)
   yield* Console.log(`foldcase docs: wrote ${written.length} doc(s) to ${outDir}`)
   yield* Effect.forEach(written, (doc) => Console.log(`  ${doc.path}`), {
     concurrency: 1,
