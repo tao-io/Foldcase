@@ -121,24 +121,28 @@ export const makeCatalog = (showcases: ReadonlyArray<Showcase>): FoldcaseCatalog
 /**
  * Discover every `*.showcase.ts` under `dir` and expose them as a catalog.
  * Composes the `foldcase test` discovery + module loader, so the MCP server
- * serves exactly the Showcases `foldcase test` runs. Fails
- * {@link ShowcaseModuleError} on a malformed catalog.
+ * serves exactly the Showcases `foldcase test` runs.
+ *
+ * A file that would not load is logged (to stderr, where the server's logs go)
+ * and the rest are still served: an agent losing the whole catalog because one
+ * module has a bad import is worse than an agent losing that module.
  */
 export const loadCatalogFromDir = (
   dir: string,
-): Effect.Effect<
-  FoldcaseCatalogShape,
-  ShowcaseModuleError | PlatformError,
-  FileSystem.FileSystem | Path.Path
-> =>
+): Effect.Effect<FoldcaseCatalogShape, PlatformError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     // Resolve to an absolute dir first: discovered paths are dynamically
     // imported, and `import()` resolves a relative path against the importing
     // module, not the cwd, so a relative FOLDCASE_SHOWCASE_DIR would not load.
     const path = yield* Path.Path
     const files = yield* discoverShowcaseFiles(path.resolve(dir))
-    const showcases = yield* loadShowcasesFromFiles(files)
-    return makeCatalog(showcases)
+    const load = yield* loadShowcasesFromFiles(files)
+    yield* Effect.forEach(
+      load.failures,
+      (failure) => Effect.logWarning(`foldcase mcp: ${failure.message}`),
+      { concurrency: 1, discard: true },
+    )
+    return makeCatalog(load.showcases)
   })
 
 /** Config key for the directory the catalog server scans. Defaults to the cwd. */

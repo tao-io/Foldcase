@@ -62,4 +62,19 @@ describe("run", () => {
     expect(await exitCodeOf(["docs", `${fixtures}/schema.showcase.ts`, out])).toBe(0)
     await Bun.$`rm -rf ${out}`.quiet()
   })
+
+  test("a directory holding an unloadable module still runs the rest of it", async () => {
+    // `test/malformed` holds only files that will not load; running the whole
+    // of `test/` mixes them with the working fixtures. One bad module used to
+    // abort the process before any of the good ones were attempted.
+    expect(await exitCodeOf(["test", `${import.meta.dir}/../test`])).toBe(1)
+  })
+
+  test("docs over an unloadable module writes what it can and exits non-zero", async () => {
+    const out = `${import.meta.dir}/../runtime-test-docs-partial`
+    expect(
+      await exitCodeOf(["docs", `${import.meta.dir}/../test/malformed`, out]),
+    ).toBe(1)
+    await Bun.$`rm -rf ${out}`.quiet()
+  })
 })

@@ -19,12 +19,12 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 
-import { discoverShowcaseFiles, docsFromFiles, loadShowcasesFromFiles } from "./cli.js"
+import { discoverShowcaseFiles, docsFromFiles, loadShowcasesFromFiles, runCatalog } from "./cli.js"
 import { collectCoverage } from "./coverage/collect.js"
 import { formatCoverage } from "./coverage/report.js"
 import { writeShowcaseDocs } from "./docs/generate.js"
 import { FoldcaseMcpServer } from "./mcp/server.js"
-import { formatSuite, runShowcases, type Showcase, suiteExitCode } from "./runner.js"
+import { formatSuite, type Showcase, suiteExitCode } from "./runner.js"
 
 /** The one-line usage banner, printed to stderr for an unknown subcommand. */
 export const usage =
@@ -116,11 +116,13 @@ const test = Effect.fn("foldcase.test")(function* (target: string, coverage: boo
   }
   // Load once: the suite runs the loaded catalog and coverage projects it, so
   // both surfaces see exactly the same Showcase records (ADR-0001, one loader).
-  const showcases = yield* loadShowcasesFromFiles(files)
-  const suite = yield* runShowcases(showcases)
+  // A file that would not load is a failed entry in the suite, not the end of
+  // the run — the other files still have results worth having.
+  const load = yield* loadShowcasesFromFiles(files)
+  const suite = yield* runCatalog(load)
   yield* Console.log(formatSuite(suite))
   if (coverage) {
-    yield* reportCoverage(root, files, showcases)
+    yield* reportCoverage(root, files, load.showcases)
   }
   return suiteExitCode(suite)
 })
@@ -135,7 +137,7 @@ const docs = Effect.fn("foldcase.docs")(function* (
   if (Arr.isReadonlyArrayEmpty(files)) {
     return yield* noShowcases(target)
   }
-  const generated = yield* docsFromFiles(files)
+  const { docs: generated, failures } = yield* docsFromFiles(files)
   const outDir = yield* Option.match(outOverride, {
     onNone: () => docsDir,
     onSome: Effect.succeed,
@@ -146,7 +148,13 @@ const docs = Effect.fn("foldcase.docs")(function* (
     concurrency: 1,
     discard: true,
   })
-  return 0
+  // Documenting what loaded is worth doing, but a file that would not load is
+  // missing from the output — say which, and let the exit code say it too.
+  yield* Effect.forEach(failures, (failure) => Console.error(`foldcase docs: ${failure.message}`), {
+    concurrency: 1,
+    discard: true,
+  })
+  return Arr.isReadonlyArrayEmpty(failures) ? 0 : 1
 })
 
 /**

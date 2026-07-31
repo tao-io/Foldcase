@@ -23,7 +23,7 @@ describe("collectCoverage", () => {
       const files = [`${fixtures}/sample.showcase.ts`]
       const report = await Effect.runPromise(
         loadShowcasesFromFiles(files).pipe(
-          Effect.flatMap((showcases) => collectCoverage(fixtures, files, showcases)),
+          Effect.flatMap((load) => collectCoverage(fixtures, files, load.showcases)),
           Effect.provide(platform),
         ),
       )
@@ -47,7 +47,7 @@ describe("collectCoverage", () => {
       const files = [`${fixtures}/counter-logic.showcase.ts`]
       const report = await Effect.runPromise(
         loadShowcasesFromFiles(files).pipe(
-          Effect.flatMap((showcases) => collectCoverage(fixtures, files, showcases)),
+          Effect.flatMap((load) => collectCoverage(fixtures, files, load.showcases)),
           Effect.provide(platform),
         ),
       )
@@ -75,7 +75,7 @@ describe("collectCoverage", () => {
       const files = [`${uncollectable}/dir-import.showcase.ts`]
       const report = await Effect.runPromise(
         loadShowcasesFromFiles(files).pipe(
-          Effect.flatMap((showcases) => collectCoverage(uncollectable, files, showcases)),
+          Effect.flatMap((load) => collectCoverage(uncollectable, files, load.showcases)),
           Effect.provide(platform),
         ),
       )

@@ -109,22 +109,28 @@ export class SuiteReport extends Schema.Class<SuiteReport>("SuiteReport")({
 }) {}
 
 /**
+ * Roll a set of per-Showcase reports into one {@link SuiteReport}, in the order
+ * given. Kept separate from {@link runShowcases} because not every report comes
+ * from a `play`: a `*.showcase.ts` that would not load is reported for the file
+ * itself, and it belongs in the same suite verdict.
+ */
+export const suiteOf = (reports: ReadonlyArray<ShowcaseReport>): SuiteReport => {
+  const passed = reports.filter((report) => report.status === "passed").length
+  return new SuiteReport({
+    total: reports.length,
+    passed,
+    failed: reports.length - passed,
+    reports,
+  })
+}
+
+/**
  * Run every Showcase and roll the results into one {@link SuiteReport}.
  * Runs sequentially so report order matches input order, and never
  * short-circuits — a failing Showcase is recorded, not thrown.
  */
 export const runShowcases = (showcases: ReadonlyArray<Showcase>): Effect.Effect<SuiteReport> =>
-  Effect.forEach(showcases, runShowcase, { concurrency: 1 }).pipe(
-    Effect.map((reports) => {
-      const passed = reports.filter((report) => report.status === "passed").length
-      return new SuiteReport({
-        total: reports.length,
-        passed,
-        failed: reports.length - passed,
-        reports,
-      })
-    }),
-  )
+  Effect.forEach(showcases, runShowcase, { concurrency: 1 }).pipe(Effect.map(suiteOf))
 
 // REPORTING
 

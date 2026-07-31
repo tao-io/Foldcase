@@ -8,7 +8,14 @@ import * as Schema from "effect/Schema"
 
 import { generateShowcaseDocs, type ShowcaseDoc } from "./docs/generate.js"
 import type { SchemaIntrospectionError } from "./docs/schema-table.js"
-import { runShowcases, type Showcase, type SuiteReport } from "./runner.js"
+import {
+  runShowcases,
+  SerializedError,
+  type Showcase,
+  ShowcaseReport,
+  suiteOf,
+  type SuiteReport,
+} from "./runner.js"
 
 const SHOWCASE_SUFFIX = ".showcase.ts"
 
@@ -95,35 +102,82 @@ const loadShowcaseFile = (
   }).pipe(Effect.flatMap((module) => readShowcases(path, module)))
 
 /**
- * Load every showcase file and collect their Showcases in file order. Fails
- * with a {@link ShowcaseModuleError} if any file is missing or malformed (a
- * broken catalog is not a test result). Shared by `foldcase test` (run them)
- * and `foldcase mcp` (serve them as a catalog).
+ * What one pass of the loader produced: the Showcases it read, in file order,
+ * and the files it could not read at all.
+ *
+ * A file that will not load is **data**, not an Effect failure. It used to be
+ * one, and the cost was the whole point of running a suite: a single
+ * `*.showcase.ts` with a bad import aborted the run, so none of the other files
+ * were even attempted and the user learned nothing about them. Every surface
+ * now decides what a failure means for it — `test` reports it as a failed file
+ * and exits non-zero, `docs` says so on stderr, `mcp` warns and serves the rest.
+ */
+export interface CatalogLoad {
+  readonly showcases: ReadonlyArray<Showcase>
+  readonly failures: ReadonlyArray<ShowcaseModuleError>
+}
+
+/**
+ * Load every showcase file, collecting their Showcases in file order and the
+ * load failures beside them. Never fails: one unreadable file must not decide
+ * the fate of the others. Shared by `foldcase test` (run them), `foldcase docs`
+ * (document them) and `foldcase mcp` (serve them as a catalog).
  */
 export const loadShowcasesFromFiles = (
   paths: ReadonlyArray<string>,
-): Effect.Effect<ReadonlyArray<Showcase>, ShowcaseModuleError> =>
-  Effect.forEach(paths, loadShowcaseFile, { concurrency: 1 }).pipe(
-    Effect.map((groups) => groups.flat()),
+): Effect.Effect<CatalogLoad> =>
+  Effect.forEach(paths, (path) => Effect.result(loadShowcaseFile(path)), {
+    concurrency: 1,
+  }).pipe(
+    Effect.map((results) => ({
+      showcases: results.flatMap((result) => (result._tag === "Success" ? result.success : [])),
+      failures: results.flatMap((result) => (result._tag === "Failure" ? [result.failure] : [])),
+    })),
   )
 
 /**
- * Load every showcase file, collect their Showcases in file order, and run the
- * whole set into one {@link SuiteReport}. Fails with a {@link ShowcaseModuleError}
- * if any file is missing or malformed (a broken catalog is not a test result).
+ * The report for a file that never produced a Showcase. It is keyed by the
+ * file's path — there is no id to key it by, because the module that would have
+ * declared one never evaluated.
  */
-export const runSuiteFromFiles = (
-  paths: ReadonlyArray<string>,
-): Effect.Effect<SuiteReport, ShowcaseModuleError> =>
-  loadShowcasesFromFiles(paths).pipe(Effect.flatMap(runShowcases))
+const loadFailureReport = (failure: ShowcaseModuleError): ShowcaseReport =>
+  new ShowcaseReport({
+    id: failure.path,
+    status: "failed",
+    error: new SerializedError({ name: failure._tag, message: failure.reason }),
+  })
 
 /**
- * Load every showcase file and render one autodoc per Showcase (Model/Message
- * Schema tables). Fails {@link ShowcaseModuleError} on a broken catalog, or
- * {@link SchemaIntrospectionError} when a declared Schema can't be introspected.
- * Shared by `foldcase docs` (the imperative shell resolves + writes the output).
+ * Load every showcase file and run the whole set into one {@link SuiteReport}.
+ * A file that would not load is reported as a failed entry for that file, ahead
+ * of the Showcases that did run — so the suite verdict is non-zero and the
+ * reason is on the same page as the results.
+ */
+export const runSuiteFromFiles = (paths: ReadonlyArray<string>): Effect.Effect<SuiteReport> =>
+  loadShowcasesFromFiles(paths).pipe(Effect.flatMap(runCatalog))
+
+/** Run a loaded catalog, folding its load failures into the suite report. */
+export const runCatalog = (load: CatalogLoad): Effect.Effect<SuiteReport> =>
+  runShowcases(load.showcases).pipe(
+    Effect.map((suite) => suiteOf([...load.failures.map(loadFailureReport), ...suite.reports])),
+  )
+
+/**
+ * Load every showcase file and render the Model/Message Schema autodocs. The
+ * `failures` are handed back untouched, so the shell can say which files were
+ * skipped. Fails {@link SchemaIntrospectionError} only when a declared Schema
+ * cannot be introspected.
  */
 export const docsFromFiles = (
   paths: ReadonlyArray<string>,
-): Effect.Effect<ReadonlyArray<ShowcaseDoc>, ShowcaseModuleError | SchemaIntrospectionError> =>
-  loadShowcasesFromFiles(paths).pipe(Effect.flatMap(generateShowcaseDocs))
+): Effect.Effect<
+  { readonly docs: ReadonlyArray<ShowcaseDoc>; readonly failures: CatalogLoad["failures"] },
+  SchemaIntrospectionError
+> =>
+  loadShowcasesFromFiles(paths).pipe(
+    Effect.flatMap((load) =>
+      generateShowcaseDocs(load.showcases).pipe(
+        Effect.map((docs) => ({ docs, failures: load.failures })),
+      ),
+    ),
+  )
