@@ -50,7 +50,9 @@ description = "Compile src/ to dist/ with tsc — .js + .d.ts per file, no bundl
 # running ./dist/main.js directly — npm sets it on `bin` at install time.
 run = """
 set -e
-rm -rf dist
+# The build info must go with dist/. `tsc -b` trusts it over the file system,
+# so a stale one makes it skip emit entirely and leave dist/ empty.
+rm -rf dist tsconfig.build.tsbuildinfo
 bunx tsc -b tsconfig.build.json
 mkdir -p dist/coverage
 cp src/coverage/collector.mjs dist/coverage/collector.mjs
