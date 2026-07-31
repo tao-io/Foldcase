@@ -24,19 +24,39 @@ happened and they flake. Foldkit hands over three things that remove the guessin
 Foldcase is built entirely on those three facts. A Showcase dispatches a typed Message and
 asserts on a deterministic Model — no DOM, no selectors, no waiting.
 
-## Requirements
+## Install
 
-- **[Bun](https://bun.sh) 1.3.14 or newer.** Foldcase is a Bun program: `bun test` is the
-  suite, `bun build --compile` is the release artifact.
+```bash
+npm  install -D foldcase       # or pnpm add -D / yarn add -D
+bun  add     -d foldcase
+```
+
+Foldcase ships as a compiled `dist/` — one `.js` and one `.d.ts` per source file, built by
+plain `tsc`, no bundler — so npm, pnpm, Vite and Bun all consume it as ordinary ESM.
+
+**Two bins, one per runtime:**
+
+| Bin | Runtime | Needs |
+|---|---|---|
+| `foldcase` | Node | Node **22.18** or newer, because it loads your `*.showcase.ts` through Node's own type stripping |
+| `foldcase-bun` | Bun | Bun **1.3.14** or newer |
+
+Both run the same program; only the shell around it differs. `engines` states both, and
+`@effect/platform-node` / `@effect/platform-bun` are **optional** peer dependencies — you
+need only the one your bin uses.
+
+There is **no single-file binary.** `bun build --compile` was dropped as a release
+artifact: a compiled binary resolves `import(path)` inside its own embedded filesystem, so
+it could never load a `*.showcase.ts` from your project — which is the tool's whole job.
+
+### Peer dependencies
+
 - **`effect` v4** — a peer dependency, so your app and Foldcase share one Effect instance.
-- **Node on `PATH`** — only for `foldcase test --coverage`, which is explained below.
+- **Node on `PATH`** — only for `foldcase test --coverage`, explained below. Under the Node
+  bin you already have it.
 
 Foldcase does *not* depend on Foldkit. The `play` thunk is opaque to the runner, so
 Foldkit Showcases run in your app's own closure while Foldcase stays framework-blind.
-
-```bash
-bun add -d foldcase
-```
 
 > Foldcase is alpha. Any patch may break the public API. The package name and import path
 > stay lowercase (`foldcase`) because npm forbids capitals; the tool is **Foldcase**.
@@ -109,6 +129,16 @@ foldcase test button.showcase.ts   # a single file
 2 total · 1 passed · 1 failed
 ```
 
+A `*.showcase.ts` that will not import — a bad path, a missing dependency — is reported as
+a failed entry for that **file**, and the rest of the run continues:
+
+```
+  ✗ src/ui/picker.showcase.ts — Error [ERR_MODULE_NOT_FOUND]: Cannot find module './picker'
+  ✓ counter/click-twice
+
+2 total · 1 passed · 1 failed
+```
+
 #### `--coverage`
 
 Adds a V8 line and function coverage summary of the code each `play` actually executed —
@@ -122,33 +152,55 @@ foldcase test src/ui --coverage
 coverage:
   src/ui/Button.showcase.ts  lines 42/48 (88%)  fns 6/7 (86%)
 
-1 file(s) · lines 42/48 (88%) · fns 6/7 (86%)
+not measured:
+  src/ui/Picker.showcase.ts — Error [ERR_UNSUPPORTED_DIR_IMPORT]: Directory import …
+
+1 file(s) · lines 42/48 (88%) · fns 6/7 (86%) · 1 not measured
 
 by showcase:
   ✓ button/default   lines 30/48 (63%)
   ✓ button/disabled  lines 24/48 (50%)
+  ? picker/open      no coverage collected
 ```
 
-Coverage is **additive**: it never changes the pass/fail exit code, and if it cannot be
-collected you get a warning, not a failure. It needs **Node on `PATH`** and runs from
-source, because Bun exposes no programmatic V8 precise coverage — the measurement is taken
-by a small Node instrument that Foldcase spawns.
+Read the limitations before you rely on it:
+
+- It needs **Node on `PATH`** and runs the measurement in a **spawned Node subprocess**,
+  because Bun exposes no programmatic V8 precise coverage.
+- That subprocess resolves modules the way **Node** does, which is stricter than Bun. A
+  file Bun imports happily can fail there — a directory import is the common one. Such a
+  file is listed under **`not measured:`** with the reason, and counted on the summary
+  line, so a truncated measurement never reads as a whole one.
+- It is **additive**: it never changes the run's pass/fail exit code, and a collection
+  failure is a warning rather than an error.
 
 ### `foldcase docs` — Model and Message tables
 
-Introspects each Showcase's `message` and `model` Schemas into JSON Schema, renders a
-Markdown table per component, and writes one file per Showcase.
+Introspects each component's `message` and `model` Schemas and writes **one Markdown file
+per component**.
 
 ```bash
 foldcase docs src/ui docs/schemas
 foldcase docs                 # output goes to FOLDCASE_DOCS_DIR, default ./foldcase-docs
 ```
 
+A **component** is the set of Showcases that declare the same `message` and `model` — in a
+real showcase file, every Showcase of one component, because they share the declared
+schema objects. The file is named after the id namespace they share, so five Showcases
+under `ui/picker/*` produce one `ui-picker.md` listing the ids behind it — rather than five
+files that differ only in their title.
+
 The Message table is `Message | Field | Type | Optional`, one row per tag and payload
-field. The Model table is `Field | Type | Optional`. Types are readable rather than
-literal: the `number | "NaN" | "Infinity"` encoding collapses to `number`, `Array<T>`
-reads `T[]`, and a named class field resolves to its definition name. Output is sorted, so
-regenerating gives a clean diff.
+field. The Model table is `Field | Type | Optional`. Types describe the value your Model
+**holds**, not the JSON it serializes to: a `Schema.DurationFromMillis` field reads
+`Duration`, not `number`, and a `Schema.Option(T)` field reads `Option<T>` with Optional
+`yes`. Beyond that the `number | "NaN" | "Infinity"` encoding collapses to `number`,
+`Array<T>` reads `T[]`, a named class field resolves to its definition name, and a `|`
+inside a type is escaped so the table survives it. Output is sorted, so regenerating gives
+a clean diff.
+
+A file that will not load is named on stderr and the command exits non-zero; the documents
+it could write are still written.
 
 ### `foldcase mcp` — the catalog for an agent
 
@@ -160,10 +212,20 @@ Serves the catalog to a coding agent over stdio MCP. Three tools:
 | `foldcase_get_showcase_schema` | Introspect a Showcase's Message union into a JSON Schema document, so the agent builds a valid payload by construction. |
 | `foldcase_run_showcase` | Run a Showcase's `play` and return the typed pass/fail report. |
 
+All three are annotated `readOnlyHint: true`, `destructiveHint: false` and
+`openWorldHint: false`, because all three only read the declared catalog and run a pure
+`play` in this process — so a host does not prompt for confirmation to list a catalog.
+
+The whole toolkit is registered before the server reads a byte of stdin, so a host that
+discovers its tools once at startup gets all three from its **first** `tools/list`.
+
 ```bash
 foldcase mcp                                    # point your MCP host's stdio command here
 FOLDCASE_SHOWCASE_DIR=src/ui foldcase mcp       # scan a specific directory
 ```
+
+A showcase file that will not load is logged to stderr and the rest of the catalog is
+served anyway.
 
 This is the **static** half of the loop: which Showcases exist, what their Messages look
 like, and what happens when one runs. It composes with Foldkit's own devtools MCP, which
@@ -175,12 +237,14 @@ result — with no DOM in the path.
 
 | Import | What you get |
 |---|---|
-| `foldcase` | `Showcase`, `runShowcase`, `runShowcases`, the `ShowcaseReport` / `SuiteReport` Schemas, `formatSuite`, `suiteExitCode` |
-| `foldcase/cli` | `discoverShowcaseFiles`, `loadShowcasesFromFiles`, `runSuiteFromFiles`, `docsFromFiles` |
-| `foldcase/mcp` | the launchable stdio server Layer |
+| `foldcase` | `Showcase`, `runShowcase`, `runShowcases`, `suiteOf`, the `ShowcaseReport` / `SuiteReport` Schemas, `formatSuite`, `suiteExitCode` |
+| `foldcase/cli` | `discoverShowcaseFiles`, `loadShowcasesFromFiles`, `runCatalog`, `runSuiteFromFiles`, `docsFromFiles` |
+| `foldcase/mcp` | the launchable stdio server Layer, and `makeFoldcaseMcpServer` over your own catalog Layer |
 
 Every report is a decoded `Schema` value, not a loose object, so a failure is structured
-data you can act on rather than a string you have to parse.
+data you can act on rather than a string you have to parse. `loadShowcasesFromFiles`
+returns `{ showcases, failures }` and never fails, so you decide what an unloadable file
+means for your surface.
 
 ## Status
 
@@ -201,7 +265,13 @@ mise run setup      # once, after installing
 mise run test
 mise run lint
 mise run typecheck
+mise run build      # tsc -b → dist/; the published shape
+mise run smoke      # drive the built dist/ under Node and Bun (after build)
 ```
+
+CI runs exactly these on every push. `mise` pins Bun, oxlint **and Node 22.18.0** — the
+floor `engines` claims — so nothing is tested against whatever Node a machine happened to
+have.
 
 ## License
 

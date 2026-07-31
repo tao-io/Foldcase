@@ -5,12 +5,18 @@ on:
     branches: [core, main]
   pull_request:
 
-# The four checks are exactly the ones AGENTS.md tells you to run locally
-# (`mise run lint` / `typecheck` / `test` / `build`). There is no second CI
-# path, so a green local run is a green CI run. `build` is here because the
-# published artifact is now a compiled `dist/` (ADR-0002 › Amendment 1): a tree
-# that type-checks can still fail to emit, and that must not be found at
-# release time.
+# CI runs what AGENTS.md tells you to run locally and nothing else, so a green
+# local run is a green CI run. Two jobs, because they answer different
+# questions:
+#
+#   check  — is the source right?      lint · typecheck · test, fanned out
+#   build  — is the *artifact* right?  tsc -b, then the built CLI driven under
+#            Node and under Bun (`mise run smoke`)
+#
+# The build job exists because the published thing is a compiled `dist/` with
+# one bin per runtime (ADR-0002 › Amendment 1). A tree that type-checks can
+# still fail to emit, and an emitted tree can still fail to run — neither is
+# something to find out at release time.
 jobs:
   check:
     name: ${{ matrix.task }}
@@ -19,20 +25,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [lint, typecheck, test, build]
+        task: [lint, typecheck, test]
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Install the pinned toolchain
-        # mise.toml is the single source for the bun and oxlint versions.
+        # mise.toml is the single source for the bun, node and oxlint versions.
+        # `node` is pinned to the floor `engines` claims, so the suite's
+        # coverage subprocess runs on the oldest Node this package supports.
         uses: jdx/mise-action@v2
 
       - name: Install dependencies
         # bun.lock is committed, so CI installs exactly what a local run does
         # and a drifted lockfile fails the job instead of being papered over.
-        run: bun install --frozen-lockfile
+        # `mise exec` rather than a bare `bun`, so it is the pinned Bun.
+        run: mise exec -- bun install --frozen-lockfile
 
       - name: Patch tsc for @effect/language-service
         # TypeScript plugins are tsserver-only, so without this the typecheck
@@ -41,3 +50,28 @@ jobs:
 
       - name: ${{ matrix.task }}
         run: mise run ${{ matrix.task }}
+
+  build:
+    name: build + smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: mise exec -- bun install --frozen-lockfile
+
+      - name: Build dist/
+        run: mise run build
+
+      - name: Smoke the built CLI under Node and Bun
+        # Drives `dist/main.js` and `dist/main.bun.js` through the usage banner,
+        # test, --coverage and docs: the only check that proves both bins exist,
+        # load a consumer's TypeScript, spawn the coverage collector out of
+        # `dist/coverage/`, and return the exit codes they promise.
+        run: mise run smoke

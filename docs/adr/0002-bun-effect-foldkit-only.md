@@ -128,9 +128,10 @@ bundled*. Consequences, stated plainly rather than hidden:
 - **`mise run typecheck`** — the patched `tsc` loads `@effect/language-service`, so
   Effect-4 semantic diagnostics (missing error channels, floating Effects, `Schema` over
   `JSON.parse`) ride along with the type check.
-- **`.github/workflows/ci.yml`** — runs `lint`, `typecheck`, and `test` on every push and
-  pull request, under the Bun version `mise.toml` pins. There is no second CI path that
-  could pass with a different toolchain.
+- **`.github/workflows/ci.yml`** — runs `lint`, `typecheck` and `test` on every push and
+  pull request, then builds `dist/` and smoke-runs the built CLI under **both** runtimes
+  (`mise run smoke`), under the Bun and Node versions `mise.toml` pins. There is no second
+  CI path that could pass with a different toolchain.
 - **Judgment, not gated (by design):** "prefer Effect for non-trivial logic" and "one
   vertical slice at a time" are review and convention. A gate can prove React is absent;
   it cannot prove the code is idiomatic.
@@ -260,6 +261,16 @@ non-TypeScript source (see *The one declared exception*).
 9. **The published shape** — every `exports` subpath is a `{ "types", "import" }` pair
    pointing into `dist/`, `bin` points into `dist/`, `files` ships `dist` and not `src`,
    and `engines` names Node.
+
+Two shells and a compiled `dist/` are things a `bun test` run cannot see, so CI grew a
+second job: `mise run build` followed by **`mise run smoke`**, which drives `dist/main.js`
+under Node and `dist/main.bun.js` under Bun through the usage banner, `test`, `--coverage`
+and `docs`. It proves both bins exist and are executable, that each runtime resolves a
+consumer's extensionless TypeScript import, that the coverage collector is really copied
+into `dist/coverage/` and spawns, and that the exit codes are what the README promises.
+`mise.toml` also pins **Node 22.18.0** — the floor `engines` claims and the first release
+with unflagged type stripping — so nothing is tested against whatever Node a machine
+happened to have.
 
 `test/surface-derivation.test.ts` › *Exports drift* keeps its job across the change: an
 entry point is now checked against **the source it is built from**, and additionally

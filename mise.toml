@@ -6,6 +6,12 @@
 
 [tools]
 bun = "1.3.14"
+# The floor `package.json` › `engines.node` claims, pinned so every run proves
+# it. 22.18.0 is the first Node that strips TypeScript types without a flag,
+# which the `foldcase` bin needs to load a consumer's `*.showcase.ts`; it also
+# has `module.registerHooks`, which both that bin and the coverage collector
+# use. An unpinned Node would test whatever the machine happened to have.
+node = "22.18.0"
 # `lint` runs oxlint through `bunx`; pin it here so the mise shim resolves a
 # concrete version (matches the `oxlint` devDependency in package.json).
 "npm:oxlint" = "1.71.0"
@@ -58,4 +64,64 @@ mkdir -p dist/coverage
 cp src/coverage/collector.mjs dist/coverage/collector.mjs
 chmod +x dist/main.js dist/main.bun.js
 echo 'foldcase: built dist/'
+"""
+
+[tasks.smoke]
+description = "Run the built dist/ CLI end to end under BOTH runtimes (needs `mise run build` first)"
+# The suite exercises the program; this exercises the *artifact*. It is the only
+# check that proves the two bins exist, are executable, resolve a consumer's
+# TypeScript, spawn the coverage collector out of `dist/coverage/`, and return
+# the right exit code — none of which a `bun test` run can see.
+run = """
+set -e
+if [ ! -f dist/main.js ] || [ ! -f dist/main.bun.js ]; then
+  echo 'foldcase smoke: no dist/ — run `mise run build` first' >&2
+  exit 1
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+smoke() {
+  label="$1"
+  shift
+  echo "── $label"
+
+  # An unknown subcommand prints the banner and fails.
+  if "$@" tset > "$tmp/out" 2>&1; then
+    echo "$label: an unknown subcommand must exit non-zero" >&2
+    exit 1
+  fi
+  grep -q 'usage: foldcase' "$tmp/out"
+
+  # A passing catalog exits 0 — and loading it proves the runtime resolves a
+  # consumer's extensionless TypeScript import (`./lib/counter`).
+  "$@" test test/fixtures/counter-logic.showcase.ts > "$tmp/out"
+  grep -q '1 total · 1 passed · 0 failed' "$tmp/out"
+
+  # A catalog holding a failing Showcase exits non-zero.
+  if "$@" test test/fixtures > "$tmp/out" 2>&1; then
+    echo "$label: a failing suite must exit non-zero" >&2
+    exit 1
+  fi
+
+  # A file that will not load is reported for that file, not a crash.
+  if "$@" test test/malformed > "$tmp/out" 2>&1; then
+    echo "$label: an unloadable catalog must exit non-zero" >&2
+    exit 1
+  fi
+  grep -q 'bad-message.showcase.ts' "$tmp/out"
+
+  # Coverage spawns the Node instrument copied into dist/coverage/.
+  "$@" test test/fixtures/counter-logic.showcase.ts --coverage > "$tmp/out" 2>&1
+  grep -q 'coverage:' "$tmp/out"
+
+  # docs writes one Markdown file per component.
+  "$@" docs test/fixtures "$tmp/docs" > "$tmp/out"
+  test -f "$tmp/docs/counter-schema.md"
+  rm -rf "$tmp/docs"
+}
+
+smoke 'node dist/main.js' node dist/main.js
+smoke 'bun dist/main.bun.js' bun dist/main.bun.js
+echo 'foldcase: dist/ smoke passed under Node and Bun'
 """

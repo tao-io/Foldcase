@@ -1,7 +1,7 @@
 ---
 type: adr
 title: A Showcase is defined once; every surface is derived from that definition
-description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface.
+description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase.
 status: accepted
 created: 2026-07-31
 updated: 2026-07-31
@@ -208,3 +208,55 @@ coverage, so the two surfaces can no longer disagree about which Showcases exist
 positive half of `test/surface-derivation.test.ts` now lists `src/coverage/collect.ts` and
 `src/coverage/report.ts` among the modules that take `Showcase` from `src/runner.ts`, which
 is the mechanical form of this claim.
+
+## Amendment 2 — 2026-07-31: a file that will not load, and what a doc is keyed on
+
+A dogfooding pass over real Foldkit components found two places where the surfaces did
+less than this ADR promises. Both are settled here. The decision above is unchanged.
+
+### 1. A load failure is data, like a failing play
+
+The ADR says a failing Showcase is a datum and only a broken catalog is a typed failure.
+In practice "a broken catalog" meant *one* file with a bad import, and the typed failure
+aborted the run before any other file was even attempted. Pointed at a directory of 25
+Showcases with one unimportable module, `foldcase test` reported nothing at all.
+
+**Decision: a file that will not load is reported, not fatal.** `loadShowcasesFromFiles`
+returns what it read *and* the failures beside it, and each surface decides:
+
+- **`foldcase test`** reports the file as a failed entry keyed by its path, ahead of the
+  Showcases that ran, and the suite verdict stays non-zero.
+- **`foldcase docs`** writes the documents it could and names the skipped files on stderr,
+  exiting non-zero.
+- **`foldcase mcp`** logs a warning and serves the rest: an agent losing one module is
+  better than an agent losing the catalog.
+
+Only a *target* that does not exist is still a typed failure, because there is nothing to
+partially succeed at.
+
+### 2. A doc is keyed on the component, not on the Showcase
+
+`foldcase docs` wrote one file per Showcase, so a component with five Showcases produced
+five documents identical below the title. The Showcase is the unit of *testing*; the
+component is the unit of *documentation*, and the ADR's own table says the docs surface
+"renders one table per component".
+
+**Decision: a component is the set of Showcases that declare the same `message` and
+`model`.** In a real showcase file that is exactly the Showcases of one component, because
+they share the declared schema objects — so the grouping is derived from the record, not
+from a naming convention. The document is named after the `/`-separated id namespace its
+Showcases share (`ui/picker/*` → `ui-picker.md`) and lists the ids it came from. Showcases
+that declare *neither* schema are never merged: having nothing to say is not a component.
+
+This changes output filenames, which is a breaking change for anyone linking to them.
+
+### 3. The docs surface reads the decoded side
+
+The tables introspected the *encoded* schema, so a Model field declared
+`Schema.DurationFromMillis` documented as `number` and `Schema.Duration` as `object`. A
+Model table exists to say what the Model holds. `src/docs/schema-table.ts` therefore
+introspects `Schema.toType(schema)` and asks `toJsonSchemaDocument` to carry the `expected`
+annotation — the declared type's name, through a supported option rather than a reach into
+the Schema AST. `foldcase mcp` still serves the plain encoded JSON Schema, because an agent
+constructing a payload needs the wire form. Two projections of one declaration, which is
+what this ADR asks for.
