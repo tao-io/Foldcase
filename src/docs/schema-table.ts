@@ -204,6 +204,13 @@ export const modelFields = (document: JsonSchemaDocument): ReadonlyArray<FieldDo
 
 const yesNo = (optional: boolean): string => (optional ? "yes" : "no")
 
+/**
+ * Escape the Markdown column separator inside a cell. A union type renders as
+ * `"Pointer" | "Keyboard"`, and an unescaped `|` there splits one row into five
+ * cells of a three-column table — which breaks the table from that row down.
+ */
+const cell = (text: string): string => text.replaceAll("|", String.raw`\|`)
+
 /** Render the Message variants as a `Message | Field | Type | Optional` table. */
 export const renderMessageTable = (variants: ReadonlyArray<MessageVariant>): string => {
   const header = ["| Message | Field | Type | Optional |", "| --- | --- | --- | --- |"]
@@ -213,7 +220,7 @@ export const renderMessageTable = (variants: ReadonlyArray<MessageVariant>): str
     }
     return variant.fields.map(
       (field) =>
-        `| \`${variant.tag}\` | \`${field.name}\` | ${field.type} | ${yesNo(field.optional)} |`,
+        `| \`${variant.tag}\` | \`${field.name}\` | ${cell(field.type)} | ${yesNo(field.optional)} |`,
     )
   })
   return [...header, ...rows].join("\n")
@@ -226,7 +233,7 @@ export const renderModelTable = (fields: ReadonlyArray<FieldDoc>): string => {
   }
   const header = ["| Field | Type | Optional |", "| --- | --- | --- |"]
   const rows = fields.map(
-    (field) => `| \`${field.name}\` | ${field.type} | ${yesNo(field.optional)} |`,
+    (field) => `| \`${field.name}\` | ${cell(field.type)} | ${yesNo(field.optional)} |`,
   )
   return [...header, ...rows].join("\n")
 }

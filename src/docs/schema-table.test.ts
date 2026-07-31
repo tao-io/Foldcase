@@ -4,6 +4,16 @@ import * as Schema from "effect/Schema"
 
 import { messageTableFor, modelTableFor } from "./schema-table.js"
 
+/** The cells of one Markdown table row, split on unescaped pipes. */
+const cellsOf = (row: string): ReadonlyArray<string> =>
+  row
+    .split(/(?<!\\)\|/)
+    .slice(1, -1)
+    .map((cell) => cell.trim())
+
+const rowFor = (markdown: string, field: string): string =>
+  markdown.split("\n").find((line) => line.includes(`\`${field}\``)) ?? ""
+
 const MessageUnion = Schema.Union([
   Schema.TaggedStruct("Clicked", {}),
   Schema.TaggedStruct("KeyPressed", {
@@ -32,6 +42,38 @@ describe("messageTableFor", () => {
     const shiftRow = markdown.split("\n").find((line) => line.includes("`shift`")) ?? ""
     expect(keyRow).toContain("no")
     expect(shiftRow).toContain("yes")
+  })
+})
+
+// A Model whose field types contain the Markdown column separator: a union of
+// string literals renders as `"Pointer" | "Keyboard"`, which splits the row
+// into five cells in a three-column table and breaks the whole table.
+class TriggerModel extends Schema.Class<TriggerModel>("TriggerModel")({
+  trigger: Schema.Literals(["Pointer", "Keyboard"]),
+}) {}
+
+const TriggerMessage = Schema.Union([
+  Schema.TaggedStruct("Activated", { by: Schema.Literals(["Pointer", "Keyboard"]) }),
+])
+
+describe("a `|` inside a rendered type", () => {
+  test("is escaped in the Model table, so the row keeps its three columns", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(TriggerModel))
+    const row = rowFor(markdown, "trigger")
+
+    expect(cellsOf(row)).toEqual(["`trigger`", String.raw`"Pointer" \| "Keyboard"`, "no"])
+  })
+
+  test("is escaped in the Message table too, so the row keeps its four columns", async () => {
+    const markdown = await Effect.runPromise(messageTableFor(TriggerMessage))
+    const row = rowFor(markdown, "by")
+
+    expect(cellsOf(row)).toEqual([
+      "`Activated`",
+      "`by`",
+      String.raw`"Pointer" \| "Keyboard"`,
+      "no",
+    ])
   })
 })
 
