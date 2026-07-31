@@ -77,6 +77,21 @@ describe("a `|` inside a rendered type", () => {
   })
 })
 
+class DurationModel extends Schema.Class<DurationModel>("DurationModel")({
+  timeout: Schema.Duration,
+}) {}
+
+describe("a Duration field", () => {
+  test("documents as Duration, not as the four-branch encoding it serializes to", async () => {
+    // Effect encodes a Duration as a tagged union of its representations
+    // (Infinity | NegativeInfinity | Nanos | Millis) and emits no title for it,
+    // so the table used to fall through to the bare `object` catch-all.
+    const markdown = await Effect.runPromise(modelTableFor(DurationModel))
+
+    expect(cellsOf(rowFor(markdown, "timeout"))).toEqual(["`timeout`", "Duration", "no"])
+  })
+})
+
 class Priority extends Schema.Class<Priority>("Priority")({ level: Schema.Number }) {}
 
 // A Model as a named `Schema.Class` — `toJsonSchemaDocument` emits it as a

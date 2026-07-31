@@ -97,6 +97,39 @@ const renderLiteral = (value: unknown): string => (P.isString(value) ? `"${value
 
 const renderEnum = (values: ReadonlyArray<unknown>): string => values.map(renderLiteral).join(" | ")
 
+/** Read a node's `_tag` literal (its `enum: [tag]` discriminant), if any. */
+const tagOf = (node: JsonNode): Option.Option<string> =>
+  Option.fromNullishOr(node.properties?._tag?.enum?.[0]).pipe(Option.filter(P.isString))
+
+/**
+ * Effect encodes some named types as a tagged union of their representations,
+ * with no title to identify the whole. `Schema.Duration` is the one that shows
+ * up in a Foldkit Model: it serializes as `Infinity | NegativeInfinity | Nanos
+ * | Millis`, and without this the table fell through to the bare `object`
+ * catch-all — a field the reader learns nothing about. The encoding's tag set
+ * is the only identity the JSON Schema carries, so it is what we match on.
+ */
+const NAMED_TAGGED_ENCODINGS: ReadonlyArray<{
+  readonly tags: ReadonlyArray<string>
+  readonly name: string
+}> = [{ tags: ["Infinity", "NegativeInfinity", "Nanos", "Millis"], name: "Duration" }]
+
+const sameTags = (left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean => {
+  const [a, b] = [Arr.sort(left, Order.String), Arr.sort(right, Order.String)]
+  return a.length === b.length && a.every((tag, index) => b[index] === tag)
+}
+
+/** The name of the encoding a union of tagged branches stands for, if it is one. */
+const namedEncoding = (branches: ReadonlyArray<JsonNode>): Option.Option<string> => {
+  const tags = Arr.getSomes(branches.map(tagOf))
+  if (tags.length !== branches.length) {
+    return Option.none()
+  }
+  return Arr.findFirst(NAMED_TAGGED_ENCODINGS, (encoding) => sameTags(encoding.tags, tags)).pipe(
+    Option.map((encoding) => encoding.name),
+  )
+}
+
 /**
  * Render a JSON Schema node as a compact, human-readable type string. Collapses
  * the `number | "NaN" | "Infinity" | "-Infinity"` encoding Effect emits for a
@@ -113,6 +146,10 @@ export const renderType = (node: JsonNode): string => {
     if (branches.length !== nonNumber.length && nonNumber.every(isNumberNoiseEnum)) {
       // a number branch plus only the NaN/Infinity noise → a plain number
       return "number"
+    }
+    const named = namedEncoding(branches)
+    if (Option.isSome(named)) {
+      return named.value
     }
     return Arr.dedupe(branches.map(renderType)).join(" | ")
   }
@@ -162,10 +199,6 @@ const fieldsOf = (node: JsonNode, excludeTag: boolean): ReadonlyArray<FieldDoc> 
     )
   return Arr.sort(fields, byName)
 }
-
-/** Read a node's `_tag` literal (its `enum: [tag]` discriminant), if any. */
-const tagOf = (node: JsonNode): Option.Option<string> =>
-  Option.fromNullishOr(node.properties?._tag?.enum?.[0]).pipe(Option.filter(P.isString))
 
 /**
  * Follow a top-level `$ref` (emitted when a Model/Message is a named
