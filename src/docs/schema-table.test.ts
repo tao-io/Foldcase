@@ -92,6 +92,43 @@ describe("a Duration field", () => {
   })
 })
 
+class OptionModel extends Schema.Class<OptionModel>("OptionModel")({
+  selected: Schema.Option(Schema.String),
+  label: Schema.String,
+}) {}
+
+const OptionMessage = Schema.Union([
+  Schema.TaggedStruct("Activated", { immediate: Schema.Option(Schema.Number) }),
+])
+
+describe("an Option field", () => {
+  test("reads as optional and names what it may hold, not `object`", async () => {
+    // `Schema.Option` encodes as Some | None, so the key is always present and
+    // the old table called it a required `object` — the two facts a reader
+    // needs (it may be empty, and of what) were both missing.
+    const markdown = await Effect.runPromise(modelTableFor(OptionModel))
+
+    expect(cellsOf(rowFor(markdown, "selected"))).toEqual([
+      "`selected`",
+      "Option<string>",
+      "yes",
+    ])
+    // A plain required field is untouched.
+    expect(cellsOf(rowFor(markdown, "label"))).toEqual(["`label`", "string", "no"])
+  })
+
+  test("reads the same way in a Message payload", async () => {
+    const markdown = await Effect.runPromise(messageTableFor(OptionMessage))
+
+    expect(cellsOf(rowFor(markdown, "immediate"))).toEqual([
+      "`Activated`",
+      "`immediate`",
+      "Option<number>",
+      "yes",
+    ])
+  })
+})
+
 class Priority extends Schema.Class<Priority>("Priority")({ level: Schema.Number }) {}
 
 // A Model as a named `Schema.Class` — `toJsonSchemaDocument` emits it as a

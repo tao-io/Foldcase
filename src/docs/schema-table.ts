@@ -119,6 +119,30 @@ const sameTags = (left: ReadonlyArray<string>, right: ReadonlyArray<string>): bo
   return a.length === b.length && a.every((tag, index) => b[index] === tag)
 }
 
+/**
+ * The value node of an `Option` encoding, if the node is one.
+ *
+ * `Schema.Option` encodes as `Some { value } | None`, so the key is always
+ * present and JSON Schema calls the field required. Documenting it as a
+ * required `object` withholds both facts a reader wants: that it may be empty,
+ * and of what. The type renders as `Option<T>` and the Optional column reads
+ * `yes` — the column answers "can this be absent", and for an Option it can.
+ */
+const optionValueNode = (node: JsonNode): Option.Option<Option.Option<JsonNode>> => {
+  const branches = node.anyOf ?? []
+  if (branches.length !== 2 || !sameTags(["Some", "None"], Arr.getSomes(branches.map(tagOf)))) {
+    return Option.none()
+  }
+  return Option.some(
+    Arr.findFirst(branches, (branch) => Option.getOrUndefined(tagOf(branch)) === "Some").pipe(
+      Option.flatMap((some) => Option.fromNullishOr(some.properties?.value)),
+    ),
+  )
+}
+
+/** Whether a node is an `Option` encoding — an always-present, possibly-empty field. */
+const isOptionNode = (node: JsonNode): boolean => Option.isSome(optionValueNode(node))
+
 /** The name of the encoding a union of tagged branches stands for, if it is one. */
 const namedEncoding = (branches: ReadonlyArray<JsonNode>): Option.Option<string> => {
   const tags = Arr.getSomes(branches.map(tagOf))
@@ -146,6 +170,13 @@ export const renderType = (node: JsonNode): string => {
     if (branches.length !== nonNumber.length && nonNumber.every(isNumberNoiseEnum)) {
       // a number branch plus only the NaN/Infinity noise → a plain number
       return "number"
+    }
+    const value = optionValueNode(node)
+    if (Option.isSome(value)) {
+      return `Option<${Option.match(value.value, {
+        onNone: () => "unknown",
+        onSome: renderType,
+      })}>`
     }
     const named = namedEncoding(branches)
     if (Option.isSome(named)) {
@@ -194,7 +225,9 @@ const fieldsOf = (node: JsonNode, excludeTag: boolean): ReadonlyArray<FieldDoc> 
         new FieldDoc({
           name,
           type: renderType(propertyNode),
-          optional: !Arr.contains(required, name),
+          // An `Option` field is always present and may still be empty, so the
+          // Optional column has to read `yes` even though `required` lists it.
+          optional: !Arr.contains(required, name) || isOptionNode(propertyNode),
         }),
     )
   return Arr.sort(fields, byName)
