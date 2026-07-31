@@ -31,13 +31,30 @@ const SERVER_VERSION = "0.1.0"
  * catalog says which Showcases exist, exposes their Message JSON Schema, and
  * runs a Showcase's play to a typed pass/fail; devtools-mcp drives the live app.
  */
+export const makeFoldcaseMcpServer = <E, R>(
+  catalog: Layer.Layer<FoldcaseCatalog, E, R>,
+): Layer.Layer<never, E, R | Stdio.Stdio> =>
+  McpServer.toolkit(FoldcaseToolkit).pipe(
+    Layer.provide(FoldcaseHandlers),
+    Layer.provide(McpServer.layerStdio({ name: SERVER_NAME, version: SERVER_VERSION })),
+    // The catalog is provided to the *whole* graph above, including the stdio
+    // transport, so it is built first. That ordering is the tool-discovery
+    // contract: `McpServer.layerStdio` forks a reader over stdin the moment it
+    // is built, and the toolkit only registers its verbs once everything it
+    // depends on exists. With the catalog inside that subgraph, a host that
+    // wrote `initialize` and `tools/list` back to back was answered from an
+    // empty registry while the directory walk and the `import()` of every
+    // `*.showcase.ts` were still running — `{"tools":[]}`, permanently, for a
+    // host that discovers once at startup. Loading the catalog before the
+    // transport exists leaves no I/O between the reader starting and the verbs
+    // being registered.
+    Layer.provide(catalog),
+    Layer.provide(Layer.succeed(Logger.LogToStderr)(true)),
+  )
+
+/** The live server: the catalog is discovered from `FOLDCASE_SHOWCASE_DIR`. */
 export const FoldcaseMcpServer: Layer.Layer<
   never,
   ShowcaseModuleError | PlatformError | Config.ConfigError,
   FileSystem.FileSystem | Path.Path | Stdio.Stdio
-> = McpServer.toolkit(FoldcaseToolkit).pipe(
-  Layer.provideMerge(FoldcaseHandlers),
-  Layer.provide(FoldcaseCatalog.layer),
-  Layer.provide(McpServer.layerStdio({ name: SERVER_NAME, version: SERVER_VERSION })),
-  Layer.provide(Layer.succeed(Logger.LogToStderr)(true)),
-)
+> = makeFoldcaseMcpServer(FoldcaseCatalog.layer)
