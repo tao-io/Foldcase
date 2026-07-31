@@ -18,9 +18,11 @@
 //      exactly that play's coverage — the per-Showcase numerator (`showcases`).
 //
 // Protocol: argv = <rootDir> <showcaseFile...>; emits one JSON object
-// ({ showcases: [{ id, scripts }], total: [scripts] }) on stdout. Boundary code:
-// uses process.stdout/stderr + node:inspector + JSON, kept out of the Effect
-// domain lint scope via .oxlintrc ignore.
+// ({ showcases: [{ id, scripts }], total: [scripts], skipped: [{ path, reason }] })
+// on stdout. A file that will not import is reported in `skipped`, not on
+// stderr — the report has to be able to say what it did not measure. Boundary
+// code: uses process.stdout/stderr + node:inspector + JSON, kept out of the
+// Effect domain lint scope via .oxlintrc ignore.
 
 import { registerHooks } from "node:module"
 import { Session } from "node:inspector/promises"
@@ -90,13 +92,19 @@ const play = async (showcase) => {
   }
 }
 
+// The files that would not import, reported as data on stdout with the rest of
+// the payload. Node resolves modules more strictly than Bun, so a file the one
+// loader read happily can still fail here — and a coverage report that quietly
+// omits it reads as a complete measurement of a truncated run.
+const skipped = []
+
 // Import one showcase module and flatten its Showcases (best-effort per file).
 const loadShowcases = async (file) => {
   try {
     const module = await import(pathToFileURL(file).href)
     return Array.isArray(module.showcases) ? module.showcases : []
   } catch (error) {
-    process.stderr.write(`foldcase collector: skipped ${file}: ${String(error)}\n`)
+    skipped.push({ path: file, reason: String(error) })
     return []
   }
 }
@@ -125,4 +133,4 @@ const attributed = await sequence(showcases, async (acc, showcase) => {
 await session.post("Profiler.stopPreciseCoverage")
 session.disconnect()
 
-process.stdout.write(JSON.stringify({ showcases: attributed, total }))
+process.stdout.write(JSON.stringify({ showcases: attributed, total, skipped }))

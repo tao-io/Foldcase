@@ -5,7 +5,13 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 import type { Showcase } from "../runner.js"
-import { type FileDetail, fileDetail, type RawCoverage, type ScriptHit } from "./coverage.js"
+import {
+  type FileDetail,
+  fileDetail,
+  type RawCoverage,
+  type ScriptHit,
+  SkippedFile,
+} from "./coverage.js"
 
 // ─── The emitted coverage report ─────────────────────────────────────────────
 
@@ -24,10 +30,16 @@ export class ShowcaseCoverage extends Schema.Class<ShowcaseCoverage>("foldcase/S
   files: Schema.Array(FileCoverage),
 }) {}
 
-/** The whole coverage report: aggregate `files` plus per-Showcase breakdown. */
+/**
+ * The whole coverage report: aggregate `files`, the per-Showcase breakdown, and
+ * `unmeasured` — the showcase files the collector could not import at all.
+ * Coverage never changes the run's exit code, so `unmeasured` is the only thing
+ * standing between a truncated measurement and a reader who thinks it is whole.
+ */
 export class CoverageReport extends Schema.Class<CoverageReport>("foldcase/CoverageReport")({
   showcases: Schema.Array(ShowcaseCoverage),
   files: Schema.Array(FileCoverage),
+  unmeasured: Schema.Array(SkippedFile),
 }) {}
 
 // ─── Building the report from decoded collector output ───────────────────────
@@ -101,6 +113,9 @@ export const buildCoverageReport = Effect.fn("foldcase.coverage.buildCoverageRep
     )
 
   return new CoverageReport({
+    // Carried through untouched: the collector is the only thing that knows a
+    // file would not import, and the report is the only place a reader looks.
+    unmeasured: raw.skipped,
     files: aggregate.map((entry) => fileCoverageOf(entry.path, entry.detail, entry.detail)),
     showcases: showcases.map(
       (showcase) =>
@@ -162,15 +177,27 @@ const formatShowcase = (showcase: ShowcaseCoverage): string => {
   return `  ✓ ${showcase.id}  lines ${ratio.covered}/${ratio.executable} (${pct(ratio.covered, ratio.executable)}%)`
 }
 
+const formatUnmeasured = (file: SkippedFile): string => `  ${file.path} — ${file.reason}`
+
 /** Render a coverage report as a human-readable summary (formatSuite style). */
 export const formatCoverage = (report: CoverageReport): string => {
   const files = report.files.map(formatFile)
   const totalLines = overallLines(report)
   const totalFns = overallFunctions(report)
-  const summary = `${report.files.length} file(s) · lines ${totalLines.covered}/${totalLines.executable} (${pct(totalLines.covered, totalLines.executable)}%) · fns ${totalFns.covered}/${totalFns.executable} (${pct(totalFns.covered, totalFns.executable)}%)`
+  // A file the collector could not import contributed nothing to the numbers
+  // below, so the numbers below describe less than the run did. Say which files
+  // and why, above the summary, and count them in the summary itself — a
+  // truncated measurement that reads as a whole one is the defect.
+  const unmeasured = Arr.isReadonlyArrayEmpty(report.unmeasured)
+    ? []
+    : ["", "not measured:", ...report.unmeasured.map(formatUnmeasured)]
+  const dropped = Arr.isReadonlyArrayEmpty(report.unmeasured)
+    ? ""
+    : ` · ${report.unmeasured.length} not measured`
+  const summary = `${report.files.length} file(s) · lines ${totalLines.covered}/${totalLines.executable} (${pct(totalLines.covered, totalLines.executable)}%) · fns ${totalFns.covered}/${totalFns.executable} (${pct(totalFns.covered, totalFns.executable)}%)${dropped}`
   // Per-Showcase attribution — the differentiator over a flat aggregate report.
   const perShowcase = Arr.isReadonlyArrayEmpty(report.showcases)
     ? []
     : ["", "by showcase:", ...report.showcases.map(formatShowcase)]
-  return [...files, "", summary, ...perShowcase].join("\n")
+  return [...files, ...unmeasured, "", summary, ...perShowcase].join("\n")
 }

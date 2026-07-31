@@ -5,8 +5,10 @@ import * as Layer from "effect/Layer"
 
 import { loadShowcasesFromFiles } from "../cli.js"
 import { collectCoverage } from "./collect.js"
+import { formatCoverage } from "./report.js"
 
 const fixtures = `${import.meta.dir}/../../test/fixtures`
+const uncollectable = `${import.meta.dir}/../../test/uncollectable`
 const platform = BunChildProcessSpawner.layer.pipe(
   Layer.provideMerge(Layer.mergeAll(BunFileSystem.layer, BunPath.layer)),
 )
@@ -59,6 +61,32 @@ describe("collectCoverage", () => {
       const total = counter?.totalFunctions ?? 0
       expect(covered).toBeGreaterThan(0)
       expect(total).toBeGreaterThan(covered)
+    },
+    TIMEOUT_MS,
+  )
+
+  test(
+    "names a showcase file the collector could not import, rather than dropping it",
+    async () => {
+      // The fixture imports a directory: Bun resolves it, Node does not. So the
+      // one loader reads the Showcase and the run passes, while the collector
+      // measures nothing — exactly the shape that used to print a warning above
+      // a report that still read like a complete measurement.
+      const files = [`${uncollectable}/dir-import.showcase.ts`]
+      const report = await Effect.runPromise(
+        loadShowcasesFromFiles(files).pipe(
+          Effect.flatMap((showcases) => collectCoverage(uncollectable, files, showcases)),
+          Effect.provide(platform),
+        ),
+      )
+
+      expect(report.unmeasured.map((file) => file.path)).toEqual(files)
+      expect(report.unmeasured[0]?.reason).toContain("ERR_UNSUPPORTED_DIR_IMPORT")
+
+      const text = formatCoverage(report)
+      expect(text).toContain("not measured:")
+      expect(text).toContain("dir-import.showcase.ts")
+      expect(text).toContain("1 not measured")
     },
     TIMEOUT_MS,
   )

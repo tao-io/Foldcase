@@ -72,9 +72,9 @@ export const collectCoverage = Effect.fn("foldcase.coverage.collectCoverage")(fu
     })
   }
 
-  // The collector exits 0 even when it skips an unimportable Showcase (best
-  // effort), reporting the skip on stderr — surface it so a silently-missing
-  // Showcase is visible rather than a quietly partial report.
+  // A file that would not import is reported in the payload (`skipped`) and
+  // reaches the report, so anything left on stderr is unexpected noise from the
+  // instrument itself — still worth surfacing, never the skip channel.
   if (output.stderr.trim() !== "") {
     yield* Effect.logWarning(`foldcase coverage: ${output.stderr.trim()}`)
   }

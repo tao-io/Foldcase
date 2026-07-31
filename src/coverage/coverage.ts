@@ -44,13 +44,28 @@ export class ShowcaseCoverageHit extends Schema.Class<ShowcaseCoverageHit>(
 }) {}
 
 /**
+ * A showcase file the collector could not import, and the reason it could not.
+ *
+ * The collector runs under Node, which resolves modules more strictly than Bun
+ * does, so a file the one loader read happily can still be unimportable there.
+ * It is data, not a log line: a file that was not measured has to reach the
+ * report, or a truncated run reads as a complete one.
+ */
+export class SkippedFile extends Schema.Class<SkippedFile>("foldcase/SkippedFile")({
+  path: Schema.String,
+  reason: Schema.String,
+}) {}
+
+/**
  * The whole collector payload: `total` is the cumulative snapshot (denominators
- * — a file's uncalled functions/lines included), and `showcases` are the
- * per-`play` deltas (numerators — the code each Showcase actually executed).
+ * — a file's uncalled functions/lines included), `showcases` are the per-`play`
+ * deltas (numerators — the code each Showcase actually executed), and `skipped`
+ * names the files that never ran at all.
  */
 export class RawCoverage extends Schema.Class<RawCoverage>("foldcase/RawCoverage")({
   showcases: Schema.Array(ShowcaseCoverageHit),
   total: Schema.Array(ScriptHit),
+  skipped: Schema.Array(SkippedFile),
 }) {}
 
 // ─── Pure coverage math ──────────────────────────────────────────────────────

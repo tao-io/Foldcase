@@ -4,7 +4,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 
 import type { Showcase } from "../runner.js"
-import { RawCoverage, ScriptHit } from "./coverage.js"
+import { RawCoverage, ScriptHit, SkippedFile } from "./coverage.js"
 import { buildCoverageReport, CoverageReport, FileCoverage, formatCoverage, overallLines } from "./report.js"
 
 /** A declared Showcase, reduced to what the coverage projection reads: its id. */
@@ -28,6 +28,7 @@ const reportOverSource = <A>(
   use: (report: CoverageReport, path: string) => A,
   declared: ReadonlyArray<Showcase> = [showcase("demo/one")],
   collected: ReadonlyArray<string> = ["demo/one"],
+  skipped: ReadonlyArray<SkippedFile> = [],
 ) =>
   Effect.runPromise(
     Effect.gen(function* () {
@@ -37,6 +38,7 @@ const reportOverSource = <A>(
       const raw = new RawCoverage({
         showcases: collected.map((id) => ({ id, scripts: [new ScriptHit({ path, functions })] })),
         total: [new ScriptHit({ path, functions })],
+        skipped,
       })
       const report = yield* buildCoverageReport(raw, declared)
       return use(report, path)
@@ -90,6 +92,7 @@ describe("overallLines / formatCoverage", () => {
   test("overallLines sums covered vs executable across files", () => {
     const report = new CoverageReport({
       showcases: [],
+      unmeasured: [],
       files: [
         new FileCoverage({ path: "/a.ts", coveredLines: 2, executableLines: 3, coveredFunctions: 2, totalFunctions: 3 }),
         new FileCoverage({ path: "/b.ts", coveredLines: 1, executableLines: 4, coveredFunctions: 1, totalFunctions: 2 }),
@@ -106,6 +109,38 @@ describe("overallLines / formatCoverage", () => {
       expect(text).toContain("1 file")
       // Per-Showcase attribution is visible, not just the aggregate.
       expect(text).toContain("demo/one")
+    })
+  })
+
+  test("formatCoverage names every file the collector could not measure, and why", async () => {
+    await reportOverSource(
+      (report) => {
+        const text = formatCoverage(report)
+
+        // Coverage is additive and never fails the run, so a dropped Showcase
+        // file has to be *visible* in the report itself. Before this, the only
+        // trace was an out-of-band log line above the report, and the summary
+        // below it still read like a complete measurement.
+        expect(text).toContain("not measured:")
+        expect(text).toContain("/broken.showcase.ts")
+        expect(text).toContain("ERR_UNSUPPORTED_DIR_IMPORT")
+        // The summary line must not read as a whole-suite number either.
+        expect(text).toContain("1 not measured")
+      },
+      [showcase("demo/one")],
+      ["demo/one"],
+      [
+        new SkippedFile({
+          path: "/repo/broken.showcase.ts",
+          reason: "Error [ERR_UNSUPPORTED_DIR_IMPORT]: Directory import is not supported",
+        }),
+      ],
+    )
+  })
+
+  test("formatCoverage keeps quiet about unmeasured files when there are none", async () => {
+    await reportOverSource((report) => {
+      expect(formatCoverage(report)).not.toContain("not measured")
     })
   })
 

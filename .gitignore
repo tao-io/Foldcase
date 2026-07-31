@@ -9,7 +9,9 @@ dist/
 
 # Generated output
 /foldcase-docs/
-coverage/
+# Anchored: `src/coverage/` is the `--coverage` implementation, not a report.
+# Unanchored, this pattern hid every new file in that directory from `git add`.
+/coverage/
 
 # Local / editor
 .DS_Store
