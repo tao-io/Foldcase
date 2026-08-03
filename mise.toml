@@ -191,12 +191,13 @@ withholds() {
 
 # Both bins; the library entry a consumer imports `Showcase` from; the coverage
 # instrument, which tsc does not emit and only the build task copies; and the
-# three files the licence rests on.
+# four documents an installed copy has to carry on its own.
 ships dist/main.js
 ships dist/main.bun.js
 ships dist/runner.d.ts
 ships dist/coverage/collector.mjs
 ships README.md
+ships CHANGELOG.md
 ships LICENSE
 ships NOTICE
 # What ships is the build output. The sources, the suites, the example and the
