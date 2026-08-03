@@ -50,9 +50,12 @@ selectors, no waiting.
 ## Install
 
 ```bash
-npm  install -D foldcase       # or pnpm add -D / yarn add -D
-bun  add     -d foldcase
+npm  install -D foldcase@alpha    # or pnpm add -D / yarn add -D
+bun  add     -d foldcase@alpha
 ```
+
+Releases go out under the **`alpha`** dist-tag while the API can still break, so ask for
+it by name.
 
 Foldcase ships as a compiled `dist/` — one `.js` and one `.d.ts` per source file, built by
 plain `tsc`, no bundler — so npm, pnpm, Vite and Bun all consume it as ordinary ESM.
@@ -212,6 +215,41 @@ Read the limitations before you rely on it:
 - It is **additive**: it never changes the run's pass/fail exit code, and a collection
   failure is a warning rather than an error.
 
+#### `--json`
+
+Prints the run as one JSON document instead of the summary, for a script or an agent that
+has to act on it rather than read it.
+
+```bash
+foldcase test src/ui --json
+foldcase test src/ui --json --coverage    # coverage rides in the same document
+```
+
+```json
+{
+  "suite": {
+    "total": 2, "passed": 1, "failed": 1,
+    "reports": [
+      { "id": "counter/click-twice", "status": "passed",
+        "file": "/abs/src/ui/counter.showcase.ts" },
+      { "id": "button/disabled", "status": "failed",
+        "file": "/abs/src/ui/button.showcase.ts",
+        "error": { "name": "AssertionError", "message": "expected true, got false" } }
+    ]
+  }
+}
+```
+
+Three things it guarantees:
+
+- **Every report names its file.** An id alone does not say what to open, and the loader —
+  not the author — holds that fact, so it is carried in the report rather than declared on
+  the `Showcase`.
+- **stdout is the document and nothing else.** Logs and warnings go to stderr.
+- **The exit codes do not move**: 1 on any failure, 1 when nothing was discovered — and a
+  run that discovered nothing prints no document at all, because `"failed": 0` would read
+  as a clean run.
+
 ### `foldcase docs` — Model and Message tables
 
 Introspects each component's `message` and `model` Schemas and writes **one Markdown file
@@ -240,22 +278,44 @@ a clean diff.
 A file that will not load is named on stderr and the command exits non-zero; the documents
 it could write are still written.
 
+`--json` works here too, and says what was written and what would not load:
+
+```json
+{
+  "docs": [{ "component": "counter", "path": "/abs/docs/schemas/counter.md" }],
+  "failures": [{ "_tag": "foldcase/ShowcaseModuleError",
+                 "path": "/abs/src/ui/picker.showcase.ts",
+                 "reason": "Cannot find module './picker'" }]
+}
+```
+
 ### `foldcase mcp` — the catalog for an agent
 
-Serves the catalog to a coding agent over stdio MCP. Three tools:
+Serves the catalog to a coding agent over stdio MCP. Six tools:
 
 | Tool | What it does |
 |---|---|
-| `foldcase_list_showcases` | Enumerate every Showcase, flagged with whether it carries a Message schema. |
+| `foldcase_list_showcases` | Enumerate every Showcase, each flagged with which Schemas it carries, and name the directory they were read from. |
 | `foldcase_get_showcase_schema` | Introspect a Showcase's Message union into a JSON Schema document, so the agent builds a valid payload by construction. |
-| `foldcase_run_showcase` | Run a Showcase's `play` and return the typed pass/fail report. |
+| `foldcase_get_showcase_model_schema` | The same for the Model — the shape a `play` asserts on, which an agent has to know before it writes one. |
+| `foldcase_run_showcase` | Run one Showcase's `play` and return the typed pass/fail report, naming the file it came from. |
+| `foldcase_run_catalog` | Run the whole catalog into one suite report, or the part of it under an id prefix: `counter/` runs one component. |
+| `foldcase_load_catalog` | Re-read the catalog from disk after an edit, or point the server at another directory. Reports how many Showcases came back and which files would not load. |
 
-All three are annotated `readOnlyHint: true`, `destructiveHint: false` and
-`openWorldHint: false`, because all three only read the declared catalog and run a pure
+All six are annotated `readOnlyHint: true`, `destructiveHint: false` and
+`openWorldHint: false`, because all six only read the declared catalog and run a pure
 `play` in this process — so a host does not prompt for confirmation to list a catalog.
 
 The whole toolkit is registered before the server reads a byte of stdin, so a host that
-discovers its tools once at startup gets all three from its **first** `tools/list`.
+discovers its tools once at startup gets all six from its **first** `tools/list`.
+
+The server serves one catalog at a time, and `foldcase_load_catalog` is the only thing that
+moves it. A directory parameter on every verb would make an id mean nothing on its own —
+the same id would name different Showcases from call to call — so the directory is state,
+and every listing and load report says which one is being served. A load that fails leaves
+the last good catalog in place. One limit worth knowing: a reload sees files that appeared
+or vanished, but not an edit **inside** a file that already loaded, because both runtimes
+cache a module by URL.
 
 ```bash
 foldcase mcp                                    # point your MCP host's stdio command here
@@ -281,8 +341,9 @@ result — with no DOM in the path.
 
 Every report is a decoded `Schema` value, not a loose object, so a failure is structured
 data you can act on rather than a string you have to parse. `loadShowcasesFromFiles`
-returns `{ showcases, failures }` and never fails, so you decide what an unloadable file
-means for your surface.
+returns `{ loaded, showcases, failures }` and never fails — `loaded` pairs each Showcase
+with its file, `showcases` drops the file for surfaces that only run records — so you
+decide what an unloadable file means for your surface.
 
 ## Where it came from, and what changed
 

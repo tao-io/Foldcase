@@ -26,9 +26,18 @@ in [NOTICE](NOTICE): the play contract and the serialized-error shape.
   rest. Reports are Effect `Schema` values and survive a JSON round-trip.
 - **`foldcase docs [dir] [out-dir]`** — one Markdown document per component, its Model and
   Message tables read out of the Schemas the Showcase declares. Nothing parses your source.
-- **`foldcase mcp`** — the catalog as an MCP server over stdio, with three read-only tools:
-  list the Showcases, read a Showcase's Message schema as JSON Schema, run one. The catalog
-  is loaded before the transport reads stdin, so the first `tools/list` answers in full.
+- **`foldcase mcp`** — the catalog as an MCP server over stdio, with six read-only tools:
+  list the Showcases, read a Showcase's Message schema or Model schema as JSON Schema, run
+  one Showcase, run the whole catalog or one id prefix, and re-read the catalog from disk or
+  point it at another directory. The catalog is loaded before the transport reads stdin, so
+  the first `tools/list` answers in full.
+- **`--json` on `test` and `docs`.** The run as one document — the report Schemas encoded,
+  not a hand-built object — with coverage inside it when `--coverage` asks for coverage.
+  stdout carries the document and nothing else; logs go to stderr; the exit codes do not
+  move.
+- **Every report names the file it came from.** An id does not say what to open, and the
+  loader holds that fact, so it travels in the report rather than being declared on the
+  `Showcase`. The MCP run verbs report it too.
 - **`foldcase test --coverage`** — line and function coverage of the code the plays really
   executed, tallied from V8 precise coverage. Bun exposes no programmatic precise coverage,
   so the measurement runs in a Node subprocess; the report names any file it could not
