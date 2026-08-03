@@ -87,11 +87,39 @@ describe("parseCommand", () => {
     )
   })
 
+  test("refuses a second target for `test`, naming the argument it dropped", () => {
+    // Silently dropping it ran the first catalog, exited 0, and said nothing
+    // about the second — a CI job asking for two catalogs passed forever.
+    expect(parseCommand(["test", "a.showcase.ts", "b.showcase.ts"])).toEqual(
+      Command.Usage({
+        reason: Option.some("test takes one target; it did not understand: b.showcase.ts"),
+      }),
+    )
+  })
+
+  test("refuses a third positional for `docs`, whose second one is the out-dir", () => {
+    expect(parseCommand(["docs", "src/ui", "out", "extra"])).toEqual(
+      Command.Usage({
+        reason: Option.some("docs takes a target and an out-dir; it did not understand: extra"),
+      }),
+    )
+  })
+
+  test("refuses a target for `mcp`, which reads its catalog over the protocol", () => {
+    expect(parseCommand(["mcp", "src/ui"])).toEqual(
+      Command.Usage({
+        reason: Option.some("mcp takes no target; it did not understand: src/ui"),
+      }),
+    )
+  })
+
   test("reads `mcp`, and calls anything else usage", () => {
     expect(parseCommand(["mcp"])).toEqual(Command.Mcp())
-    expect(parseCommand(["tset"])).toEqual(Command.Usage())
-    expect(parseCommand([])).toEqual(Command.Usage())
-    expect(parseCommand(["--coverage"])).toEqual(Command.Usage())
+    // Nothing to name here: the banner is the whole answer.
+    const bare = Command.Usage({ reason: Option.none() })
+    expect(parseCommand(["tset"])).toEqual(bare)
+    expect(parseCommand([])).toEqual(bare)
+    expect(parseCommand(["--coverage"])).toEqual(bare)
   })
 })
 
@@ -107,6 +135,22 @@ describe("run", () => {
 
   test("an unknown subcommand exits non-zero", async () => {
     expect(await exitCodeOf(["tset"])).toBe(1)
+  })
+
+  test("a second target exits non-zero, and stderr names the one not understood", async () => {
+    const result = await runCapturing([
+      "test",
+      `${fixtures}/counter-logic.showcase.ts`,
+      `${malformed}/bad-message.showcase.ts`,
+    ])
+
+    expect(result.code).toBe(1)
+    // Nothing ran, so nothing may look like a result on stdout.
+    expect(result.out).toEqual([])
+    const said = result.err.join("\n")
+    expect(said).toContain("did not understand: ")
+    expect(said).toContain(`${malformed}/bad-message.showcase.ts`)
+    expect(said).toContain("usage: foldcase")
   })
 
   test("docs writes its autodocs and exits clean", async () => {

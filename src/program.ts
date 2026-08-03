@@ -57,8 +57,12 @@ export type Command = Data.TaggedEnum<{
   }
   /** Serve the catalog to an agent over stdio MCP. */
   readonly Mcp: object
-  /** Nothing recognisable was asked for; print the banner and fail. */
-  readonly Usage: object
+  /**
+   * Nothing recognisable was asked for; print the banner and fail. `reason`
+   * carries the one line the banner cannot say — which word was not understood
+   * — and is `None` when the banner alone tells the whole story.
+   */
+  readonly Usage: { readonly reason: Option.Option<string> }
 }>
 
 export const Command = Data.taggedEnum<Command>()
@@ -66,32 +70,65 @@ export const Command = Data.taggedEnum<Command>()
 const DEFAULT_TARGET = "."
 
 /**
+ * A verb that was handed more positionals than it takes is {@link Command.Usage},
+ * not the part of the request we happened to understand. `foldcase test a.ts b.ts`
+ * used to run `a.ts` alone and exit 0, so a CI job asking for two catalogs passed
+ * forever over one of them. The banner alone would leave the user to work out
+ * which word was one too many, so the reason names them; the banner still follows
+ * it, because the reader also needs the form that would have worked.
+ */
+const surplus = (
+  takes: string,
+  limit: number,
+  positionals: ReadonlyArray<string>,
+): Option.Option<Command> =>
+  positionals.length > limit
+    ? Option.some(
+        Command.Usage({
+          reason: Option.some(
+            `${takes}; it did not understand: ${positionals.slice(limit).join(", ")}`,
+          ),
+        }),
+      )
+    : Option.none()
+
+/**
  * Read the argument vector (already stripped of the runtime and script paths).
  * Flags are split from positionals, so `--coverage` may sit on either side of
  * the target (`foldcase test --coverage src` and `foldcase test src --coverage`
- * mean the same thing). Anything but a known subcommand is {@link Command.Usage}.
+ * mean the same thing). Anything but a known subcommand, given the positionals
+ * that subcommand takes, is {@link Command.Usage}.
  */
 export const parseCommand = (argv: ReadonlyArray<string>): Command => {
   const isFlag = (argument: string): boolean => argument.startsWith("--")
   const flags = new Set(argv.filter(isFlag))
-  const [subcommand, target, outDir] = argv.filter((argument) => !isFlag(argument))
+  const words = argv.filter((argument) => !isFlag(argument))
+  // The first word is the verb; everything after it is that verb's positionals.
+  const [subcommand, target, outDir] = words
+  const positionals = words.slice(1)
   switch (subcommand) {
     case "test":
-      return Command.Test({
-        target: target ?? DEFAULT_TARGET,
-        coverage: flags.has("--coverage"),
-        json: flags.has("--json"),
-      })
+      return Option.getOrElse(surplus("test takes one target", 1, positionals), () =>
+        Command.Test({
+          target: target ?? DEFAULT_TARGET,
+          coverage: flags.has("--coverage"),
+          json: flags.has("--json"),
+        }),
+      )
     case "docs":
-      return Command.Docs({
-        target: target ?? DEFAULT_TARGET,
-        outDir: Option.fromUndefinedOr(outDir),
-        json: flags.has("--json"),
-      })
+      return Option.getOrElse(
+        surplus("docs takes a target and an out-dir", 2, positionals),
+        () =>
+          Command.Docs({
+            target: target ?? DEFAULT_TARGET,
+            outDir: Option.fromUndefinedOr(outDir),
+            json: flags.has("--json"),
+          }),
+      )
     case "mcp":
-      return Command.Mcp()
+      return Option.getOrElse(surplus("mcp takes no target", 0, positionals), () => Command.Mcp())
     default:
-      return Command.Usage()
+      return Command.Usage({ reason: Option.none() })
   }
 }
 
@@ -258,7 +295,15 @@ export const runCommand = Command.$match({
   Test: ({ coverage, json, target }) => reserveStdout(json, test(target, coverage, json)),
   Docs: ({ json, outDir, target }) => reserveStdout(json, docs(target, outDir, json)),
   Mcp: () => Layer.launch(FoldcaseMcpServer),
-  Usage: () => Console.error(usage).pipe(Effect.as(1)),
+  // The reason goes above the banner, so a reader meets the word that was
+  // wrong before the form that is right — both on stderr, both in one write.
+  Usage: ({ reason }) =>
+    Console.error(
+      Option.match(reason, {
+        onNone: () => usage,
+        onSome: (said) => `foldcase: ${said}\n${usage}`,
+      }),
+    ).pipe(Effect.as(1)),
 })
 
 /**
