@@ -14,6 +14,16 @@ describe("runShowcase", () => {
     expect(report.error).toBeUndefined()
   })
 
+  test("names the file it was given, so a reader knows which one to open", async () => {
+    const showcase: Showcase = { id: "button/default", play: () => {} }
+
+    const report = await Effect.runPromise(runShowcase(showcase, "src/ui/button.showcase.ts"))
+
+    expect(report.file).toBe("src/ui/button.showcase.ts")
+    // A caller with no file to name — the MCP `runById` verb — still gets a report.
+    expect((await Effect.runPromise(runShowcase(showcase))).file).toBeUndefined()
+  })
+
   test("reports failed with a serialized error when the play throws", async () => {
     const showcase: Showcase = {
       id: "button/counter",

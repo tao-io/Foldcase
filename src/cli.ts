@@ -9,7 +9,7 @@ import * as Schema from "effect/Schema"
 import { type ComponentDoc, generateComponentDocs } from "./docs/generate.js"
 import type { SchemaIntrospectionError } from "./docs/schema-table.js"
 import {
-  runShowcases,
+  runShowcase,
   SerializedError,
   type Showcase,
   ShowcaseReport,
@@ -102,8 +102,19 @@ const loadShowcaseFile = (
   }).pipe(Effect.flatMap((module) => readShowcases(path, module)))
 
 /**
- * What one pass of the loader produced: the Showcases it read, in file order,
- * and the files it could not read at all.
+ * One Showcase and the `*.showcase.ts` it was read from. The file is not part
+ * of the {@link Showcase} record — the author does not declare it, the loader
+ * knows it — so it is carried beside the record instead (ADR-0001: a new field
+ * on the record is a reviewed act, and this fact is not one of its facts).
+ */
+export interface LoadedShowcase {
+  readonly file: string
+  readonly showcase: Showcase
+}
+
+/**
+ * What one pass of the loader produced: the Showcases it read, each with its
+ * file, in file order, and the files it could not read at all.
  *
  * A file that will not load is **data**, not an Effect failure. It used to be
  * one, and the cost was the whole point of running a suite: a single
@@ -113,6 +124,8 @@ const loadShowcaseFile = (
  * and exits non-zero, `docs` says so on stderr, `mcp` warns and serves the rest.
  */
 export interface CatalogLoad {
+  readonly loaded: ReadonlyArray<LoadedShowcase>
+  /** {@link loaded} with the file dropped, for the surfaces that only run records. */
   readonly showcases: ReadonlyArray<Showcase>
   readonly failures: ReadonlyArray<ShowcaseModuleError>
 }
@@ -126,13 +139,23 @@ export interface CatalogLoad {
 export const loadShowcasesFromFiles = (
   paths: ReadonlyArray<string>,
 ): Effect.Effect<CatalogLoad> =>
-  Effect.forEach(paths, (path) => Effect.result(loadShowcaseFile(path)), {
-    concurrency: 1,
-  }).pipe(
-    Effect.map((results) => ({
-      showcases: results.flatMap((result) => (result._tag === "Success" ? result.success : [])),
-      failures: results.flatMap((result) => (result._tag === "Failure" ? [result.failure] : [])),
-    })),
+  Effect.forEach(
+    paths,
+    (file) => Effect.result(loadShowcaseFile(file)).pipe(Effect.map((result) => ({ file, result }))),
+    { concurrency: 1 },
+  ).pipe(
+    Effect.map((results) => {
+      const loaded: ReadonlyArray<LoadedShowcase> = results.flatMap(({ file, result }) =>
+        result._tag === "Success" ? result.success.map((showcase) => ({ file, showcase })) : [],
+      )
+      return {
+        loaded,
+        showcases: loaded.map((entry) => entry.showcase),
+        failures: results.flatMap(({ result }) =>
+          result._tag === "Failure" ? [result.failure] : [],
+        ),
+      }
+    }),
   )
 
 /**
@@ -145,6 +168,7 @@ const loadFailureReport = (failure: ShowcaseModuleError): ShowcaseReport =>
     id: failure.path,
     status: "failed",
     error: new SerializedError({ name: failure._tag, message: failure.reason }),
+    file: failure.path,
   })
 
 /**
@@ -156,11 +180,15 @@ const loadFailureReport = (failure: ShowcaseModuleError): ShowcaseReport =>
 export const runSuiteFromFiles = (paths: ReadonlyArray<string>): Effect.Effect<SuiteReport> =>
   loadShowcasesFromFiles(paths).pipe(Effect.flatMap(runCatalog))
 
-/** Run a loaded catalog, folding its load failures into the suite report. */
+/**
+ * Run a loaded catalog, folding its load failures into the suite report. Runs
+ * the loaded entries rather than the bare records, so every report names the
+ * file it came from.
+ */
 export const runCatalog = (load: CatalogLoad): Effect.Effect<SuiteReport> =>
-  runShowcases(load.showcases).pipe(
-    Effect.map((suite) => suiteOf([...load.failures.map(loadFailureReport), ...suite.reports])),
-  )
+  Effect.forEach(load.loaded, (entry) => runShowcase(entry.showcase, entry.file), {
+    concurrency: 1,
+  }).pipe(Effect.map((reports) => suiteOf([...load.failures.map(loadFailureReport), ...reports])))
 
 /**
  * Load every showcase file and render the Model/Message Schema autodocs. The

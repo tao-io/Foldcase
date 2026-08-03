@@ -77,15 +77,24 @@ export class ShowcaseReport extends Schema.Class<ShowcaseReport>("ShowcaseReport
   id: Schema.String,
   status: Schema.Literals(["passed", "failed"]),
   error: Schema.optional(SerializedError),
+  /**
+   * The `*.showcase.ts` this report came from, when the caller knows it. An id
+   * alone does not say which file to open, and the loader — not the author —
+   * holds that fact, so it is passed in rather than read off the record.
+   * Optional: a caller holding a bare Showcase, such as the MCP `runById` verb,
+   * has no file to name.
+   */
+  file: Schema.optional(Schema.String),
 }) {}
 
 /**
  * Boot a single Showcase headlessly, run its play, and report the outcome.
  * A failing Showcase is a datum (`status: "failed"` carrying the serialized
  * error), not an Effect failure — so the runner can collect a report per
- * Showcase without short-circuiting the suite.
+ * Showcase without short-circuiting the suite. `file` names the module the
+ * Showcase was read from, so a report says where to look.
  */
-export const runShowcase = (showcase: Showcase): Effect.Effect<ShowcaseReport> =>
+export const runShowcase = (showcase: Showcase, file?: string): Effect.Effect<ShowcaseReport> =>
   Effect.tryPromise({
     // The async wrapper normalizes both a synchronous throw and a rejected
     // Promise from `play` into a single failure the catch can serialize.
@@ -95,8 +104,8 @@ export const runShowcase = (showcase: Showcase): Effect.Effect<ShowcaseReport> =
     catch: serializeError,
   }).pipe(
     Effect.match({
-      onSuccess: () => new ShowcaseReport({ id: showcase.id, status: "passed" }),
-      onFailure: (error) => new ShowcaseReport({ id: showcase.id, status: "failed", error }),
+      onSuccess: () => new ShowcaseReport({ id: showcase.id, status: "passed", file }),
+      onFailure: (error) => new ShowcaseReport({ id: showcase.id, status: "failed", error, file }),
     }),
   )
 
@@ -130,7 +139,11 @@ export const suiteOf = (reports: ReadonlyArray<ShowcaseReport>): SuiteReport => 
  * short-circuits — a failing Showcase is recorded, not thrown.
  */
 export const runShowcases = (showcases: ReadonlyArray<Showcase>): Effect.Effect<SuiteReport> =>
-  Effect.forEach(showcases, runShowcase, { concurrency: 1 }).pipe(Effect.map(suiteOf))
+  // One argument on purpose: `forEach` hands the callback an index, and
+  // `runShowcase` reads a second argument as the file the Showcase came from.
+  Effect.forEach(showcases, (showcase) => runShowcase(showcase), { concurrency: 1 }).pipe(
+    Effect.map(suiteOf),
+  )
 
 // REPORTING
 

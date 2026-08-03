@@ -50,6 +50,18 @@ describe("loadShowcasesFromFiles", () => {
     expect(load.failures[0]?.reason.length).toBeGreaterThan(0)
   })
 
+  test("says which file each Showcase was read from", async () => {
+    const load = await Effect.runPromise(
+      loadShowcasesFromFiles([fixture("sample.showcase.ts"), fixture("schema.showcase.ts")]),
+    )
+
+    expect(load.loaded.map((entry) => [entry.showcase.id, entry.file])).toEqual([
+      ["sample/passes", fixture("sample.showcase.ts")],
+      ["sample/fails", fixture("sample.showcase.ts")],
+      ["counter/schema", fixture("schema.showcase.ts")],
+    ])
+  })
+
   test("a module that exports the wrong shape is a failure for that file only", async () => {
     const load = await Effect.runPromise(
       loadShowcasesFromFiles([malformed("bad-message.showcase.ts"), fixture("sample.showcase.ts")]),
@@ -93,6 +105,20 @@ describe("runSuiteFromFiles", () => {
     expect(suite.passed).toBe(1)
     expect(suite.failed).toBe(2)
     expect(suiteExitCode(suite)).toBe(1)
+  })
+
+  test("every report names the file it came from, run or unloadable", async () => {
+    const suite = await Effect.runPromise(
+      runSuiteFromFiles([malformed("broken-import.showcase.ts"), fixture("sample.showcase.ts")]),
+    )
+
+    expect(suite.reports.map((report) => report.file)).toEqual([
+      malformed("broken-import.showcase.ts"),
+      fixture("sample.showcase.ts"),
+      fixture("sample.showcase.ts"),
+    ])
+    // The human summary is unchanged: the file is data, not a pass/fail line.
+    expect(formatSuite(suite)).toContain("  ✓ sample/passes")
   })
 
   test("the reported failure says which file would not load and why", async () => {
