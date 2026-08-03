@@ -268,5 +268,62 @@ SHOWCASE
   node --input-type=module -e 'import { runShowcase } from "foldcase"; if (typeof runShowcase !== "function") { process.exit(1) }'
   bun -e 'import { runShowcase } from "foldcase"; if (typeof runShowcase !== "function") { process.exit(1) }'
 )
+
+# The same tarball, installed by a consumer who took `peerDependenciesMeta` at
+# its word: `foldcase` and `effect`, and neither optional platform package. Each
+# bin then fails to resolve the runtime it is written for. That is expected —
+# what is checked here is the *first run*: it must name the package to install
+# and exit non-zero, not print a loader stack trace.
+bare="$tmp/bare"
+mkdir -p "$bare"
+node --input-type=module -e '
+  import { readFileSync, writeFileSync } from "node:fs"
+  const [directory, tarball] = process.argv.slice(1)
+  const developed = JSON.parse(readFileSync("package.json", "utf8")).devDependencies
+  writeFileSync(`${directory}/package.json`, JSON.stringify({
+    name: "foldcase-bare-consumer",
+    private: true,
+    type: "module",
+    dependencies: { foldcase: `file:${tarball}`, effect: developed.effect },
+  }, null, 2))
+' "$bare" "$tarball"
+cp "$consumer/demo.showcase.ts" "$bare/demo.showcase.ts"
+
+(
+  cd "$bare"
+  bun install > /dev/null
+
+  # Neither platform package may be there, or the check proves nothing.
+  for platform in @effect/platform-node @effect/platform-bun; do
+    ! test -d "node_modules/$platform" || {
+      echo "foldcase pack: the bare consumer installed $platform, so it is not bare" >&2
+      exit 1
+    }
+  done
+
+  asks_for() {
+    bin="$1"
+    peer="$2"
+    echo "── node_modules/.bin/$bin without $peer"
+    if ./node_modules/.bin/"$bin" test demo.showcase.ts > "$tmp/out" 2> "$tmp/err"; then
+      echo "foldcase pack: $bin must exit non-zero when $peer is missing" >&2
+      exit 1
+    fi
+    grep -q "npm i -D $peer" "$tmp/err" || {
+      echo "foldcase pack: $bin must tell the user to install $peer" >&2
+      cat "$tmp/err" >&2
+      exit 1
+    }
+    # The whole point is the absence of the raw loader failure underneath.
+    ! grep -qE 'ERR_MODULE_NOT_FOUND|^ +at ' "$tmp/err" || {
+      echo "foldcase pack: $bin leaked the loader error instead of explaining it" >&2
+      cat "$tmp/err" >&2
+      exit 1
+    }
+  }
+
+  asks_for foldcase @effect/platform-node
+  asks_for foldcase-bun @effect/platform-bun
+)
 echo 'foldcase: the tarball packs the artifact and runs installed, under Node and Bun'
 """
