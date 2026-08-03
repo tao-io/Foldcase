@@ -182,6 +182,46 @@ describe("run", () => {
     ])
   })
 
+  test("docs --json names the documents it wrote", async () => {
+    const out = `${import.meta.dir}/../runtime-test-docs-json`
+    const result = await runCapturing([
+      "docs",
+      "--json",
+      `${fixtures}/schema.showcase.ts`,
+      out,
+    ])
+
+    expect(result.code).toBe(0)
+    expect(documentOf(result)).toEqual({
+      docs: [
+        {
+          component: "counter/schema",
+          path: `${new URL("../runtime-test-docs-json", import.meta.url).pathname}/counter-schema.md`,
+        },
+      ],
+      failures: [],
+    })
+    await Bun.$`rm -rf ${out}`.quiet()
+  })
+
+  test("docs --json names the files that would not load, and still exits non-zero", async () => {
+    const out = `${import.meta.dir}/../runtime-test-docs-json-partial`
+    const result = await runCapturing(["docs", "--json", malformed, out])
+
+    expect(result.code).toBe(1)
+    const document = documentOf(result) as {
+      docs: ReadonlyArray<unknown>
+      failures: ReadonlyArray<{ path: string; reason: string }>
+    }
+    expect(document.docs).toEqual([])
+    expect(document.failures.map((failure) => failure.path)).toEqual([
+      `${malformed}/bad-message.showcase.ts`,
+      `${malformed}/broken-import.showcase.ts`,
+    ])
+    expect(document.failures[0]?.reason.length).toBeGreaterThan(0)
+    await Bun.$`rm -rf ${out}`.quiet()
+  })
+
   test("docs over an unloadable module writes what it can and exits non-zero", async () => {
     const out = `${import.meta.dir}/../runtime-test-docs-partial`
     expect(

@@ -21,16 +21,22 @@ import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 
-import { discoverShowcaseFiles, docsFromFiles, loadShowcasesFromFiles, runCatalog } from "./cli.js"
+import {
+  discoverShowcaseFiles,
+  docsFromFiles,
+  loadShowcasesFromFiles,
+  runCatalog,
+  ShowcaseModuleError,
+} from "./cli.js"
 import { collectCoverage } from "./coverage/collect.js"
 import { CoverageReport, formatCoverage } from "./coverage/report.js"
-import { writeComponentDocs } from "./docs/generate.js"
+import { writeComponentDocs, WrittenDoc } from "./docs/generate.js"
 import { FoldcaseMcpServer } from "./mcp/server.js"
 import { formatSuite, type Showcase, SuiteReport, suiteExitCode } from "./runner.js"
 
 /** The one-line usage banner, printed to stderr for an unknown subcommand. */
 export const usage =
-  "usage: foldcase <test [dir-or-file] [--coverage] [--json] | docs [dir] [out-dir] | mcp>   (test/docs default to the current directory; --coverage adds a V8 line/function coverage summary; --json prints one JSON document on stdout instead of the summary, diagnostics on stderr; docs writes Schema-table Markdown to out-dir, default FOLDCASE_DOCS_DIR; mcp serves the catalog over stdio)"
+  "usage: foldcase <test [dir-or-file] [--coverage] [--json] | docs [dir] [out-dir] [--json] | mcp>   (test/docs default to the current directory; --coverage adds a V8 line/function coverage summary; --json prints one JSON document on stdout instead of the summary, diagnostics on stderr; docs writes Schema-table Markdown to out-dir, default FOLDCASE_DOCS_DIR; mcp serves the catalog over stdio)"
 
 /** What the argument vector asked for. */
 export type Command = Data.TaggedEnum<{
@@ -177,9 +183,41 @@ const test = Effect.fn("foldcase.test")(function* (
   return suiteExitCode(suite)
 })
 
+/**
+ * What `foldcase docs --json` prints: the documents written, by component and
+ * path, and the files that would not load, with the reason each was skipped.
+ * The same two facts the human output says, in the order a reader needs them.
+ */
+export class DocsDocument extends Schema.Class<DocsDocument>("foldcase/DocsDocument")({
+  docs: Schema.Array(WrittenDoc),
+  failures: Schema.Array(ShowcaseModuleError),
+}) {}
+
+const encodeDocsDocument = Schema.encodeEffect(Schema.fromJsonString(DocsDocument))
+
+const printDocsDocument = (
+  written: ReadonlyArray<WrittenDoc>,
+  failures: ReadonlyArray<ShowcaseModuleError>,
+) =>
+  encodeDocsDocument(new DocsDocument({ docs: written, failures })).pipe(
+    Effect.orDie,
+    Effect.flatMap(Console.log),
+  )
+
+const printWritten = (outDir: string, written: ReadonlyArray<WrittenDoc>) =>
+  Console.log(`foldcase docs: wrote ${written.length} doc(s) to ${outDir}`).pipe(
+    Effect.andThen(
+      Effect.forEach(written, (doc) => Console.log(`  ${doc.path}`), {
+        concurrency: 1,
+        discard: true,
+      }),
+    ),
+  )
+
 const docs = Effect.fn("foldcase.docs")(function* (
   target: string,
   outOverride: Option.Option<string>,
+  json: boolean,
 ) {
   const { files } = yield* resolveTarget(target)
   // Same guard as `test`: discovering zero showcases is a misconfiguration, not
@@ -193,13 +231,11 @@ const docs = Effect.fn("foldcase.docs")(function* (
     onSome: Effect.succeed,
   })
   const written = yield* writeComponentDocs(outDir, generated)
-  yield* Console.log(`foldcase docs: wrote ${written.length} doc(s) to ${outDir}`)
-  yield* Effect.forEach(written, (doc) => Console.log(`  ${doc.path}`), {
-    concurrency: 1,
-    discard: true,
-  })
+  yield* json ? printDocsDocument(written, failures) : printWritten(outDir, written)
   // Documenting what loaded is worth doing, but a file that would not load is
-  // missing from the output — say which, and let the exit code say it too.
+  // missing from the output — say which, and let the exit code say it too. The
+  // document already carries them; this is the note for a reader watching the
+  // terminal, so it stays on stderr in both modes.
   yield* Effect.forEach(failures, (failure) => Console.error(`foldcase docs: ${failure.message}`), {
     concurrency: 1,
     discard: true,
@@ -220,7 +256,7 @@ const reserveStdout = <A, E, R>(json: boolean, command: Effect.Effect<A, E, R>) 
  */
 export const runCommand = Command.$match({
   Test: ({ coverage, json, target }) => reserveStdout(json, test(target, coverage, json)),
-  Docs: ({ outDir, target }) => docs(target, outDir),
+  Docs: ({ json, outDir, target }) => reserveStdout(json, docs(target, outDir, json)),
   Mcp: () => Layer.launch(FoldcaseMcpServer),
   Usage: () => Console.error(usage).pipe(Effect.as(1)),
 })
