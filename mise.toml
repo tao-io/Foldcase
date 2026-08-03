@@ -94,6 +94,15 @@ smoke() {
   fi
   grep -q 'usage: foldcase' "$tmp/out"
 
+  # Two targets is a refusal, not a run over the first one. The dropped path
+  # here is a catalog that will not load, which is exactly the request whose
+  # silent half made a green exit lie.
+  if "$@" test test/fixtures/counter-logic.showcase.ts test/malformed/bad-message.showcase.ts > "$tmp/out" 2>&1; then
+    echo "$label: a second target must exit non-zero" >&2
+    exit 1
+  fi
+  grep -q 'did not understand: test/malformed/bad-message.showcase.ts' "$tmp/out"
+
   # A passing catalog exits 0 — and loading it proves the runtime resolves a
   # consumer's extensionless TypeScript import (`./lib/counter`).
   "$@" test test/fixtures/counter-logic.showcase.ts > "$tmp/out"
