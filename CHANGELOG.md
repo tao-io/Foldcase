@@ -6,11 +6,23 @@ major is 0, a minor may break something.
 
 ## [Unreleased]
 
-Four defects a real consumer found. Foldkit's own component gallery was showcased with
+Five defects a real consumer found. Foldkit's own component gallery was showcased with
 this tool, and each of these is something it hit on the first run.
 
 ### Fixed
 
+- **`foldcase docs` writes one file per component, on a real app.** A component was the
+  set of Showcases declaring the same `message` and `model` objects. A Foldkit app has one
+  Model struct and one Message union for the whole app, each component a slice of them, so
+  the gallery's 146 Showcases across 24 components wrote a single 15 KB document, titled
+  after an arbitrary Showcase and listing every id in one paragraph. A component is now
+  the id namespace — everything before the last `/` — which is what
+  `foldcase_run_catalog` already filters on, so the same app writes 24 files named
+  `button.md`, `calendar.md` and the rest. Asking the app to declare a narrower
+  per-component Schema was not the fix: that is a second description of a component, which
+  [ADR-0001](docs/adr/0001-showcase-one-definition-many-surfaces.md) forbids. Each table
+  is read from the first Showcase in id order that declares it, and a component that
+  declares neither Schema now gets no file rather than a page saying so.
 - **An argument the verb does not take stops the run.** `foldcase test a.showcase.ts
   b.showcase.ts` used to run the first path, exit 0 and say nothing about the second — and
   the one it dropped may be the catalog that will not load, so a CI job written that way

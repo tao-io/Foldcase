@@ -291,11 +291,18 @@ foldcase docs src/ui docs/schemas
 foldcase docs                 # output goes to FOLDCASE_DOCS_DIR, default ./foldcase-docs
 ```
 
-A **component** is the set of Showcases that declare the same `message` and `model` — in a
-real showcase file, every Showcase of one component, because they share the declared
-schema objects. The file is named after the id namespace they share, so five Showcases
-under `ui/picker/*` produce one `ui-picker.md` listing the ids behind it — rather than five
-files that differ only in their title.
+A **component** is the set of Showcases sharing an id namespace — everything before the
+last `/`. Five Showcases under `ui/picker/*` produce one `ui-picker.md` listing the ids
+behind it, `button/starts-unclicked` and `button/counts-one-click` are the `button`
+component, and an id with no `/` is its own. This is the same notion of a component
+`foldcase_run_catalog` filters on with an `id_prefix`.
+
+Each table is read from the first Showcase, in id order, that declares that Schema, so a
+namespace holding both plain logic Showcases and schema-carrying ones still documents. A
+component whose Showcases declare neither Schema has nothing to table and gets no file.
+Your app is free to keep one Model and one Message union for the whole app, the way a
+Foldkit app does — every document will carry the same two tables, under its own heading,
+with its own list of asserted behaviours.
 
 The Message table is `Message | Field | Type | Optional`, one row per tag and payload
 field. The Model table is `Field | Type | Optional`. Types describe the value your Model
