@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 import type { Showcase } from "../runner.js"
@@ -29,9 +30,14 @@ const alsoBare: Showcase = { id: "gadget/opaque", play: () => {} }
 // components hand `docs` the very same two Schema objects.
 const otherComponent: Showcase = { id: "gauge/at-zero", play: () => {}, ...schemas }
 
+// Every case but the schemaless one expects a document; unwrapping here keeps
+// the assertions about the document, not about the Option.
+const docOf = (group: ReadonlyArray<Showcase>) =>
+  Effect.runPromise(renderComponentDoc(group).pipe(Effect.map(Option.getOrThrow)))
+
 describe("renderComponentDoc", () => {
   test("documents both the Message and Model schema tables under a titled section", async () => {
-    const doc = await Effect.runPromise(renderComponentDoc([full]))
+    const doc = await docOf([full])
 
     expect(doc.component).toBe("counter")
     expect(doc.markdown).toContain("# counter")
@@ -47,7 +53,7 @@ describe("renderComponentDoc", () => {
   test("names the component after the id namespace, however deep it nests", async () => {
     const initial: Showcase = { id: "ui/picker/initial", play: () => {}, ...schemas }
     const filtering: Showcase = { id: "ui/picker/filtering", play: () => {}, ...schemas }
-    const doc = await Effect.runPromise(renderComponentDoc([initial, filtering]))
+    const doc = await docOf([initial, filtering])
 
     expect(doc.component).toBe("ui/picker")
     expect(doc.markdown).toContain("# ui/picker")
@@ -55,14 +61,14 @@ describe("renderComponentDoc", () => {
 
   test("names a component after the whole id when the id has no namespace", async () => {
     const lone: Showcase = { id: "banner", play: () => {}, ...schemas }
-    const doc = await Effect.runPromise(renderComponentDoc([lone]))
+    const doc = await docOf([lone])
 
     expect(doc.component).toBe("banner")
     expect(doc.markdown).toContain("# banner")
   })
 
   test("lists the Showcases it was derived from, in id order", async () => {
-    const doc = await Effect.runPromise(renderComponentDoc([alsoFull, full]))
+    const doc = await docOf([alsoFull, full])
 
     expect(doc.component).toBe("counter")
     expect(doc.showcases).toEqual(["counter/basic", "counter/reset"])
@@ -73,14 +79,13 @@ describe("renderComponentDoc", () => {
     expect(doc.markdown).toContain("`counter/reset`")
   })
 
-  test("documents a Showcase with no schema gracefully, not as an error", async () => {
+  test("declines to document a component that declares nothing, and does not fail", async () => {
+    // An opaque Showcase has nothing to table, so it gets no document — a page
+    // saying only "no schema declared" is worse than no page. `none`, not a
+    // failure: a Showcase that says nothing is data, like a failing one.
     const doc = await Effect.runPromise(renderComponentDoc([bare]))
 
-    expect(doc.component).toBe("widget")
-    expect(doc.markdown).toContain("# widget")
-    expect(doc.markdown.toLowerCase()).toContain("no model or message schema")
-    // A bare showcase must not emit empty table headers.
-    expect(doc.markdown).not.toContain("| Message | Field |")
+    expect(Option.isNone(doc)).toBe(true)
   })
 })
 
@@ -122,15 +127,17 @@ describe("generateComponentDocs", () => {
     expect(docs[0]?.showcases).toEqual(["counter/basic", "counter/other", "counter/reset"])
   })
 
-  test("never merges Showcases from different namespaces", async () => {
+  test("writes nothing for a namespace whose Showcases declare nothing", async () => {
     const docs = await Effect.runPromise(generateComponentDocs([bare, alsoBare]))
 
-    expect(docs.map((doc) => doc.component)).toEqual(["gadget", "widget"])
+    expect(docs).toEqual([])
   })
 
   test("sorts components by name for deterministic output", async () => {
-    const docs = await Effect.runPromise(generateComponentDocs([bare, full, alsoFull]))
+    const first: Showcase = { id: "alpha/one", play: () => {}, ...schemas }
+    const last: Showcase = { id: "zeta/one", play: () => {}, ...schemas }
+    const docs = await Effect.runPromise(generateComponentDocs([last, bare, full, first]))
 
-    expect(docs.map((doc) => doc.component)).toEqual(["counter", "widget"])
+    expect(docs.map((doc) => doc.component)).toEqual(["alpha", "counter", "zeta"])
   })
 })

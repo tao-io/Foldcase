@@ -41,8 +41,6 @@ export class ComponentDoc extends Schema.Class<ComponentDoc>("ComponentDoc")({
   markdown: Schema.String,
 }) {}
 
-const NO_SCHEMA_NOTE = "_No Model or Message schema declared for this Showcase._"
-
 /** Render the `## Messages` section from a Showcase's Message-union Schema, if declared. */
 const messageSection = Effect.fn("foldcase.docs.messageSection")(function* (showcase: Showcase) {
   if (showcase.message === undefined) {
@@ -98,10 +96,10 @@ const byId = Order.mapInput(Order.String, (showcase: Showcase) => showcase.id)
 
 /**
  * Render one component's autodoc: a titled Markdown document with a Message
- * Schema table and/or a Model Schema table. Every Showcase in the group
- * declares the same schemas, so the tables are read from the first of them and
- * the rest are listed by id. A component declaring neither schema is documented
- * with a graceful note, not treated as a failure. Fails
+ * Schema table and/or a Model Schema table, over the Showcases of one id
+ * namespace sorted by id. A component whose Showcases declare neither schema
+ * has nothing to table and gets no document — `none`, not a failure, the same
+ * way a Showcase that will not run is data rather than a crash. Fails
  * {@link SchemaIntrospectionError} only when a declared Schema cannot be
  * introspected.
  */
@@ -113,7 +111,9 @@ export const renderComponentDoc = Effect.fn("foldcase.docs.renderComponentDoc")(
   const message = yield* messageSection(head)
   const model = yield* modelSection(head)
   const sections = Arr.getSomes([message, model])
-  const body = Arr.isReadonlyArrayEmpty(sections) ? NO_SCHEMA_NOTE : sections.join("\n\n")
+  if (Arr.isReadonlyArrayEmpty(sections)) {
+    return Option.none<ComponentDoc>()
+  }
   const component = componentName(head.id)
   // With the ids out of the filename, the document is the only place that says
   // which Showcases stand behind these tables. A lone Showcase is already named
@@ -122,11 +122,13 @@ export const renderComponentDoc = Effect.fn("foldcase.docs.renderComponentDoc")(
     showcases.length === 1
       ? []
       : [`Showcases: ${showcases.map((showcase) => `\`${showcase.id}\``).join(", ")}`]
-  return new ComponentDoc({
-    component,
-    showcases: showcases.map((showcase) => showcase.id),
-    markdown: [`# ${component}`, ...covered, body].join("\n\n") + "\n",
-  })
+  return Option.some(
+    new ComponentDoc({
+      component,
+      showcases: showcases.map((showcase) => showcase.id),
+      markdown: [`# ${component}`, ...covered, sections.join("\n\n")].join("\n\n") + "\n",
+    }),
+  )
 })
 
 /** A component autodoc written to disk: the component name and the absolute path. */
@@ -167,8 +169,9 @@ export const writeComponentDocs = Effect.fn("foldcase.docs.writeComponentDocs")(
 const byComponent = Order.mapInput(Order.String, (doc: ComponentDoc) => doc.component)
 
 /**
- * Render an autodoc per component, sorted by name for deterministic output.
- * Fails {@link SchemaIntrospectionError} if any declared Schema is
+ * Render an autodoc per component, sorted by name for deterministic output. A
+ * component that declares no schema drops out here rather than producing an
+ * empty page. Fails {@link SchemaIntrospectionError} if any declared Schema is
  * un-introspectable.
  */
 export const generateComponentDocs = Effect.fn("foldcase.docs.generateComponentDocs")(function* (
@@ -177,5 +180,5 @@ export const generateComponentDocs = Effect.fn("foldcase.docs.generateComponentD
   const docs = yield* Effect.forEach(componentsOf(showcases), renderComponentDoc, {
     concurrency: 1,
   })
-  return Arr.sort(docs, byComponent)
+  return Arr.sort(Arr.getSomes(docs), byComponent)
 })
