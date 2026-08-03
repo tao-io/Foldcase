@@ -93,12 +93,66 @@ const readShowcases = (
   return Effect.succeed(exported)
 }
 
+/**
+ * Node's ESM error for an import of something that is not an export. Under
+ * Node's type stripping this is what a *type* imported as a value looks like:
+ * the types are gone, so the named export never existed.
+ */
+const MISSING_EXPORT = /does not provide an export named/
+/** The same message with its two names lifted out: the module, then the export. */
+const MISSING_EXPORT_NAMES =
+  /The requested module '(?<module>[^']*)' does not provide an export named '(?<name>[^']*)'/
+
+const isSyntaxError = (cause: unknown): cause is Error =>
+  cause instanceof Error && cause.name === "SyntaxError"
+
+/** End a rendered cause so the explanation can follow it as a second sentence. */
+const asSentence = (text: string): string => (/[!.?]$/.test(text) ? text : `${text}.`)
+
+/**
+ * Render a load `cause` as the `reason` a failed file is reported with, adding
+ * the one explanation the raw error never gives.
+ *
+ * Node strips TypeScript types but cannot tell a type-only import from a value
+ * import, so `import { Html } from 'foldkit/html'` — what `create-foldkit-app`
+ * scaffolds — becomes a real ESM import of an export that no longer exists. The
+ * `foldcase` bin hits this; `foldcase-bun` never does. The raw `SyntaxError`
+ * names the symbol and nothing else, so the user is left guessing.
+ *
+ * It lives here, in the runtime-agnostic loader, rather than in `src/shell/`:
+ * the failure only ever arises under Node, so recognising it is not a branch on
+ * the runtime — it is reading a cause that only one runtime produces. Putting it
+ * in the Node shell would mean parameterising the single loader with an
+ * explainer, which buys nothing and costs ADR-0001's one loader. Recognition is
+ * structural (a `SyntaxError` with this message), never a runtime check.
+ */
+export const loadFailureReason = (cause: unknown): string => {
+  const rendered = String(cause)
+  if (!isSyntaxError(cause) || !MISSING_EXPORT.test(cause.message)) {
+    return rendered
+  }
+  const names = MISSING_EXPORT_NAMES.exec(cause.message)?.groups
+  // Only name the import when the message really carried both names; a
+  // half-parsed sentence would be worse than a general one.
+  const rewrite =
+    names?.["module"] === undefined || names["name"] === undefined
+      ? "`import type`"
+      : `\`import type { ${names["name"]} } from '${names["module"]}'\``
+  return [
+    asSentence(rendered),
+    "Node strips types but cannot tell a type-only import from a value import,",
+    "so it asks for a real export.",
+    `Write ${rewrite} in the module that imports it,`,
+    "or run the Bun bin (`foldcase-bun`), which handles it.",
+  ].join(" ")
+}
+
 const loadShowcaseFile = (
   path: string,
 ): Effect.Effect<ReadonlyArray<Showcase>, ShowcaseModuleError> =>
   Effect.tryPromise({
     try: () => import(path),
-    catch: (cause) => new ShowcaseModuleError({ path, reason: String(cause) }),
+    catch: (cause) => new ShowcaseModuleError({ path, reason: loadFailureReason(cause) }),
   }).pipe(Effect.flatMap((module) => readShowcases(path, module)))
 
 /**

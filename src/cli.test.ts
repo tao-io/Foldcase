@@ -6,6 +6,7 @@ import { BunFileSystem, BunPath } from "@effect/platform-bun"
 import {
   discoverShowcaseFiles,
   docsFromFiles,
+  loadFailureReason,
   loadShowcasesFromFiles,
   runSuiteFromFiles,
 } from "./cli.js"
@@ -27,6 +28,42 @@ describe("discoverShowcaseFiles", () => {
     expect(files.some((path) => path.endsWith("sample.showcase.ts"))).toBe(true)
     const ascending = files.every((path, index) => index === 0 || (files[index - 1] ?? "") <= path)
     expect(ascending).toBe(true)
+  })
+})
+
+describe("loadFailureReason", () => {
+  test("renders an ordinary cause the way String does", () => {
+    expect(loadFailureReason(new Error("boom"))).toBe("Error: boom")
+    expect(loadFailureReason("Cannot find module './picker'")).toBe("Cannot find module './picker'")
+    expect(loadFailureReason(new TypeError("not a function"))).toBe("TypeError: not a function")
+  })
+
+  test("leaves a SyntaxError that is not the type-stripping one alone", () => {
+    expect(loadFailureReason(new SyntaxError("Unexpected token '<'"))).toBe(
+      "SyntaxError: Unexpected token '<'",
+    )
+  })
+
+  test("explains Node's type-stripping failure, naming the import to rewrite", () => {
+    const reason = loadFailureReason(
+      new SyntaxError("The requested module 'foldkit/html' does not provide an export named 'Html'"),
+    )
+
+    expect(reason).toContain("does not provide an export named 'Html'")
+    expect(reason).toContain("Node strips types")
+    expect(reason).toContain("import type { Html } from 'foldkit/html'")
+    expect(reason).toContain("foldcase-bun")
+  })
+
+  test("explains it without names when the message does not name them", () => {
+    // Node's wording is not a contract. A message that no longer parses still
+    // earns the explanation — it just does not get a tailored `import type`.
+    const reason = loadFailureReason(new SyntaxError("does not provide an export named"))
+
+    expect(reason).toContain("Node strips types")
+    expect(reason).toContain("import type")
+    expect(reason).not.toContain("undefined")
+    expect(reason).not.toContain("{  }")
   })
 })
 
