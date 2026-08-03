@@ -200,11 +200,24 @@ const unionTags = (branches: ReadonlyArray<JsonNode>): Option.Option<ReadonlyArr
 }
 
 /**
+ * How deep an anonymous struct inlines. One level: the cell has to stay one
+ * readable line of a Markdown table, and a struct nested inside a struct is a
+ * type that has earned a name — give it one and the table reports the name.
+ */
+const MAX_INLINE_DEPTH = 1
+
+/**
  * An anonymous struct — an inline `Schema.Struct`, with no `$ref` to a named
  * definition and no name of its own — rendered as its field list.
  */
 const renderInlineStruct = (node: JsonNode, depth: number): string => {
-  const fields = R.toEntries(node.properties ?? {}).map(
+  const properties = R.toEntries(node.properties ?? {})
+  // Nothing to inline — an open `Record`, or a struct past the depth cap. The
+  // bare word says more than an empty pair of braces.
+  if (depth >= MAX_INLINE_DEPTH || Arr.isReadonlyArrayEmpty(properties)) {
+    return "object"
+  }
+  const fields = properties.map(
     ([name, propertyNode]) => `${name}: ${renderTypeAt(propertyNode, depth + 1)}`,
   )
   return `{ ${fields.join("; ")} }`

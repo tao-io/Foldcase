@@ -210,6 +210,46 @@ describe("an anonymous struct field", () => {
   })
 })
 
+class NestedModel extends Schema.Class<NestedModel>("NestedModel")({
+  page: Schema.Struct({
+    title: Schema.String,
+    author: Schema.Struct({ name: Schema.String, email: Schema.String }),
+  }),
+}) {}
+
+describe("an anonymous struct nested inside another", () => {
+  test("stops at one level, so the cell stays one readable line", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(NestedModel))
+
+    expect(cellsOf(rowFor(markdown, "page"))).toEqual([
+      "`page`",
+      "{ title: string; author: object }",
+      "no",
+    ])
+  })
+})
+
+class FieldlessModel extends Schema.Class<FieldlessModel>("FieldlessModel")({
+  bag: Schema.Record(Schema.String, Schema.String),
+  marker: Schema.Struct({}),
+}) {}
+
+describe("an object node with no properties", () => {
+  test("still reads as `object` — an empty field list says less than the word", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(FieldlessModel))
+
+    // A Record's keys are open, so the node carries no `properties` at all.
+    expect(cellsOf(rowFor(markdown, "bag"))).toEqual(["`bag`", "object", "no"])
+    // `Schema.Struct({})` encodes as an object-or-array union; it read as
+    // `object | unknown[]` before inline structs existed, and still does.
+    expect(cellsOf(rowFor(markdown, "marker"))).toEqual([
+      "`marker`",
+      String.raw`object \| unknown[]`,
+      "no",
+    ])
+  })
+})
+
 class Priority extends Schema.Class<Priority>("Priority")({ level: Schema.Number }) {}
 
 // A Model as a named `Schema.Class` — `toJsonSchemaDocument` emits it as a
