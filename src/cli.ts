@@ -108,7 +108,12 @@ const loadShowcaseFile = (
  * on the record is a reviewed act, and this fact is not one of its facts).
  */
 export interface LoadedShowcase {
-  readonly file: string
+  /**
+   * The `*.showcase.ts` this Showcase was read from. The loader always knows
+   * it; an in-memory catalog — the MCP server's test and embed layer — has no
+   * file to name, and reports what it runs without one.
+   */
+  readonly file?: string
   readonly showcase: Showcase
 }
 

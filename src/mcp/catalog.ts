@@ -11,7 +11,9 @@ import * as Schema from "effect/Schema"
 import * as SynchronizedRef from "effect/SynchronizedRef"
 
 import {
+  type CatalogLoad,
   discoverShowcaseFiles,
+  type LoadedShowcase,
   loadShowcasesFromFiles,
   runCatalog,
   ShowcaseModuleError,
@@ -181,14 +183,13 @@ export interface FoldcaseCatalogShape {
 }
 
 /**
- * One pass of the loader, as the catalog holds it: the directory it read, the
- * Showcases in it, and the files it could not read. The directory is `None`
- * only for a catalog served from memory.
+ * The catalog being served: one load, plus the directory it came from. The
+ * directory is `None` only for a catalog served from memory. It holds
+ * the loader's own {@link CatalogLoad} rather than bare records, so a report the
+ * server hands back names the file it came from, exactly as `foldcase test` does.
  */
-interface CatalogState {
+interface CatalogState extends CatalogLoad {
   readonly dir: Option.Option<string>
-  readonly showcases: ReadonlyArray<Showcase>
-  readonly failures: ReadonlyArray<ShowcaseModuleError>
 }
 
 /**
@@ -236,10 +237,12 @@ const makeCatalogWith = (
   Effect.gen(function* () {
     const state = yield* SynchronizedRef.make(initial)
 
-    const find = (id: string): Effect.Effect<Showcase, ShowcaseNotFoundError> =>
+    // Finds the loaded entry, not the bare record: the file travels with it, so
+    // a single-Showcase run reports which file to open just as a whole run does.
+    const find = (id: string): Effect.Effect<LoadedShowcase, ShowcaseNotFoundError> =>
       SynchronizedRef.get(state).pipe(
         Effect.flatMap((current) =>
-          Arr.findFirst(current.showcases, (showcase) => showcase.id === id).pipe(
+          Arr.findFirst(current.loaded, (entry) => entry.showcase.id === id).pipe(
             Option.match({
               onNone: () =>
                 Effect.fail(
@@ -273,24 +276,24 @@ const makeCatalogWith = (
       ),
       schemaFor: (id) =>
         find(id).pipe(
-          Effect.flatMap((showcase) =>
+          Effect.flatMap(({ showcase }) =>
             introspect(id, showcase.message, () => new NoMessageSchemaError({ id })),
           ),
         ),
       modelSchemaFor: (id) =>
         find(id).pipe(
-          Effect.flatMap((showcase) =>
+          Effect.flatMap(({ showcase }) =>
             introspect(id, showcase.model, () => new NoModelSchemaError({ id })),
           ),
         ),
-      runById: (id) => find(id).pipe(Effect.flatMap(runShowcase)),
+      runById: (id) => find(id).pipe(Effect.flatMap((entry) => runShowcase(entry.showcase, entry.file))),
       runAll: (prefix) =>
         SynchronizedRef.get(state).pipe(
           Effect.flatMap((current) => {
             const selected = Option.match(prefix, {
-              onNone: () => current.showcases,
+              onNone: () => current.loaded,
               onSome: (start) =>
-                current.showcases.filter((showcase) => showcase.id.startsWith(start)),
+                current.loaded.filter((entry) => entry.showcase.id.startsWith(start)),
             })
             if (Option.isSome(prefix) && Arr.isReadonlyArrayEmpty(selected)) {
               return Effect.fail(
@@ -305,7 +308,11 @@ const makeCatalogWith = (
             // failed entry beside the plays. Its Showcases never got ids, so a
             // prefix cannot tell whether one of them would have matched — the
             // honest answer is to report the file either way.
-            return runCatalog({ failures: current.failures, showcases: selected })
+            return runCatalog({
+              loaded: selected,
+              showcases: selected.map((entry) => entry.showcase),
+              failures: current.failures,
+            })
           }),
         ),
       load: (dir) =>
@@ -323,7 +330,12 @@ const makeCatalogWith = (
 export const makeCatalog = (
   showcases: ReadonlyArray<Showcase>,
 ): Effect.Effect<FoldcaseCatalogShape> => {
-  const state: CatalogState = { dir: Option.none(), failures: [], showcases }
+  const state: CatalogState = {
+    dir: Option.none(),
+    failures: [],
+    loaded: showcases.map((showcase) => ({ showcase })),
+    showcases,
+  }
   return makeCatalogWith(state, () => Effect.succeed(state))
 }
 
@@ -354,7 +366,7 @@ const readCatalogDir = (
       (failure) => Effect.logWarning(`foldcase mcp: ${failure.message}`),
       { concurrency: 1, discard: true },
     )
-    return { dir: Option.some(dir), failures: load.failures, showcases: load.showcases }
+    return { ...load, dir: Option.some(dir) }
   })
 
 /**
