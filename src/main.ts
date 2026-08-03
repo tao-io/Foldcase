@@ -13,10 +13,10 @@
 
 import { registerHooks } from "node:module"
 
-import { NodeRuntime, NodeServices } from "@effect/platform-node"
 import * as Effect from "effect/Effect"
 
 import { run } from "./program.js"
+import { missingPeerNotice } from "./shell/missingPeer.js"
 import { resolveTypeScriptSource } from "./shell/nodeResolution.js"
 
 registerHooks({ resolve: resolveTypeScriptSource })
@@ -25,6 +25,29 @@ const setExitCode = (code: number): void => {
   process.exitCode = code
 }
 
-NodeRuntime.runMain(
-  run(process.argv.slice(2)).pipe(Effect.map(setExitCode), Effect.provide(NodeServices.layer)),
-)
+// The runtime binding is reached for dynamically because `@effect/platform-node`
+// is an *optional* peer: a consumer who runs only the Bun bin never installs it.
+// A static import fails before a line of this module runs, so the first thing
+// such a consumer would see is a loader stack trace. Asking for it here leaves
+// room to say which package to install instead — and anything the policy cannot
+// explain is rethrown as it came.
+const platform = await import("@effect/platform-node").catch((cause: unknown) => {
+  const notice = missingPeerNotice(cause, "@effect/platform-node", "foldcase-bun")
+  if (notice === undefined) {
+    throw cause
+  }
+  // Not `process.exit`: on macOS a piped stderr is asynchronous, and exiting
+  // here would cut the notice off mid-write.
+  process.stderr.write(`${notice}\n`)
+  process.exitCode = 1
+  return undefined
+})
+
+if (platform !== undefined) {
+  platform.NodeRuntime.runMain(
+    run(process.argv.slice(2)).pipe(
+      Effect.map(setExitCode),
+      Effect.provide(platform.NodeServices.layer),
+    ),
+  )
+}

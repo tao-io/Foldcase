@@ -209,13 +209,28 @@ const SURFACE_DIRECTORIES = ["src/mcp/", "src/docs/", "src/coverage/", "src/lab/
  */
 const DECLARED_SECOND_LOADER: ReadonlyArray<string> = ["src/coverage/collector.mjs"]
 
-const DYNAMIC_IMPORT = /(^|[^.\w])import\s*\(/
+const DYNAMIC_IMPORT = /(^|[^.\w])import\s*\(/g
 
-/** Modules that dynamically import a module at runtime — that is, that load. */
+/**
+ * A specifier that is written out in full: a package this module always meant
+ * to import. A shell asks for its optional `@effect/platform-*` peer that way —
+ * dynamically, so a consumer who never installed it gets an explanation rather
+ * than a loader stack trace — and that is a binding, not a load. Loading is
+ * importing a path the module was *handed*, which is what this rule fences.
+ */
+const CONSTANT_SPECIFIER = /^\s*(?:"[^"]*"|'[^']*'|`[^`$]*`)\s*\)/
+
+/** Modules that import a path they were handed at runtime — that is, that load. */
 export const dynamicImporters = (
   files: ReadonlyArray<string>,
   source: (file: string) => string,
-): ReadonlyArray<string> => files.filter((file) => DYNAMIC_IMPORT.test(codeOf(source(file))))
+): ReadonlyArray<string> =>
+  files.filter((file) => {
+    const code = codeOf(source(file))
+    return [...code.matchAll(DYNAMIC_IMPORT)].some(
+      (match) => !CONSTANT_SPECIFIER.test(code.slice(match.index + match[0].length)),
+    )
+  })
 
 /** Surface modules that name a showcase file in code — that is, that discover. */
 export const showcaseFileReaders = (
@@ -227,16 +242,21 @@ export const showcaseFileReaders = (
     .filter((file) => codeOf(source(file)).includes(".showcase.ts"))
 
 describe("ADR-0001 — a second loader", () => {
-  test("names a module that dynamically imports, and ignores one that only mentions it", () => {
+  test("names a module that imports a path, and spares a named package, prose and a static import", () => {
     const sources: Record<string, string> = {
       "loader.ts": "const m = await import(path)",
       "typed.ts": "const m = Effect.tryPromise({ try: () => import(path) })",
+      "interpolated.ts": "const m = await import(`${directory}/entry.ts`)",
       "prose.ts": "// `import()` resolves a relative path against the importer\nexport const a = 1",
       "static.ts": 'import * as Effect from "effect/Effect"\nexport const meta = import.meta.dir',
+      "shell.ts": 'const platform = await import("@effect/platform-node")',
+      "mixed.ts": 'await import("@effect/platform-bun")\nconst m = await import(path)',
     }
     expect(dynamicImporters(Object.keys(sources), (file) => sources[file] ?? "")).toEqual([
       "loader.ts",
       "typed.ts",
+      "interpolated.ts",
+      "mixed.ts",
     ])
   })
 
