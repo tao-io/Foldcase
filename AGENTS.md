@@ -112,13 +112,14 @@ src/cli.ts        discovery + the single catalog loader
 src/program.ts    the whole CLI as a runtime-agnostic Effect; returns an exit code
 src/main.ts       the Node shell: the `foldcase` bin
 src/main.bun.ts   the Bun shell: the `foldcase-bun` bin
-src/shell/        per-runtime policy (Node's TypeScript specifier resolution), unit-tested
+src/shell/        per-runtime policy (specifier resolution, the missing-peer notice), unit-tested
 src/mcp/          the catalog MCP server (catalog service, tools, server Layer)
 src/docs/         the Model/Message Schema-table generator, one document per component
 src/coverage/     `--coverage`: the collector contract, the tally, the Node instrument
 test/fixtures/    catalogs the discovery suites load
 test/malformed/   catalogs that must fail to load, and be reported for it
 test/uncollectable/ a catalog Bun loads and the Node collector cannot
+test/type-only/   a catalog Bun loads and Node refuses, for want of `import type`
 test/             the repo-wide gates (stack, surface derivation)
 docs/adr/         the decisions, in numbered order
 dist/             build output, gitignored

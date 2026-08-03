@@ -6,6 +6,31 @@ major is 0, a minor may break something.
 
 ## [Unreleased]
 
+Three defects a real consumer found. Foldkit's own component gallery was showcased with
+this tool, and each of these is something it hit on the first run.
+
+### Fixed
+
+- **A bin without its optional platform peer says which one to install.** Both
+  `@effect/platform-*` packages are optional peers, so a consumer who installs only one
+  used to meet `ERR_MODULE_NOT_FOUND` and a resolver stack trace before the CLI ran at
+  all. Each shell now reaches for its package at runtime and, when it is missing, prints
+  the package, the install command and the other bin, then exits 1. Any other resolution
+  failure — a consumer's own missing module — is still reported as data.
+- **A failed load names Node's type-stripping when that is the cause.** Node strips types
+  but cannot tell a type-only import from a value import, so a showcase reaching a module
+  that writes `import { Document } from 'foldkit/html'` failed with a bare `SyntaxError`.
+  The loader now names the cause and the two ways out, and the README states the rule. One
+  change in the single loader, so `test`, `docs` and `mcp` all say it.
+
+### Changed
+
+- **`foldcase docs` reads a real Model.** A union of tagged structs documents as its tags
+  rather than as `object`, and an anonymous struct as its field list rather than `object`.
+  Both are recognised by shape, not by annotation, so an Effect beta cannot move them. An
+  inline struct stops at one level of nesting and five fields, because the cell is one line
+  of a table.
+
 ## [0.1.0] — 2026-08-04
 
 The first release of the `core` line, published under the `alpha` dist-tag: install it as
