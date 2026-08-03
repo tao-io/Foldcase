@@ -84,6 +84,19 @@ it could never load a `*.showcase.ts` from your project — which is the tool's 
   shape of the encoding rather than from names that come and go.
 - **Node on `PATH`** — only for `foldcase test --coverage`, explained below. Under the Node
   bin you already have it.
+- **One `@effect/platform-*`, pinned to the v4 beta line.** Ask for the version by name:
+
+  ```bash
+  bun add -d @effect/platform-node@4.0.0-beta.102   # or @effect/platform-bun@…
+  ```
+
+  `latest` on both packages is still the **v3** major, and installing it pulls in a
+  `@effect/cluster` built against Effect v3. The bin then dies inside a dependency you
+  never asked for — `Cannot find module 'effect/dist/FiberRef.js' imported from
+  @effect/cluster` — long before it reads a showcase. Match the `effect` your app pins.
+
+  Install only the one your bin runs. Without it, the bin now names the package and the
+  install command instead of printing a resolver stack trace.
 
 Foldcase does *not* depend on Foldkit. The `play` thunk is opaque to the runner, so
 Foldkit Showcases run in your app's own closure while Foldcase stays framework-blind.
