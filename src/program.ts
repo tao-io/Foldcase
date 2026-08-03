@@ -16,26 +16,39 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
+import * as Schema from "effect/Schema"
 
 import { discoverShowcaseFiles, docsFromFiles, loadShowcasesFromFiles, runCatalog } from "./cli.js"
 import { collectCoverage } from "./coverage/collect.js"
-import { formatCoverage } from "./coverage/report.js"
+import { CoverageReport, formatCoverage } from "./coverage/report.js"
 import { writeComponentDocs } from "./docs/generate.js"
 import { FoldcaseMcpServer } from "./mcp/server.js"
-import { formatSuite, type Showcase, suiteExitCode } from "./runner.js"
+import { formatSuite, type Showcase, SuiteReport, suiteExitCode } from "./runner.js"
 
 /** The one-line usage banner, printed to stderr for an unknown subcommand. */
 export const usage =
-  "usage: foldcase <test [dir-or-file] [--coverage] | docs [dir] [out-dir] | mcp>   (test/docs default to the current directory; --coverage adds a V8 line/function coverage summary; docs writes Schema-table Markdown to out-dir, default FOLDCASE_DOCS_DIR; mcp serves the catalog over stdio)"
+  "usage: foldcase <test [dir-or-file] [--coverage] [--json] | docs [dir] [out-dir] | mcp>   (test/docs default to the current directory; --coverage adds a V8 line/function coverage summary; --json prints one JSON document on stdout instead of the summary, diagnostics on stderr; docs writes Schema-table Markdown to out-dir, default FOLDCASE_DOCS_DIR; mcp serves the catalog over stdio)"
 
 /** What the argument vector asked for. */
 export type Command = Data.TaggedEnum<{
-  /** Run every Showcase under `target`, optionally with a coverage summary. */
-  readonly Test: { readonly target: string; readonly coverage: boolean }
+  /**
+   * Run every Showcase under `target`, optionally with a coverage summary and
+   * optionally as one JSON document instead of the human summary.
+   */
+  readonly Test: {
+    readonly target: string
+    readonly coverage: boolean
+    readonly json: boolean
+  }
   /** Render Schema-table autodocs for every Showcase under `target`. */
-  readonly Docs: { readonly target: string; readonly outDir: Option.Option<string> }
+  readonly Docs: {
+    readonly target: string
+    readonly outDir: Option.Option<string>
+    readonly json: boolean
+  }
   /** Serve the catalog to an agent over stdio MCP. */
   readonly Mcp: object
   /** Nothing recognisable was asked for; print the banner and fail. */
@@ -54,18 +67,20 @@ const DEFAULT_TARGET = "."
  */
 export const parseCommand = (argv: ReadonlyArray<string>): Command => {
   const isFlag = (argument: string): boolean => argument.startsWith("--")
-  const flags = argv.filter(isFlag)
+  const flags = new Set(argv.filter(isFlag))
   const [subcommand, target, outDir] = argv.filter((argument) => !isFlag(argument))
   switch (subcommand) {
     case "test":
       return Command.Test({
         target: target ?? DEFAULT_TARGET,
-        coverage: flags.includes("--coverage"),
+        coverage: flags.has("--coverage"),
+        json: flags.has("--json"),
       })
     case "docs":
       return Command.Docs({
         target: target ?? DEFAULT_TARGET,
         outDir: Option.fromUndefinedOr(outDir),
+        json: flags.has("--json"),
       })
     case "mcp":
       return Command.Mcp()
@@ -91,25 +106,60 @@ const resolveTarget = Effect.fn("foldcase.resolveTarget")(function* (target: str
   return { root: path.dirname(resolved), files: [resolved] }
 })
 
-// Additive coverage: collect + print, but a collection failure (e.g. Node not
-// installed) is a warning, never a change to the run's pass/fail exit code.
-const reportCoverage = Effect.fn("foldcase.test.coverage")(function* (
-  root: string,
-  files: ReadonlyArray<string>,
-  showcases: ReadonlyArray<Showcase>,
-) {
-  const report = yield* collectCoverage(root, files, showcases)
-  yield* Console.log(`\ncoverage:\n${formatCoverage(report)}`)
-}, Effect.catchTag("foldcase/CoverageCollectionError", (error) =>
-  Console.error(`foldcase: coverage unavailable — ${error.reason}`),
-))
+// Additive coverage: collect it, but a collection failure (e.g. Node not
+// installed) is a note on stderr and no report, never a change to the run's
+// pass/fail exit code.
+const coverageOf = Effect.fn("foldcase.test.coverage")(
+  function* (root: string, files: ReadonlyArray<string>, showcases: ReadonlyArray<Showcase>) {
+    return Option.some(yield* collectCoverage(root, files, showcases))
+  },
+  Effect.catchTag("foldcase/CoverageCollectionError", (error) =>
+    Console.error(`foldcase: coverage unavailable — ${error.reason}`).pipe(
+      Effect.as(Option.none<CoverageReport>()),
+    ),
+  ),
+)
+
+/**
+ * What `foldcase test --json` prints: the suite report, and the coverage report
+ * beside it when `--coverage` collected one. One document, so a reader parses
+ * stdout once instead of splitting a summary from a report printed after it.
+ */
+export class TestDocument extends Schema.Class<TestDocument>("foldcase/TestDocument")({
+  suite: SuiteReport,
+  coverage: Schema.optional(CoverageReport),
+}) {}
+
+const encodeTestDocument = Schema.encodeEffect(Schema.fromJsonString(TestDocument))
+
+// The document is the encoded Schema value, so what an agent parses is the same
+// contract the runner reports. An encode failure would mean the Schema
+// disagrees with the report just built — a defect, not a caller's problem.
+const printTestDocument = (suite: SuiteReport, coverage: Option.Option<CoverageReport>) =>
+  encodeTestDocument(
+    new TestDocument({ suite, coverage: Option.getOrUndefined(coverage) }),
+  ).pipe(Effect.orDie, Effect.flatMap(Console.log))
+
+const printSuite = (suite: SuiteReport, coverage: Option.Option<CoverageReport>) =>
+  Console.log(formatSuite(suite)).pipe(
+    Effect.andThen(
+      Option.match(coverage, {
+        onNone: () => Effect.void,
+        onSome: (report) => Console.log(`\ncoverage:\n${formatCoverage(report)}`),
+      }),
+    ),
+  )
 
 // Discovering zero showcases is a failure, not an empty pass: an exit-0 with no
 // coverage reads as "everything passed" and green-lights a misconfigured run.
 const noShowcases = (target: string) =>
   Console.error(`foldcase: no *.showcase.ts found under ${target}`).pipe(Effect.as(1))
 
-const test = Effect.fn("foldcase.test")(function* (target: string, coverage: boolean) {
+const test = Effect.fn("foldcase.test")(function* (
+  target: string,
+  coverage: boolean,
+  json: boolean,
+) {
   const { root, files } = yield* resolveTarget(target)
   if (Arr.isReadonlyArrayEmpty(files)) {
     return yield* noShowcases(target)
@@ -120,10 +170,10 @@ const test = Effect.fn("foldcase.test")(function* (target: string, coverage: boo
   // the run — the other files still have results worth having.
   const load = yield* loadShowcasesFromFiles(files)
   const suite = yield* runCatalog(load)
-  yield* Console.log(formatSuite(suite))
-  if (coverage) {
-    yield* reportCoverage(root, files, load.showcases)
-  }
+  const collected = coverage
+    ? yield* coverageOf(root, files, load.showcases)
+    : Option.none<CoverageReport>()
+  yield* json ? printTestDocument(suite, collected) : printSuite(suite, collected)
   return suiteExitCode(suite)
 })
 
@@ -157,13 +207,19 @@ const docs = Effect.fn("foldcase.docs")(function* (
   return Arr.isReadonlyArrayEmpty(failures) ? 0 : 1
 })
 
+// In JSON mode stdout carries the document and nothing else, so the built-in
+// logger — which writes to stdout — moves to stderr for the run, where every
+// other diagnostic already goes. The MCP server reserves stdout the same way.
+const reserveStdout = <A, E, R>(json: boolean, command: Effect.Effect<A, E, R>) =>
+  json ? Effect.provide(command, Layer.succeed(Logger.LogToStderr)(true)) : command
+
 /**
  * Run one {@link Command} to the process exit code the shell should set. `Mcp`
  * is a long-running stdio server, so it only ever returns by failing — its
  * `never` result unifies with the exit codes of the one-shot subcommands.
  */
 export const runCommand = Command.$match({
-  Test: ({ coverage, target }) => test(target, coverage),
+  Test: ({ coverage, json, target }) => reserveStdout(json, test(target, coverage, json)),
   Docs: ({ outDir, target }) => docs(target, outDir),
   Mcp: () => Layer.launch(FoldcaseMcpServer),
   Usage: () => Console.error(usage).pipe(Effect.as(1)),
