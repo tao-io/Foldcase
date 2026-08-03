@@ -171,6 +171,18 @@ const optionValueNode = (node: JsonNode): Option.Option<Option.Option<JsonNode>>
 const isOptionNode = (node: JsonNode): boolean => Option.isSome(optionValueNode(node))
 
 /**
+ * Whether a property of an object node may be absent: its owner does not
+ * require it, or it is an `Option`, which is always present and may still be
+ * empty. One rule, read by the table's Optional column and by the `?` an inline
+ * struct writes.
+ */
+const isOptionalProperty = (
+  node: JsonNode,
+  name: string,
+  required: ReadonlyArray<string>,
+): boolean => !Arr.contains(required, name) || isOptionNode(node)
+
+/**
  * The four representations a `Duration` serializes to. The field is recognised
  * by this shape rather than by the declared type's name, because the name
  * reaches the document only on some Effect betas — beta.102 stopped carrying it
@@ -187,12 +199,55 @@ const isDurationNode = (node: JsonNode): boolean => {
 }
 
 /**
- * Render a JSON Schema node as a compact, human-readable type string. Collapses
- * the `number | "NaN" | "Infinity" | "-Infinity"` encoding Effect emits for a
- * plain `number` back to `number`, resolves `$ref` to its definition name, and
- * drops the `null` branch an optional field carries (optionality is a column).
+ * The tags of a union whose every branch is a tagged struct, in the order the
+ * branches are declared.
+ *
+ * Recognised by the shape — a `_tag` literal on every branch — rather than by
+ * any annotation, for the reason `Duration` is: a name reaches the document
+ * only on some Effect betas, while the discriminant is the encoding itself.
  */
-export const renderType = (node: JsonNode): string => {
+const unionTags = (branches: ReadonlyArray<JsonNode>): Option.Option<ReadonlyArray<string>> => {
+  const tags = Arr.getSomes(branches.map(tagOf))
+  return branches.length > 0 && tags.length === branches.length ? Option.some(tags) : Option.none()
+}
+
+/**
+ * How deep an anonymous struct inlines. One level: the cell has to stay one
+ * readable line of a Markdown table, and a struct nested inside a struct is a
+ * type that has earned a name — give it one and the table reports the name.
+ */
+const MAX_INLINE_DEPTH = 1
+
+/**
+ * How many fields an inline struct spells out before it trails off. A cell is
+ * one line of a table, and a reader who needs the sixth field is reading the
+ * declaration anyway.
+ */
+const MAX_INLINE_FIELDS = 5
+
+/**
+ * An anonymous struct — an inline `Schema.Struct`, with no `$ref` to a named
+ * definition and no name of its own — rendered as its field list.
+ */
+const renderInlineStruct = (node: JsonNode, depth: number): string => {
+  const properties = R.toEntries(node.properties ?? {})
+  // Nothing to inline — an open `Record`, or a struct past the depth cap. The
+  // bare word says more than an empty pair of braces.
+  if (depth >= MAX_INLINE_DEPTH || Arr.isReadonlyArrayEmpty(properties)) {
+    return "object"
+  }
+  const required = node.required ?? []
+  const fields = Arr.take(properties, MAX_INLINE_FIELDS).map(([name, propertyNode]) => {
+    // An inline list has no Optional column, so a field that may be absent
+    // says so the way a TypeScript type would.
+    const mark = isOptionalProperty(propertyNode, name, required) ? "?" : ""
+    return `${name}${mark}: ${renderTypeAt(propertyNode, depth + 1)}`
+  })
+  const rest = properties.length > MAX_INLINE_FIELDS ? ["…"] : []
+  return `{ ${[...fields, ...rest].join("; ")} }`
+}
+
+const renderTypeAt = (node: JsonNode, depth: number): string => {
   if (node.$ref !== undefined) {
     return declaredName(node.$ref)
   }
@@ -207,7 +262,7 @@ export const renderType = (node: JsonNode): string => {
     if (Option.isSome(value)) {
       return `Option<${Option.match(value.value, {
         onNone: () => "unknown",
-        onSome: renderType,
+        onSome: (some) => renderTypeAt(some, depth),
       })}>`
     }
     if (isDurationNode(node)) {
@@ -216,7 +271,16 @@ export const renderType = (node: JsonNode): string => {
     if (node.expected !== undefined) {
       return node.expected
     }
-    return Arr.dedupe(branches.map(renderType)).join(" | ")
+    // A union of tagged structs reads as its tags. Every branch is an object
+    // node, so rendering the branches would print `object` once and say
+    // nothing; the tags are what the field's own code matches on, and each
+    // tag's payload is documented where that tag is declared. Declared order,
+    // not sorted, so the table mirrors the source.
+    const tags = unionTags(branches)
+    if (Option.isSome(tags)) {
+      return tags.value.join(" | ")
+    }
+    return Arr.dedupe(branches.map((branch) => renderTypeAt(branch, depth))).join(" | ")
   }
   if (node.expected !== undefined) {
     return node.expected
@@ -225,13 +289,26 @@ export const renderType = (node: JsonNode): string => {
     return renderEnum(node.enum)
   }
   if (node.type === "array") {
-    return `${node.items === undefined ? "unknown" : renderType(node.items)}[]`
+    // An array wraps its element; it is not a level of struct nesting, so the
+    // depth passes through and `{ … }[]` still spells its fields out.
+    return `${node.items === undefined ? "unknown" : renderTypeAt(node.items, depth)}[]`
+  }
+  if (node.type === "object") {
+    return renderInlineStruct(node, depth)
   }
   if (node.type !== undefined && Arr.contains(PRIMITIVE_TYPES, node.type)) {
     return node.type
   }
   return "unknown"
 }
+
+/**
+ * Render a JSON Schema node as a compact, human-readable type string. Collapses
+ * the `number | "NaN" | "Infinity" | "-Infinity"` encoding Effect emits for a
+ * plain `number` back to `number`, resolves `$ref` to its definition name, and
+ * drops the `null` branch an optional field carries (optionality is a column).
+ */
+export const renderType = (node: JsonNode): string => renderTypeAt(node, 0)
 
 // FIELD + VARIANT EXTRACTION
 
@@ -264,7 +341,7 @@ const fieldsOf = (node: JsonNode, excludeTag: boolean): ReadonlyArray<FieldDoc> 
           type: renderType(propertyNode),
           // An `Option` field is always present and may still be empty, so the
           // Optional column has to read `yes` even though `required` lists it.
-          optional: !Arr.contains(required, name) || isOptionNode(propertyNode),
+          optional: isOptionalProperty(propertyNode, name, required),
         }),
     )
   return Arr.sort(fields, byName)

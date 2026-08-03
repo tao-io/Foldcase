@@ -157,6 +157,139 @@ describe("an Option field", () => {
   })
 })
 
+const NotEditing = Schema.TaggedStruct("NotEditing", {})
+const Editing = Schema.TaggedStruct("Editing", { id: Schema.String, text: Schema.String })
+
+class EditorModel extends Schema.Class<EditorModel>("EditorModel")({
+  editing: Schema.Union([NotEditing, Editing]),
+}) {}
+
+describe("a tagged-union field", () => {
+  test("reads as its tags, in the order the schema declares them", async () => {
+    // Every branch of the union is an object node, so the old renderer rendered
+    // each as `object`, deduped them, and printed a single `object` — the one
+    // word a reader already knew.
+    const markdown = await Effect.runPromise(modelTableFor(EditorModel))
+
+    expect(cellsOf(rowFor(markdown, "editing"))).toEqual([
+      "`editing`",
+      String.raw`NotEditing \| Editing`,
+      "no",
+    ])
+  })
+})
+
+class RosterModel extends Schema.Class<RosterModel>("RosterModel")({
+  lead: Schema.Struct({ id: Schema.String, name: Schema.String }),
+  members: Schema.Array(Schema.Struct({ id: Schema.String, active: Schema.Boolean })),
+}) {}
+
+describe("an anonymous struct field", () => {
+  test("reads as an inline field list, since it has no name to report", async () => {
+    // An inline `Schema.Struct` emits no `$ref` and carries no name, so the
+    // table fell through to the `object` catch-all and hid every field.
+    const markdown = await Effect.runPromise(modelTableFor(RosterModel))
+
+    expect(cellsOf(rowFor(markdown, "lead"))).toEqual([
+      "`lead`",
+      "{ id: string; name: string }",
+      "no",
+    ])
+  })
+
+  test("spells its fields out inside an array too — `object[]` named nothing", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(RosterModel))
+
+    // An array wraps its element and is not a level of struct nesting, so the
+    // element still renders its fields.
+    expect(cellsOf(rowFor(markdown, "members"))).toEqual([
+      "`members`",
+      "{ id: string; active: boolean }[]",
+      "no",
+    ])
+  })
+})
+
+class NestedModel extends Schema.Class<NestedModel>("NestedModel")({
+  page: Schema.Struct({
+    title: Schema.String,
+    author: Schema.Struct({ name: Schema.String, email: Schema.String }),
+  }),
+}) {}
+
+describe("an anonymous struct nested inside another", () => {
+  test("stops at one level, so the cell stays one readable line", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(NestedModel))
+
+    expect(cellsOf(rowFor(markdown, "page"))).toEqual([
+      "`page`",
+      "{ title: string; author: object }",
+      "no",
+    ])
+  })
+})
+
+class FieldlessModel extends Schema.Class<FieldlessModel>("FieldlessModel")({
+  bag: Schema.Record(Schema.String, Schema.String),
+  marker: Schema.Struct({}),
+}) {}
+
+describe("an object node with no properties", () => {
+  test("still reads as `object` — an empty field list says less than the word", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(FieldlessModel))
+
+    // A Record's keys are open, so the node carries no `properties` at all.
+    expect(cellsOf(rowFor(markdown, "bag"))).toEqual(["`bag`", "object", "no"])
+    // `Schema.Struct({})` encodes as an object-or-array union; it read as
+    // `object | unknown[]` before inline structs existed, and still does.
+    expect(cellsOf(rowFor(markdown, "marker"))).toEqual([
+      "`marker`",
+      String.raw`object \| unknown[]`,
+      "no",
+    ])
+  })
+})
+
+class WideModel extends Schema.Class<WideModel>("WideModel")({
+  row: Schema.Struct({
+    a: Schema.String,
+    b: Schema.String,
+    c: Schema.String,
+    d: Schema.String,
+    e: Schema.String,
+    f: Schema.String,
+    g: Schema.String,
+  }),
+}) {}
+
+describe("an anonymous struct with many fields", () => {
+  test("inlines the first few and marks the rest, keeping the cell short", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(WideModel))
+
+    expect(cellsOf(rowFor(markdown, "row"))).toEqual([
+      "`row`",
+      "{ a: string; b: string; c: string; d: string; e: string; … }",
+      "no",
+    ])
+  })
+})
+
+class DraftModel extends Schema.Class<DraftModel>("DraftModel")({
+  draft: Schema.Struct({ id: Schema.String, note: Schema.optional(Schema.String) }),
+}) {}
+
+describe("an optional field inside an anonymous struct", () => {
+  test("carries a `?`, since an inline list has no Optional column", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(DraftModel))
+
+    expect(cellsOf(rowFor(markdown, "draft"))).toEqual([
+      "`draft`",
+      "{ id: string; note?: string }",
+      "no",
+    ])
+  })
+})
+
 class Priority extends Schema.Class<Priority>("Priority")({ level: Schema.Number }) {}
 
 // A Model as a named `Schema.Class` — `toJsonSchemaDocument` emits it as a
