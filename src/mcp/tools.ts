@@ -1,11 +1,14 @@
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { Tool, Toolkit } from "effect/unstable/ai"
 
 
 import { ShowcaseReport } from "../runner.js"
 import {
+  CatalogDirectoryError,
   CatalogListing,
+  CatalogLoadReport,
   FoldcaseCatalog,
   type FoldcaseCatalogShape,
   NoMessageSchemaError,
@@ -79,8 +82,50 @@ const RunShowcase = Tool.make("foldcase_run_showcase", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.OpenWorld, false)
 
-/** The Foldcase catalog toolkit: the three verbs the MCP server exposes. */
-export const FoldcaseToolkit = Toolkit.make(ListShowcases, GetShowcaseSchema, RunShowcase)
+/** The `{ dir }` parameter of the one verb that moves the served catalog. */
+class CatalogDirInput extends Schema.Class<CatalogDirInput>("CatalogDirInput")({
+  dir: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "Directory to read, relative to the directory the server was started on (or absolute). Omit it to re-read the directory currently being served.",
+    }),
+  ),
+}) {}
+
+/**
+ * Re-read the catalog, and point it at a directory.
+ *
+ * These are one verb because they are one act. The alternative was a `dir`
+ * parameter on every id-addressed verb, and that makes an id mean nothing on
+ * its own: the same id would name different Showcases from call to call, and
+ * every call would pay for a directory walk and a fresh `import()` of every
+ * module under it. So the directory is *state* — the server serves one catalog
+ * at a time, this verb is the only thing that moves it, and every answer
+ * carries the directory it came from, so an agent never has to guess which
+ * catalog it is reading.
+ */
+const LoadCatalog = Tool.make("foldcase_load_catalog", {
+  description:
+    "Re-read the Showcase catalog from disk and report what came back: the directory read, how many Showcases it holds, and the files that would not load (with the reason). Call it after writing or deleting a Showcase file, so the catalog the other verbs answer from is the one on disk. Pass `dir` to serve another directory or subtree instead — it stays the served catalog until the next call. Fails only if the directory cannot be read. A module already imported is cached by the runtime, so an edit inside a file that has loaded needs a restart, not a reload.",
+  parameters: CatalogDirInput,
+  success: CatalogLoadReport,
+  failure: CatalogDirectoryError,
+})
+  // Read-only in the sense the hint means: it reads a directory and writes
+  // nothing. What it changes is this server's own view of it — the served
+  // catalog — and that is not the caller's environment, so a host has no reason
+  // to stop and ask.
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
+
+/** The Foldcase catalog toolkit: the verbs the MCP server exposes. */
+export const FoldcaseToolkit = Toolkit.make(
+  ListShowcases,
+  GetShowcaseSchema,
+  RunShowcase,
+  LoadCatalog,
+)
 
 /**
  * Bind the catalog verbs to a concrete {@link FoldcaseCatalogShape}. Kept a
@@ -97,6 +142,10 @@ export const makeHandlers = (catalog: FoldcaseCatalogShape) => ({
   foldcase_run_showcase: (params: {
     readonly showcase_id: string
   }): Effect.Effect<ShowcaseReport, ShowcaseNotFoundError> => catalog.runById(params.showcase_id),
+  foldcase_load_catalog: (params: {
+    readonly dir?: string | undefined
+  }): Effect.Effect<CatalogLoadReport, CatalogDirectoryError> =>
+    catalog.load(Option.fromNullishOr(params.dir)),
 })
 
 /**

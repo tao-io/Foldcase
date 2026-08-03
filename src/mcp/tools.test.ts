@@ -16,13 +16,14 @@ const withSchema: Showcase = {
 }
 
 describe("FoldcaseToolkit", () => {
-  test("exposes exactly the three catalog verbs", () => {
+  test("exposes exactly the catalog verbs", () => {
     const names = Object.keys(FoldcaseToolkit.tools)
-    expect(names).toHaveLength(3)
+    expect(names).toHaveLength(4)
     expect(names).toEqual(
       expect.arrayContaining([
         "foldcase_get_showcase_schema",
         "foldcase_list_showcases",
+        "foldcase_load_catalog",
         "foldcase_run_showcase",
       ]),
     )
@@ -73,5 +74,15 @@ describe("foldcase mcp handlers", () => {
 
     expect(report.id).toBe("sample/passes")
     expect(report.status).toBe("passed")
+  })
+
+  test("foldcase_load_catalog reports what the re-read found", async () => {
+    // An in-memory catalog has no directory behind it, so it re-serves what it
+    // holds; that a call with no `dir` reaches the catalog at all is the part
+    // this pins down. The disk behaviour is in catalog.load.test.ts.
+    const report = await Effect.runPromise(handlers.foldcase_load_catalog({}))
+
+    expect(report.showcaseCount).toBe(2)
+    expect(report.failures).toEqual([])
   })
 })
