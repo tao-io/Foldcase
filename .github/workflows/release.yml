@@ -1,0 +1,110 @@
+name: Release
+
+# A `v*` tag publishes; a push to main never does. main is where work lands, a
+# tag is where the decision to ship it is written down.
+on:
+  push:
+    tags: ["v*"]
+
+# `id-token: write` lets the runner mint the OIDC token npm trades for a
+# short-lived publish credential, and signs the provenance attestation with it.
+# Nothing here writes to the repository.
+permissions:
+  contents: read
+  id-token: write
+
+# One job, unlike CI's fan-out. CI splits lint, typecheck and test across
+# runners because it only has to answer whether the source is right. A release
+# has to answer whether *this* tarball is right, so every check and the publish
+# run on one machine, over one checkout, in order.
+jobs:
+  release:
+    name: check + publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        # mise.toml is the single source for the bun, node and oxlint versions,
+        # exactly as in ci.yml.
+        uses: jdx/mise-action@v2
+
+      - name: Install dependencies
+        run: mise exec -- bun install --frozen-lockfile
+
+      - name: Patch tsc for @effect/language-service
+        run: mise run setup
+
+      - name: Upgrade npm to a version that can publish without a token
+        # Node 22.18.0 ships npm 10, which predates trusted publishing. npm
+        # 11.5.1 is the floor for OIDC, and it is also the npm that packs the
+        # tarball two steps down, so what is checked is what is uploaded.
+        run: mise exec -- npm install -g npm@latest
+
+      - name: The tag names the version in the manifest
+        # A tag is the release record. If it disagrees with package.json, one of
+        # the two is wrong and npm would publish a number nobody asked for.
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared="$(mise exec -- node -p 'require("./package.json").version')"
+          if [ "$tagged" != "$declared" ]; then
+            echo "release: tag $GITHUB_REF_NAME does not name package.json version $declared" >&2
+            exit 1
+          fi
+
+      - name: Lint
+        run: mise run lint
+
+      - name: Typecheck
+        run: mise run typecheck
+
+      - name: Test
+        run: mise run test
+
+      - name: Build dist/
+        run: mise run build
+
+      - name: Smoke the built CLI under Node and Bun
+        run: mise run smoke
+
+      - name: Run the example the way a user would
+        run: mise run dogfood
+
+      - name: Check the tarball, installed
+        # The last gate before the upload: what `files` ships, and both bins run
+        # out of a consumer's `node_modules/.bin` under each runtime.
+        run: mise run pack
+
+      - name: Publish to npm under the alpha dist-tag
+        # `alpha` and not `latest`: 0.x is a preview, and `npm install foldcase`
+        # should not reach for it by accident. Ask for it by name —
+        # `npm install foldcase@alpha`.
+        #
+        # No token: npm trades the OIDC token above for a short-lived credential
+        # (trusted publishing). That needs one setup on npmjs.com that cannot be
+        # done from this repository — package Settings › Trusted Publisher →
+        # GitHub Actions, org `tao-io`, repository `foldcase`, workflow file
+        # `release.yml` (the name is matched exactly, extension included).
+        #
+        # npm will only accept that setup for a package it already knows, and
+        # foldcase has never been published. So the first `v0.1.0` has to go up
+        # from a laptop — `npm publish --tag alpha --provenance` with a granular
+        # publish token — and the trusted publisher is configured after it. From
+        # the second tag on, this step needs no secret at all.
+        #
+        # If that setup is not in place, or is ever withdrawn, the fallback is a
+        # granular publish token in the `NPM_TOKEN` secret and one extra line
+        # here, before the publish:
+        #
+        #   - run: mise exec -- npm config set //registry.npmjs.org/:_authToken '${{ secrets.NPM_TOKEN }}'
+        #
+        # It is written down rather than wired up, because a workflow that reads
+        # a secret nobody set fails at the registry instead of here.
+        #
+        # `--provenance` is passed even though trusted publishing is documented
+        # to attest by default: it costs nothing when it is redundant, and it is
+        # the flag the token fallback needs.
+        run: mise exec -- npm publish --tag alpha --provenance

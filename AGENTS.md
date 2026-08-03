@@ -93,6 +93,12 @@ consumer's TypeScript resolving under each runtime, the coverage collector spawn
 `dist/coverage/`, and the exit codes. `mise.toml` pins **Node 22.18.0** — the floor
 `engines` claims — so none of this is tested against whatever Node the machine had.
 
+Two further tasks run in CI rather than before every commit. `mise run dogfood` drives the
+built CLI over `examples/counter`, a real Foldkit app. `mise run pack` packs the npm
+tarball, checks what it holds, installs it into a temp directory and runs both bins from
+there — the only check that sees what a consumer downloads. The release workflow, which a
+`v*` tag triggers, runs all seven and then publishes under the `alpha` dist-tag.
+
 Commit in small, logical steps with a message that says what changed and why.
 
 Run `mise run setup` once after installing — it patches `tsc` so the Effect language
