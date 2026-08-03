@@ -61,6 +61,13 @@ export class ShowcaseSchema extends Schema.Class<ShowcaseSchema>("ShowcaseSchema
   jsonSchema: Schema.Unknown,
 }) {}
 
+// Every error below renders its payload as its `message`. A schema-backed error
+// keeps its payload in fields, so the `message` it inherits is empty — and an
+// MCP host answers a declared tool failure with exactly that string. Without
+// these getters an agent is told a call failed and nothing else, which is the
+// one thing the payloads exist to prevent. `ShowcaseModuleError` in `src/cli.ts`
+// does the same, for the same reason.
+
 /** No Showcase in the catalog has the requested id. Carries the available ids. */
 export class ShowcaseNotFoundError extends Schema.TaggedErrorClass<ShowcaseNotFoundError>()(
   "foldcase/ShowcaseNotFoundError",
@@ -68,7 +75,11 @@ export class ShowcaseNotFoundError extends Schema.TaggedErrorClass<ShowcaseNotFo
     id: Schema.String,
     available: Schema.Array(Schema.String),
   },
-) {}
+) {
+  override get message(): string {
+    return `no Showcase with id ${JSON.stringify(this.id)}; available: ${this.available.join(", ")}`
+  }
+}
 
 /** The Showcase exists but declares no Message schema to introspect. */
 export class NoMessageSchemaError extends Schema.TaggedErrorClass<NoMessageSchemaError>()(
@@ -76,7 +87,11 @@ export class NoMessageSchemaError extends Schema.TaggedErrorClass<NoMessageSchem
   {
     id: Schema.String,
   },
-) {}
+) {
+  override get message(): string {
+    return `Showcase ${JSON.stringify(this.id)} declares no Message schema`
+  }
+}
 
 /** The Showcase exists but declares no Model schema to introspect. */
 export class NoModelSchemaError extends Schema.TaggedErrorClass<NoModelSchemaError>()(
@@ -84,7 +99,11 @@ export class NoModelSchemaError extends Schema.TaggedErrorClass<NoModelSchemaErr
   {
     id: Schema.String,
   },
-) {}
+) {
+  override get message(): string {
+    return `Showcase ${JSON.stringify(this.id)} declares no Model schema`
+  }
+}
 
 /** No Showcase id starts with the requested prefix. Carries the available ids. */
 export class NoShowcaseMatchedError extends Schema.TaggedErrorClass<NoShowcaseMatchedError>()(
@@ -93,7 +112,11 @@ export class NoShowcaseMatchedError extends Schema.TaggedErrorClass<NoShowcaseMa
     prefix: Schema.String,
     available: Schema.Array(Schema.String),
   },
-) {}
+) {
+  override get message(): string {
+    return `no Showcase id starts with ${JSON.stringify(this.prefix)}; available: ${this.available.join(", ")}`
+  }
+}
 
 /** The directory a load named cannot be read. Carries the path and the reason. */
 export class CatalogDirectoryError extends Schema.TaggedErrorClass<CatalogDirectoryError>()(
@@ -102,7 +125,11 @@ export class CatalogDirectoryError extends Schema.TaggedErrorClass<CatalogDirect
     dir: Schema.String,
     reason: Schema.String,
   },
-) {}
+) {
+  override get message(): string {
+    return `${this.dir}: ${this.reason}`
+  }
+}
 
 /** The read + run surface an MCP catalog server exposes over a set of Showcases. */
 export interface FoldcaseCatalogShape {

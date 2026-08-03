@@ -4,7 +4,14 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 import type { Showcase } from "../runner.js"
-import { makeCatalog, ShowcaseNotFoundError } from "./catalog.js"
+import {
+  CatalogDirectoryError,
+  makeCatalog,
+  NoMessageSchemaError,
+  NoModelSchemaError,
+  NoShowcaseMatchedError,
+  ShowcaseNotFoundError,
+} from "./catalog.js"
 
 // A representative Message-union schema, standing in for the typed Message
 // union a real Foldkit Showcase attaches so the catalog can introspect it.
@@ -35,6 +42,29 @@ const failing: Showcase = {
     throw new Error("boom")
   },
 }
+
+describe("the catalog errors", () => {
+  // An MCP host renders a declared tool failure as the error's `message`, and a
+  // schema-backed error inherits an empty one — so a payload that is not in the
+  // message never reaches the agent, however carefully it was typed.
+  test("say what they carry, so the payload survives the trip to the agent", () => {
+    expect(new ShowcaseNotFoundError({ id: "nope", available: ["a/one", "a/two"] }).message).toBe(
+      'no Showcase with id "nope"; available: a/one, a/two',
+    )
+    expect(new NoShowcaseMatchedError({ prefix: "b/", available: ["a/one"] }).message).toBe(
+      'no Showcase id starts with "b/"; available: a/one',
+    )
+    expect(new NoMessageSchemaError({ id: "a/one" }).message).toBe(
+      'Showcase "a/one" declares no Message schema',
+    )
+    expect(new NoModelSchemaError({ id: "a/one" }).message).toBe(
+      'Showcase "a/one" declares no Model schema',
+    )
+    expect(new CatalogDirectoryError({ dir: "/tmp/gone", reason: "ENOENT" }).message).toBe(
+      "/tmp/gone: ENOENT",
+    )
+  })
+})
 
 describe("FoldcaseCatalog list", () => {
   test("enumerates showcases in order, flagging the schemas each one carries", async () => {
