@@ -250,6 +250,30 @@ describe("an object node with no properties", () => {
   })
 })
 
+class WideModel extends Schema.Class<WideModel>("WideModel")({
+  row: Schema.Struct({
+    a: Schema.String,
+    b: Schema.String,
+    c: Schema.String,
+    d: Schema.String,
+    e: Schema.String,
+    f: Schema.String,
+    g: Schema.String,
+  }),
+}) {}
+
+describe("an anonymous struct with many fields", () => {
+  test("inlines the first few and marks the rest, keeping the cell short", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(WideModel))
+
+    expect(cellsOf(rowFor(markdown, "row"))).toEqual([
+      "`row`",
+      "{ a: string; b: string; c: string; d: string; e: string; … }",
+      "no",
+    ])
+  })
+})
+
 class Priority extends Schema.Class<Priority>("Priority")({ level: Schema.Number }) {}
 
 // A Model as a named `Schema.Class` — `toJsonSchemaDocument` emits it as a

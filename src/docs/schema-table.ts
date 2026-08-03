@@ -207,6 +207,13 @@ const unionTags = (branches: ReadonlyArray<JsonNode>): Option.Option<ReadonlyArr
 const MAX_INLINE_DEPTH = 1
 
 /**
+ * How many fields an inline struct spells out before it trails off. A cell is
+ * one line of a table, and a reader who needs the sixth field is reading the
+ * declaration anyway.
+ */
+const MAX_INLINE_FIELDS = 5
+
+/**
  * An anonymous struct — an inline `Schema.Struct`, with no `$ref` to a named
  * definition and no name of its own — rendered as its field list.
  */
@@ -217,10 +224,11 @@ const renderInlineStruct = (node: JsonNode, depth: number): string => {
   if (depth >= MAX_INLINE_DEPTH || Arr.isReadonlyArrayEmpty(properties)) {
     return "object"
   }
-  const fields = properties.map(
+  const fields = Arr.take(properties, MAX_INLINE_FIELDS).map(
     ([name, propertyNode]) => `${name}: ${renderTypeAt(propertyNode, depth + 1)}`,
   )
-  return `{ ${fields.join("; ")} }`
+  const rest = properties.length > MAX_INLINE_FIELDS ? ["…"] : []
+  return `{ ${[...fields, ...rest].join("; ")} }`
 }
 
 const renderTypeAt = (node: JsonNode, depth: number): string => {
