@@ -75,3 +75,11 @@ jobs:
         # load a consumer's TypeScript, spawn the coverage collector out of
         # `dist/coverage/`, and return the exit codes they promise.
         run: mise run smoke
+
+      - name: Run the example the way a user would
+        # examples/counter installs foldkit and effect from npm and is showcased
+        # by the built CLI under both bins. It is the only check that sees a real
+        # Foldkit component rather than a fixture written against the runner, and
+        # it diffs the committed documents against freshly generated ones, so the
+        # example on the front page cannot drift from what the tool writes.
+        run: mise run dogfood
