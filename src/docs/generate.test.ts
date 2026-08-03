@@ -79,6 +79,33 @@ describe("renderComponentDoc", () => {
     expect(doc.markdown).toContain("`counter/reset`")
   })
 
+  test("reads its tables from the first Showcase that declares one, in id order", async () => {
+    // A namespace need not declare uniformly: `counter/increment` may be a
+    // plain logic Showcase while `counter/schema` carries the schemas. The
+    // lowest id declaring a Model wins, and the lowest declaring a Message
+    // wins, so a component is documented from the earliest source of each.
+    const quiet: Showcase = { id: "counter/aa-quiet", play: () => {} }
+    const loud: Showcase = {
+      id: "counter/bb-loud",
+      play: () => {},
+      message: Schema.Union([Schema.TaggedStruct("Cleared", {})]),
+    }
+    const later: Showcase = {
+      id: "counter/cc-later",
+      play: () => {},
+      message: Schema.Union([Schema.TaggedStruct("Ignored", {})]),
+      model: Model,
+    }
+    const doc = await docOf([later, quiet, loud])
+
+    expect(doc.component).toBe("counter")
+    expect(doc.markdown).toContain("`Cleared`")
+    expect(doc.markdown).not.toContain("`Ignored`")
+    // Nothing earlier declares a Model, so the later one still supplies it.
+    expect(doc.markdown).toContain("## Model")
+    expect(doc.markdown).toContain("`count`")
+  })
+
   test("declines to document a component that declares nothing, and does not fail", async () => {
     // An opaque Showcase has nothing to table, so it gets no document — a page
     // saying only "no schema declared" is worse than no page. `none`, not a

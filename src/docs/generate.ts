@@ -41,21 +41,42 @@ export class ComponentDoc extends Schema.Class<ComponentDoc>("ComponentDoc")({
   markdown: Schema.String,
 }) {}
 
-/** Render the `## Messages` section from a Showcase's Message-union Schema, if declared. */
-const messageSection = Effect.fn("foldcase.docs.messageSection")(function* (showcase: Showcase) {
-  if (showcase.message === undefined) {
+/**
+ * The Showcase a section reads its Schema out of: the first, in id order, that
+ * declares one. A namespace need not declare uniformly — one Showcase may be
+ * plain update logic while its sibling carries the schemas — and two siblings
+ * may even declare different ones, because nothing stops an app re-declaring.
+ * The earliest declaration wins, rather than the run failing over a
+ * disagreement the app is entitled to; the `Showcases:` list names every id
+ * behind the tables, so a reader can see where else to look.
+ */
+const declaring = (
+  showcases: ReadonlyArray<Showcase>,
+  field: "message" | "model",
+): Option.Option<Showcase> =>
+  Arr.findFirst(showcases, (showcase) => showcase[field] !== undefined)
+
+/** Render the `## Messages` section from a component's Message-union Schema, if one is declared. */
+const messageSection = Effect.fn("foldcase.docs.messageSection")(function* (
+  showcases: ReadonlyArray<Showcase>,
+) {
+  const source = declaring(showcases, "message")
+  if (Option.isNone(source) || source.value.message === undefined) {
     return Option.none<string>()
   }
-  const document = yield* introspectDocument(showcase.id, showcase.message)
+  const document = yield* introspectDocument(source.value.id, source.value.message)
   return Option.some(`## Messages\n\n${renderMessageTable(messageVariants(document))}`)
 })
 
-/** Render the `## Model` section from a Showcase's Model Schema, if declared. */
-const modelSection = Effect.fn("foldcase.docs.modelSection")(function* (showcase: Showcase) {
-  if (showcase.model === undefined) {
+/** Render the `## Model` section from a component's Model Schema, if one is declared. */
+const modelSection = Effect.fn("foldcase.docs.modelSection")(function* (
+  showcases: ReadonlyArray<Showcase>,
+) {
+  const source = declaring(showcases, "model")
+  if (Option.isNone(source) || source.value.model === undefined) {
     return Option.none<string>()
   }
-  const document = yield* introspectDocument(showcase.id, showcase.model)
+  const document = yield* introspectDocument(source.value.id, source.value.model)
   return Option.some(`## Model\n\n${renderModelTable(modelFields(document))}`)
 })
 
@@ -97,7 +118,8 @@ const byId = Order.mapInput(Order.String, (showcase: Showcase) => showcase.id)
 /**
  * Render one component's autodoc: a titled Markdown document with a Message
  * Schema table and/or a Model Schema table, over the Showcases of one id
- * namespace sorted by id. A component whose Showcases declare neither schema
+ * namespace sorted by id. Each table is read from the first Showcase declaring
+ * that Schema. A component whose Showcases declare neither schema
  * has nothing to table and gets no document — `none`, not a failure, the same
  * way a Showcase that will not run is data rather than a crash. Fails
  * {@link SchemaIntrospectionError} only when a declared Schema cannot be
@@ -108,8 +130,8 @@ export const renderComponentDoc = Effect.fn("foldcase.docs.renderComponentDoc")(
 ) {
   const showcases = Arr.sort(group, byId)
   const head = showcases[0] as Showcase
-  const message = yield* messageSection(head)
-  const model = yield* modelSection(head)
+  const message = yield* messageSection(showcases)
+  const model = yield* modelSection(showcases)
   const sections = Arr.getSomes([message, model])
   if (Arr.isReadonlyArrayEmpty(sections)) {
     return Option.none<ComponentDoc>()
