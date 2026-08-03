@@ -133,7 +133,7 @@ export class CatalogDirectoryError extends Schema.TaggedErrorClass<CatalogDirect
 
 /** The read + run surface an MCP catalog server exposes over a set of Showcases. */
 export interface FoldcaseCatalogShape {
-  /** Enumerate every Showcase, flagging which carry an introspectable Message schema. */
+  /** Enumerate every Showcase, flagging which Schemas each one carries. */
   readonly list: Effect.Effect<CatalogListing>
   /**
    * Introspect a Showcase's Message schema into a JSON Schema document. Fails
@@ -292,7 +292,7 @@ const makeCatalogWith = (
               onSome: (start) =>
                 current.showcases.filter((showcase) => showcase.id.startsWith(start)),
             })
-            if (Arr.isReadonlyArrayEmpty(selected) && Option.isSome(prefix)) {
+            if (Option.isSome(prefix) && Arr.isReadonlyArrayEmpty(selected)) {
               return Effect.fail(
                 new NoShowcaseMatchedError({
                   prefix: prefix.value,
