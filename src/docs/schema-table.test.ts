@@ -274,6 +274,22 @@ describe("an anonymous struct with many fields", () => {
   })
 })
 
+class DraftModel extends Schema.Class<DraftModel>("DraftModel")({
+  draft: Schema.Struct({ id: Schema.String, note: Schema.optional(Schema.String) }),
+}) {}
+
+describe("an optional field inside an anonymous struct", () => {
+  test("carries a `?`, since an inline list has no Optional column", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(DraftModel))
+
+    expect(cellsOf(rowFor(markdown, "draft"))).toEqual([
+      "`draft`",
+      "{ id: string; note?: string }",
+      "no",
+    ])
+  })
+})
+
 class Priority extends Schema.Class<Priority>("Priority")({ level: Schema.Number }) {}
 
 // A Model as a named `Schema.Class` — `toJsonSchemaDocument` emits it as a

@@ -171,6 +171,18 @@ const optionValueNode = (node: JsonNode): Option.Option<Option.Option<JsonNode>>
 const isOptionNode = (node: JsonNode): boolean => Option.isSome(optionValueNode(node))
 
 /**
+ * Whether a property of an object node may be absent: its owner does not
+ * require it, or it is an `Option`, which is always present and may still be
+ * empty. One rule, read by the table's Optional column and by the `?` an inline
+ * struct writes.
+ */
+const isOptionalProperty = (
+  node: JsonNode,
+  name: string,
+  required: ReadonlyArray<string>,
+): boolean => !Arr.contains(required, name) || isOptionNode(node)
+
+/**
  * The four representations a `Duration` serializes to. The field is recognised
  * by this shape rather than by the declared type's name, because the name
  * reaches the document only on some Effect betas — beta.102 stopped carrying it
@@ -224,9 +236,13 @@ const renderInlineStruct = (node: JsonNode, depth: number): string => {
   if (depth >= MAX_INLINE_DEPTH || Arr.isReadonlyArrayEmpty(properties)) {
     return "object"
   }
-  const fields = Arr.take(properties, MAX_INLINE_FIELDS).map(
-    ([name, propertyNode]) => `${name}: ${renderTypeAt(propertyNode, depth + 1)}`,
-  )
+  const required = node.required ?? []
+  const fields = Arr.take(properties, MAX_INLINE_FIELDS).map(([name, propertyNode]) => {
+    // An inline list has no Optional column, so a field that may be absent
+    // says so the way a TypeScript type would.
+    const mark = isOptionalProperty(propertyNode, name, required) ? "?" : ""
+    return `${name}${mark}: ${renderTypeAt(propertyNode, depth + 1)}`
+  })
   const rest = properties.length > MAX_INLINE_FIELDS ? ["…"] : []
   return `{ ${[...fields, ...rest].join("; ")} }`
 }
@@ -325,7 +341,7 @@ const fieldsOf = (node: JsonNode, excludeTag: boolean): ReadonlyArray<FieldDoc> 
           type: renderType(propertyNode),
           // An `Option` field is always present and may still be empty, so the
           // Optional column has to read `yes` even though `required` lists it.
-          optional: !Arr.contains(required, name) || isOptionNode(propertyNode),
+          optional: isOptionalProperty(propertyNode, name, required),
         }),
     )
   return Arr.sort(fields, byName)
