@@ -125,3 +125,37 @@ smoke 'node dist/main.js' node dist/main.js
 smoke 'bun dist/main.bun.js' bun dist/main.bun.js
 echo 'foldcase: dist/ smoke passed under Node and Bun'
 """
+
+[tasks.dogfood]
+description = "Run the built CLI over examples/counter — real Foldkit components, both runtimes (needs `mise run build` first)"
+# The fixtures under test/ are written to exercise the runner; this is the
+# opposite direction — an ordinary Foldkit app, with its own package.json and
+# its own Effect version, that happens to be showcased. It is the only check
+# that sees the tool the way a user does: `foldkit/test` stories, a Model with
+# Option and Duration in it, and a catalog installed from npm rather than
+# resolved out of this repository.
+run = """
+set -e
+if [ ! -f dist/main.js ] || [ ! -f dist/main.bun.js ]; then
+  echo 'foldcase dogfood: no dist/ — run `mise run build` first' >&2
+  exit 1
+fi
+if [ ! -d examples/counter/node_modules ]; then
+  echo '── installing examples/counter'
+  (cd examples/counter && bun install --frozen-lockfile)
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+echo '── node dist/main.js'
+node dist/main.js test examples/counter/src
+echo '── bun dist/main.bun.js'
+bun dist/main.bun.js test examples/counter/src
+
+# The docs in examples/counter/docs are committed so they can be read on
+# GitHub. Regenerate them here and fail on any drift, so what the repository
+# shows is what the tool writes.
+node dist/main.js docs examples/counter/src "$tmp/docs" > /dev/null
+diff -r examples/counter/docs "$tmp/docs"
+echo 'foldcase: dogfood passed — 8 Showcases, 2 documents, both runtimes'
+"""

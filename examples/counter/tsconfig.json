@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM"],
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    // In your own project this is just `bun add -d foldcase`. Here the example
+    // lives inside the repository it demonstrates, so the type resolves to the
+    // built package rather than to a copy of it in node_modules.
+    "paths": {
+      "foldcase": ["../../dist/runner.d.ts"]
+    }
+  },
+  "include": ["src"]
+}
