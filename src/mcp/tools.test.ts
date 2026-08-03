@@ -32,6 +32,22 @@ describe("FoldcaseToolkit", () => {
     )
   })
 
+  test("an optional parameter is one an agent may omit, not one it may null", () => {
+    // The published input schema is the only thing an agent has to go on. A
+    // `null` branch in it is an invitation the decoder then refuses, so the
+    // optional parameters are exact-optional keys: send a string, or nothing.
+    const withOptionalParameters = [
+      FoldcaseToolkit.tools.foldcase_run_catalog,
+      FoldcaseToolkit.tools.foldcase_load_catalog,
+    ]
+    for (const tool of withOptionalParameters) {
+      expect([tool.name, JSON.stringify(Tool.getJsonSchema(tool)).includes("null")]).toEqual([
+        tool.name,
+        false,
+      ])
+    }
+  })
+
   test("every verb is annotated read-only, non-destructive and closed-world", () => {
     // The three verbs read the declared catalog and run a `play` in-process.
     // Effect's defaults are the opposite (`destructiveHint: true`,

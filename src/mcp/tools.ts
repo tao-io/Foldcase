@@ -111,7 +111,7 @@ const RunShowcase = Tool.make("foldcase_run_showcase", {
 
 /** The `{ id_prefix }` parameter that narrows a whole-catalog run. */
 class IdPrefixInput extends Schema.Class<IdPrefixInput>("IdPrefixInput")({
-  id_prefix: Schema.optional(
+  id_prefix: Schema.optionalKey(
     Schema.String.annotate({
       description:
         "Run only the Showcases whose id starts with this, e.g. 'counter/' for one component. Omit it to run the whole catalog.",
@@ -140,7 +140,7 @@ const RunCatalog = Tool.make("foldcase_run_catalog", {
 
 /** The `{ dir }` parameter of the one verb that moves the served catalog. */
 class CatalogDirInput extends Schema.Class<CatalogDirInput>("CatalogDirInput")({
-  dir: Schema.optional(
+  dir: Schema.optionalKey(
     Schema.String.annotate({
       description:
         "Directory to read, relative to the directory the server was started on (or absolute). Omit it to re-read the directory currently being served.",
@@ -205,11 +205,11 @@ export const makeHandlers = (catalog: FoldcaseCatalogShape) => ({
     readonly showcase_id: string
   }): Effect.Effect<ShowcaseReport, ShowcaseNotFoundError> => catalog.runById(params.showcase_id),
   foldcase_run_catalog: (params: {
-    readonly id_prefix?: string | undefined
+    readonly id_prefix?: string
   }): Effect.Effect<SuiteReport, NoShowcaseMatchedError> =>
     catalog.runAll(Option.fromNullishOr(params.id_prefix)),
   foldcase_load_catalog: (params: {
-    readonly dir?: string | undefined
+    readonly dir?: string
   }): Effect.Effect<CatalogLoadReport, CatalogDirectoryError> =>
     catalog.load(Option.fromNullishOr(params.dir)),
 })
