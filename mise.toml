@@ -1,8 +1,9 @@
 # Foldcase — the typed test loop for Foldkit Showcases (Effect-4; Bun is the
 # development toolchain, the published artifact runs on Node and Bun alike).
-# mise owns the toolchain pin and every check command; there is deliberately no
-# duplicate `scripts` block in package.json, so a task can never drift from its
-# npm twin.
+# mise owns the toolchain pin and every check command. package.json holds one
+# script, `prepack`, and it calls `mise run build`: npm runs that before both
+# `npm pack` and `npm publish`, so no tarball can carry a stale `dist/`. Nothing
+# else is repeated there, so no task has an npm twin to drift from.
 
 [tools]
 bun = "1.3.14"

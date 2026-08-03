@@ -553,3 +553,40 @@ describe("ADR-0002 — the published shape", () => {
     expect(manifest.engines?.node).toBeString()
   })
 })
+
+// ── 10. A stale build in the tarball ─────────────────────────────────────────
+//
+// `files` ships `dist/`, and `dist/` is gitignored, so a fresh clone packs
+// nothing and a stale clone packs yesterday's build. `prepack` is the one
+// lifecycle npm runs before both `npm pack` and `npm publish`, so it is where
+// the build belongs. mise still owns the build itself: the script calls the
+// task rather than repeating it, so the two cannot drift.
+
+interface ScriptedManifest {
+  readonly scripts?: Record<string, string>
+}
+
+/** Scripts that run a command themselves instead of calling a mise task. */
+export const nonDelegatingScripts = (manifest: unknown): ReadonlyArray<string> =>
+  Object.entries((manifest as ScriptedManifest).scripts ?? {})
+    .filter(([, command]) => !/^mise run [\w:-]+$/.test(command.trim()))
+    .map(([name]) => name)
+
+describe("ADR-0002 — a stale build in the tarball", () => {
+  test("names a script that does the work itself rather than calling a task", () => {
+    expect(nonDelegatingScripts({ scripts: { prepack: "mise run build" } })).toEqual([])
+    expect(
+      nonDelegatingScripts({
+        scripts: { prepack: "tsc -b tsconfig.build.json", test: "bun test", lint: "mise run lint" },
+      }),
+    ).toEqual(["prepack", "test"])
+  })
+
+  test("package.json builds before it packs, through the build task", () => {
+    const scripts = (PACKAGE_JSON as ScriptedManifest).scripts ?? {}
+    expect(scripts["prepack"]).toBe("mise run build")
+    expect(nonDelegatingScripts(PACKAGE_JSON)).toEqual([])
+    // And the task it calls is really there — the rule is not vacuous.
+    expect(miseTasks(MISE_TOML).map(([name]) => name)).toContain("build")
+  })
+})
