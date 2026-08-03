@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 import type { Showcase } from "../runner.js"
@@ -107,6 +108,36 @@ describe("FoldcaseCatalog schemaFor", () => {
     const error = await Effect.runPromise(Effect.flip(catalog.schemaFor("sample/passes")))
 
     expect(error._tag).toBe("foldcase/NoMessageSchemaError")
+  })
+})
+
+describe("FoldcaseCatalog runAll", () => {
+  test("runs every Showcase into one suite report, failures and all", async () => {
+    const catalog = Effect.runSync(makeCatalog([passing, failing]))
+    const suite = await Effect.runPromise(catalog.runAll(Option.none()))
+
+    // A failing play is data, the same as it is for the whole-suite CLI: the
+    // call succeeds and the verdict is in the report.
+    expect([suite.total, suite.passed, suite.failed]).toEqual([2, 1, 1])
+    expect(suite.reports.map((report) => report.id)).toEqual(["sample/passes", "sample/fails"])
+    expect(suite.reports[1]?.error?.message).toBe("boom")
+  })
+
+  test("runs only the Showcases under an id prefix", async () => {
+    const catalog = Effect.runSync(makeCatalog([passing, failing, withSchema]))
+    const suite = await Effect.runPromise(catalog.runAll(Option.some("sample/with-")))
+
+    expect(suite.reports.map((report) => report.id)).toEqual(["sample/with-schema"])
+  })
+
+  test("fails NoShowcaseMatchedError, naming the available ids, for a prefix that matches nothing", async () => {
+    const catalog = Effect.runSync(makeCatalog([passing]))
+    const error = await Effect.runPromise(Effect.flip(catalog.runAll(Option.some("nope/"))))
+
+    expect(error._tag).toBe("foldcase/NoShowcaseMatchedError")
+    expect(error.prefix).toBe("nope/")
+    // The ids travel with the error, so an agent can correct itself in one turn.
+    expect(error.available).toEqual(["sample/passes"])
   })
 })
 

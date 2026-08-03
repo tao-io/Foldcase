@@ -19,13 +19,14 @@ const withSchema: Showcase = {
 describe("FoldcaseToolkit", () => {
   test("exposes exactly the catalog verbs", () => {
     const names = Object.keys(FoldcaseToolkit.tools)
-    expect(names).toHaveLength(5)
+    expect(names).toHaveLength(6)
     expect(names).toEqual(
       expect.arrayContaining([
         "foldcase_get_showcase_model_schema",
         "foldcase_get_showcase_schema",
         "foldcase_list_showcases",
         "foldcase_load_catalog",
+        "foldcase_run_catalog",
         "foldcase_run_showcase",
       ]),
     )
@@ -95,6 +96,20 @@ describe("foldcase mcp handlers", () => {
 
     expect(report.id).toBe("sample/passes")
     expect(report.status).toBe("passed")
+  })
+
+  test("foldcase_run_catalog runs every Showcase into one suite report", async () => {
+    const suite = await Effect.runPromise(handlers.foldcase_run_catalog({}))
+
+    expect([suite.total, suite.passed, suite.failed]).toEqual([2, 2, 0])
+  })
+
+  test("foldcase_run_catalog narrows to an id prefix", async () => {
+    const suite = await Effect.runPromise(
+      handlers.foldcase_run_catalog({ id_prefix: "sample/with-" }),
+    )
+
+    expect(suite.reports.map((report) => report.id)).toEqual(["sample/with-schema"])
   })
 
   test("foldcase_load_catalog reports what the re-read found", async () => {

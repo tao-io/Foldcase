@@ -13,9 +13,10 @@ import * as SynchronizedRef from "effect/SynchronizedRef"
 import {
   discoverShowcaseFiles,
   loadShowcasesFromFiles,
+  runCatalog,
   ShowcaseModuleError,
 } from "../cli.js"
-import { runShowcase, type Showcase, type ShowcaseReport } from "../runner.js"
+import { runShowcase, type Showcase, type ShowcaseReport, type SuiteReport } from "../runner.js"
 
 /**
  * One entry in the catalog listing: a Showcase id and which Schemas it carries.
@@ -85,6 +86,15 @@ export class NoModelSchemaError extends Schema.TaggedErrorClass<NoModelSchemaErr
   },
 ) {}
 
+/** No Showcase id starts with the requested prefix. Carries the available ids. */
+export class NoShowcaseMatchedError extends Schema.TaggedErrorClass<NoShowcaseMatchedError>()(
+  "foldcase/NoShowcaseMatchedError",
+  {
+    prefix: Schema.String,
+    available: Schema.Array(Schema.String),
+  },
+) {}
+
 /** The directory a load named cannot be read. Carries the path and the reason. */
 export class CatalogDirectoryError extends Schema.TaggedErrorClass<CatalogDirectoryError>()(
   "foldcase/CatalogDirectoryError",
@@ -122,6 +132,15 @@ export interface FoldcaseCatalogShape {
    * verb an agent calls after dispatching via devtools-mcp to assert the play.
    */
   readonly runById: (id: string) => Effect.Effect<ShowcaseReport, ShowcaseNotFoundError>
+  /**
+   * Run the whole catalog into one {@link SuiteReport}, or the part of it under
+   * an id prefix — `counter/` runs one component's Showcases. A failing play is
+   * a datum here too; only a prefix that matches nothing fails, with
+   * {@link NoShowcaseMatchedError} carrying the ids it could have matched.
+   */
+  readonly runAll: (
+    prefix: Option.Option<string>,
+  ) => Effect.Effect<SuiteReport, NoShowcaseMatchedError>
   /**
    * Re-read the catalog from disk and report what came back. With no directory
    * it refreshes the one being served — the verb an agent calls after editing a
@@ -238,6 +257,30 @@ const makeCatalogWith = (
           ),
         ),
       runById: (id) => find(id).pipe(Effect.flatMap(runShowcase)),
+      runAll: (prefix) =>
+        SynchronizedRef.get(state).pipe(
+          Effect.flatMap((current) => {
+            const selected = Option.match(prefix, {
+              onNone: () => current.showcases,
+              onSome: (start) =>
+                current.showcases.filter((showcase) => showcase.id.startsWith(start)),
+            })
+            if (Arr.isReadonlyArrayEmpty(selected) && Option.isSome(prefix)) {
+              return Effect.fail(
+                new NoShowcaseMatchedError({
+                  prefix: prefix.value,
+                  available: current.showcases.map((showcase) => showcase.id),
+                }),
+              )
+            }
+            // Through the loader's own suite verb, so the whole-catalog verdict
+            // is the one `foldcase test` gives: a file that would not load is a
+            // failed entry beside the plays. Its Showcases never got ids, so a
+            // prefix cannot tell whether one of them would have matched — the
+            // honest answer is to report the file either way.
+            return runCatalog({ failures: current.failures, showcases: selected })
+          }),
+        ),
       load: (dir) =>
         SynchronizedRef.modifyEffect(state, (current) =>
           read(dir, current.dir).pipe(Effect.map((next) => [reportOf(next), next] as const)),

@@ -93,6 +93,23 @@ describe("FoldcaseCatalog load", () => {
     )
   })
 
+  test("runs the loaded catalog to the verdict `foldcase test` gives", async () => {
+    const suite = await run(
+      Effect.gen(function* () {
+        const catalog = yield* loadCatalogFromDir(testDir)
+        return yield* catalog.runAll(Option.none())
+      }),
+    )
+
+    // A file that would not load is a failed entry beside the plays, so the
+    // suite an agent reads over MCP says the same thing as the CLI's.
+    expect(suite.reports.map((report) => report.id)).toContainEqual(
+      expect.stringContaining("broken-import"),
+    )
+    expect(suite.failed).toBeGreaterThan(0)
+    expect(suite.total).toBe(suite.reports.length)
+  })
+
   test("fails CatalogDirectoryError for a directory that is not there, and serves on", async () => {
     const { error, listing } = await run(
       Effect.gen(function* () {

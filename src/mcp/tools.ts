@@ -4,7 +4,7 @@ import * as Schema from "effect/Schema"
 import { Tool, Toolkit } from "effect/unstable/ai"
 
 
-import { ShowcaseReport } from "../runner.js"
+import { ShowcaseReport, SuiteReport } from "../runner.js"
 import {
   CatalogDirectoryError,
   CatalogListing,
@@ -13,6 +13,7 @@ import {
   type FoldcaseCatalogShape,
   NoMessageSchemaError,
   NoModelSchemaError,
+  NoShowcaseMatchedError,
   ShowcaseNotFoundError,
   ShowcaseSchema,
 } from "./catalog.js"
@@ -39,7 +40,7 @@ class ShowcaseIdInput extends Schema.Class<ShowcaseIdInput>("ShowcaseIdInput")({
  */
 const ListShowcases = Tool.make("foldcase_list_showcases", {
   description:
-    "List every Showcase in the catalog, with the directory they were read from, each flagged with whether it carries an introspectable Message schema and a Model schema. The entry point for driving Foldcase: enumerate, then foldcase_get_showcase_schema or foldcase_get_showcase_model_schema to learn a payload shape, then foldcase_run_showcase to assert its play.",
+    "List every Showcase in the catalog, with the directory they were read from, each flagged with whether it carries an introspectable Message schema and a Model schema. The entry point for driving Foldcase: enumerate, then foldcase_get_showcase_schema or foldcase_get_showcase_model_schema to learn a payload shape, then foldcase_run_showcase to assert one play, or foldcase_run_catalog to assert them all.",
   success: CatalogListing,
 })
   .annotate(Tool.Readonly, true)
@@ -108,6 +109,35 @@ const RunShowcase = Tool.make("foldcase_run_showcase", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.OpenWorld, false)
 
+/** The `{ id_prefix }` parameter that narrows a whole-catalog run. */
+class IdPrefixInput extends Schema.Class<IdPrefixInput>("IdPrefixInput")({
+  id_prefix: Schema.optional(
+    Schema.String.annotate({
+      description:
+        "Run only the Showcases whose id starts with this, e.g. 'counter/' for one component. Omit it to run the whole catalog.",
+    }),
+  ),
+}) {}
+
+/**
+ * Run the whole catalog — or one component's part of it — in a single call.
+ * Composes the `foldcase test` suite verb (runCatalog), so the verdict an agent
+ * reads here is the one the CLI prints, load failures included. Without it an
+ * agent runs one Showcase per call and has to roll up the counts itself.
+ */
+const RunCatalog = Tool.make("foldcase_run_catalog", {
+  description:
+    "Run every Showcase in the catalog and return one suite report: total, passed, failed, and a typed report per Showcase (a failing play is status 'failed' with the serialized assertion error, not a tool error). Pass `id_prefix` to run one component's Showcases, e.g. 'counter/'. Reach for it to check a whole component or the whole catalog after an edit — one call instead of foldcase_run_showcase per id. A file that would not load is reported as a failed entry for that file. Fails only if the prefix matches no Showcase, and names the ids it could have matched.",
+  parameters: IdPrefixInput,
+  success: SuiteReport,
+  failure: NoShowcaseMatchedError,
+})
+  // Same reading as the single-Showcase verb: a `play` asserts on a pure
+  // `update` and leaves no trace outside this process.
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
+
 /** The `{ dir }` parameter of the one verb that moves the served catalog. */
 class CatalogDirInput extends Schema.Class<CatalogDirInput>("CatalogDirInput")({
   dir: Schema.optional(
@@ -151,6 +181,7 @@ export const FoldcaseToolkit = Toolkit.make(
   GetShowcaseSchema,
   GetShowcaseModelSchema,
   RunShowcase,
+  RunCatalog,
   LoadCatalog,
 )
 
@@ -173,6 +204,10 @@ export const makeHandlers = (catalog: FoldcaseCatalogShape) => ({
   foldcase_run_showcase: (params: {
     readonly showcase_id: string
   }): Effect.Effect<ShowcaseReport, ShowcaseNotFoundError> => catalog.runById(params.showcase_id),
+  foldcase_run_catalog: (params: {
+    readonly id_prefix?: string | undefined
+  }): Effect.Effect<SuiteReport, NoShowcaseMatchedError> =>
+    catalog.runAll(Option.fromNullishOr(params.id_prefix)),
   foldcase_load_catalog: (params: {
     readonly dir?: string | undefined
   }): Effect.Effect<CatalogLoadReport, CatalogDirectoryError> =>
