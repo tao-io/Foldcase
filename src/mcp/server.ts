@@ -3,12 +3,10 @@ import type * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import type * as Path from "effect/Path"
-import type { PlatformError } from "effect/PlatformError"
 import type * as Stdio from "effect/Stdio"
 import { McpServer } from "effect/unstable/ai"
 
-import { FoldcaseCatalog } from "./catalog.js"
-import type { ShowcaseModuleError } from "../cli.js"
+import { type CatalogDirectoryError, FoldcaseCatalog } from "./catalog.js"
 import { FoldcaseHandlers, FoldcaseToolkit } from "./tools.js"
 
 const SERVER_NAME = "foldcase-mcp"
@@ -55,6 +53,6 @@ export const makeFoldcaseMcpServer = <E, R>(
 /** The live server: the catalog is discovered from `FOLDCASE_SHOWCASE_DIR`. */
 export const FoldcaseMcpServer: Layer.Layer<
   never,
-  ShowcaseModuleError | PlatformError | Config.ConfigError,
+  CatalogDirectoryError | Config.ConfigError,
   FileSystem.FileSystem | Path.Path | Stdio.Stdio
 > = makeFoldcaseMcpServer(FoldcaseCatalog.layer)

@@ -25,7 +25,7 @@ const failing: Showcase = {
 
 describe("FoldcaseCatalog list", () => {
   test("enumerates showcases in order, flagging which carry a Message schema", async () => {
-    const catalog = makeCatalog([passing, withSchema])
+    const catalog = Effect.runSync(makeCatalog([passing, withSchema]))
     const listing = await Effect.runPromise(catalog.list)
 
     expect(listing.showcases.map((entry) => entry.id)).toEqual([
@@ -38,7 +38,7 @@ describe("FoldcaseCatalog list", () => {
 
 describe("FoldcaseCatalog schemaFor", () => {
   test("introspects a Showcase's Message schema into a JSON Schema document", async () => {
-    const catalog = makeCatalog([withSchema])
+    const catalog = Effect.runSync(makeCatalog([withSchema]))
     const result = await Effect.runPromise(catalog.schemaFor("sample/with-schema"))
 
     expect(result.id).toBe("sample/with-schema")
@@ -49,7 +49,7 @@ describe("FoldcaseCatalog schemaFor", () => {
   })
 
   test("fails ShowcaseNotFoundError, naming the available ids, for an unknown id", async () => {
-    const catalog = makeCatalog([passing, withSchema])
+    const catalog = Effect.runSync(makeCatalog([passing, withSchema]))
     const error = await Effect.runPromise(Effect.flip(catalog.schemaFor("nope")))
 
     expect(error._tag).toBe("foldcase/ShowcaseNotFoundError")
@@ -59,7 +59,7 @@ describe("FoldcaseCatalog schemaFor", () => {
   })
 
   test("fails NoMessageSchemaError when the Showcase declares no Message schema", async () => {
-    const catalog = makeCatalog([passing])
+    const catalog = Effect.runSync(makeCatalog([passing]))
     const error = await Effect.runPromise(Effect.flip(catalog.schemaFor("sample/passes")))
 
     expect(error._tag).toBe("foldcase/NoMessageSchemaError")
@@ -68,7 +68,7 @@ describe("FoldcaseCatalog schemaFor", () => {
 
 describe("FoldcaseCatalog runById", () => {
   test("runs a Showcase's play and reports a pass", async () => {
-    const catalog = makeCatalog([passing])
+    const catalog = Effect.runSync(makeCatalog([passing]))
     const report = await Effect.runPromise(catalog.runById("sample/passes"))
 
     expect(report.id).toBe("sample/passes")
@@ -76,7 +76,7 @@ describe("FoldcaseCatalog runById", () => {
   })
 
   test("runs a failing play and reports a fail carrying the serialized error", async () => {
-    const catalog = makeCatalog([failing])
+    const catalog = Effect.runSync(makeCatalog([failing]))
     const report = await Effect.runPromise(catalog.runById("sample/fails"))
 
     expect(report.status).toBe("failed")
@@ -84,7 +84,7 @@ describe("FoldcaseCatalog runById", () => {
   })
 
   test("fails ShowcaseNotFoundError for an unknown id", async () => {
-    const catalog = makeCatalog([passing])
+    const catalog = Effect.runSync(makeCatalog([passing]))
     const error = await Effect.runPromise(Effect.flip(catalog.runById("nope")))
 
     expect(error._tag).toBe("foldcase/ShowcaseNotFoundError")

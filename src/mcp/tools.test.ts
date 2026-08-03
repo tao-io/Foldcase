@@ -46,7 +46,7 @@ describe("FoldcaseToolkit", () => {
 })
 
 describe("foldcase mcp handlers", () => {
-  const handlers = makeHandlers(makeCatalog([passing, withSchema]))
+  const handlers = makeHandlers(Effect.runSync(makeCatalog([passing, withSchema])))
 
   test("foldcase_list_showcases returns the catalog listing", async () => {
     const listing = await Effect.runPromise(handlers.foldcase_list_showcases({}))

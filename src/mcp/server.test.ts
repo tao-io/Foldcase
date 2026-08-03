@@ -17,7 +17,7 @@ const showcases: ReadonlyArray<Showcase> = [{ id: "probe/one", play: () => {} }]
 // walks a directory and dynamically `import()`s every `*.showcase.ts` under it.
 // The delay is the scenario under test, not a synchronization device.
 const SlowCatalog = Layer.effect(FoldcaseCatalog)(
-  Effect.sleep("20 millis").pipe(Effect.as(makeCatalog(showcases))),
+  Effect.sleep("20 millis").pipe(Effect.andThen(makeCatalog(showcases))),
 )
 
 const line = (message: object): string => `${JSON.stringify(message)}\n`
