@@ -311,9 +311,10 @@ still lives on the `foldkit` branch as history, not as a dependency. The reasoni
 
 ## Status
 
-The `core` branch is the live line. The runner, the MCP server, the docs generator, and the
-coverage collector are here with their history, and the two gates the decisions promised —
-the toolchain fence and the derivation spine — run with the rest of the suite.
+`main` is the live line. The runner, the MCP server, the docs generator, and the coverage
+collector are here with their history, and the two gates the decisions promised — the
+toolchain fence and the derivation spine — run with the rest of the suite. The Openstory
+fork line is on the `foldkit` branch, which `main` no longer descends from.
 
 ## Contributing
 

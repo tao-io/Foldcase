@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [core, main]
+    branches: [main]
   pull_request:
 
 # CI runs what AGENTS.md tells you to run locally and nothing else, so a green

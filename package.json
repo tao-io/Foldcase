@@ -12,13 +12,13 @@
     "tea",
     "elm-architecture"
   ],
-  "homepage": "https://github.com/tao-io/Foldcase",
+  "homepage": "https://github.com/tao-io/foldcase",
   "bugs": {
-    "url": "https://github.com/tao-io/Foldcase/issues"
+    "url": "https://github.com/tao-io/foldcase/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tao-io/Foldcase.git"
+    "url": "git+https://github.com/tao-io/foldcase.git"
   },
   "license": "MIT",
   "author": "tao-io",

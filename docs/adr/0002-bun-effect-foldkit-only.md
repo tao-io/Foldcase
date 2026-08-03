@@ -278,3 +278,21 @@ against the build output whenever `dist/` is present. A gate that only passed af
 would be a trap — green on a developer's machine, red on a clean checkout — so it is the
 mapping from `dist/x.js` back to `src/x.ts` that is always enforced, and the built file on
 top of it when there is one.
+
+## Amendment 2 — 2026-08-04: the repository stands on its own, and `core` is `main`
+
+The record above describes a fork: a `core` branch for this line, `main` tracking the
+Openstory upstream, and a GitHub repository marked *forked from millionco/openstory*. That
+arrangement cost more than it explained. A fork cannot open Issues, so `bugs.url` pointed
+at a page nobody could post to; the front page showed the upstream README to anyone who
+arrived; and the branch named `main` held a codebase this line does not build, test or
+publish.
+
+So the repository is now `tao-io/foldcase`, created fresh rather than forked, and this line
+is on `main`. The fork line — every branch of it, including the six feature branches that
+were open — is pushed alongside as history, and `main` does not descend from it.
+
+**The attribution does not change.** Openstory is where the `play` contract and the
+`SerializedError` shape come from, `LICENSE` keeps its copyright notice, `NOTICE` records
+what is derived and from whom, and the README says so in prose. Detaching the git
+relationship removes a claim about *branch ancestry*, not a claim about credit.

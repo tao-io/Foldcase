@@ -1,4 +1,4 @@
-Foldcase (https://github.com/tao-io/Foldcase)
+Foldcase (https://github.com/tao-io/foldcase)
 
 ## Lineage
 
@@ -12,8 +12,8 @@ framework adapter"), also provided under the MIT License.
 
 The fork line — the Openstory core, the React shell, the CSF-3 catalog, and the
 pnpm/turbo/vite toolchain — is preserved in this repository on the `foldkit`
-branch (which tracks `main`, which tracks upstream). It is history, not a
-dependency of this line.
+branch, together with the feature branches that were open on it. It is history,
+not a dependency of this line, and `main` no longer descends from it.
 
 ## This line
 
