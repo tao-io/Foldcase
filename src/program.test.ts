@@ -182,6 +182,17 @@ describe("run", () => {
     ])
   })
 
+  test("--json over a directory with no Showcases prints no document", async () => {
+    const result = await runCapturing(["test", "--json", `${import.meta.dir}/../docs`])
+
+    // Nothing ran, so there is no report to print — a document saying `0 failed`
+    // would read as a clean run. The reason goes to stderr, the verdict to the
+    // exit code.
+    expect(result.code).toBe(1)
+    expect(result.out).toEqual([])
+    expect(result.err.join("\n")).toContain("no *.showcase.ts found")
+  })
+
   test("docs --json names the documents it wrote", async () => {
     const out = `${import.meta.dir}/../runtime-test-docs-json`
     const result = await runCapturing([
