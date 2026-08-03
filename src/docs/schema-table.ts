@@ -187,6 +187,19 @@ const isDurationNode = (node: JsonNode): boolean => {
 }
 
 /**
+ * The tags of a union whose every branch is a tagged struct, in the order the
+ * branches are declared.
+ *
+ * Recognised by the shape — a `_tag` literal on every branch — rather than by
+ * any annotation, for the reason `Duration` is: a name reaches the document
+ * only on some Effect betas, while the discriminant is the encoding itself.
+ */
+const unionTags = (branches: ReadonlyArray<JsonNode>): Option.Option<ReadonlyArray<string>> => {
+  const tags = Arr.getSomes(branches.map(tagOf))
+  return branches.length > 0 && tags.length === branches.length ? Option.some(tags) : Option.none()
+}
+
+/**
  * Render a JSON Schema node as a compact, human-readable type string. Collapses
  * the `number | "NaN" | "Infinity" | "-Infinity"` encoding Effect emits for a
  * plain `number` back to `number`, resolves `$ref` to its definition name, and
@@ -215,6 +228,15 @@ export const renderType = (node: JsonNode): string => {
     }
     if (node.expected !== undefined) {
       return node.expected
+    }
+    // A union of tagged structs reads as its tags. Every branch is an object
+    // node, so rendering the branches would print `object` once and say
+    // nothing; the tags are what the field's own code matches on, and each
+    // tag's payload is documented where that tag is declared. Declared order,
+    // not sorted, so the table mirrors the source.
+    const tags = unionTags(branches)
+    if (Option.isSome(tags)) {
+      return tags.value.join(" | ")
     }
     return Arr.dedupe(branches.map(renderType)).join(" | ")
   }

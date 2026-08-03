@@ -157,6 +157,28 @@ describe("an Option field", () => {
   })
 })
 
+const NotEditing = Schema.TaggedStruct("NotEditing", {})
+const Editing = Schema.TaggedStruct("Editing", { id: Schema.String, text: Schema.String })
+
+class EditorModel extends Schema.Class<EditorModel>("EditorModel")({
+  editing: Schema.Union([NotEditing, Editing]),
+}) {}
+
+describe("a tagged-union field", () => {
+  test("reads as its tags, in the order the schema declares them", async () => {
+    // Every branch of the union is an object node, so the old renderer rendered
+    // each as `object`, deduped them, and printed a single `object` — the one
+    // word a reader already knew.
+    const markdown = await Effect.runPromise(modelTableFor(EditorModel))
+
+    expect(cellsOf(rowFor(markdown, "editing"))).toEqual([
+      "`editing`",
+      String.raw`NotEditing \| Editing`,
+      "no",
+    ])
+  })
+})
+
 class Priority extends Schema.Class<Priority>("Priority")({ level: Schema.Number }) {}
 
 // A Model as a named `Schema.Class` — `toJsonSchemaDocument` emits it as a
