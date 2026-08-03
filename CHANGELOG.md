@@ -6,11 +6,17 @@ major is 0, a minor may break something.
 
 ## [Unreleased]
 
-Three defects a real consumer found. Foldkit's own component gallery was showcased with
+Four defects a real consumer found. Foldkit's own component gallery was showcased with
 this tool, and each of these is something it hit on the first run.
 
 ### Fixed
 
+- **An argument the verb does not take stops the run.** `foldcase test a.showcase.ts
+  b.showcase.ts` used to run the first path, exit 0 and say nothing about the second — and
+  the one it dropped may be the catalog that will not load, so a CI job written that way
+  passed forever over half its request. `test` takes one target, `docs` a target and an
+  out-dir, `mcp` none; anything more prints the argument it did not understand, then the
+  usage banner, and exits 1. Flags still sit on either side of the target.
 - **A bin without its optional platform peer says which one to install.** Both
   `@effect/platform-*` packages are optional peers, so a consumer who installs only one
   used to meet `ERR_MODULE_NOT_FOUND` and a resolver stack trace before the CLI ran at
