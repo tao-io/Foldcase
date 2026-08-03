@@ -125,9 +125,17 @@ smoke() {
   "$@" test test/fixtures/counter-logic.showcase.ts --coverage > "$tmp/out" 2>&1
   grep -q 'coverage:' "$tmp/out"
 
-  # docs writes one Markdown file per component.
+  # docs writes one Markdown file per component, where a component is an id
+  # namespace. The fixtures hold two: `counter/{increment,schema}`, of which
+  # only `counter/schema` declares the Schemas, and `sample/{passes,fails}`,
+  # which declare none and so have nothing to table. One file, named for the
+  # namespace and not for a Showcase — the count is asserted too, because
+  # grouping broke last time by writing one file for everything.
   "$@" docs test/fixtures "$tmp/docs" > "$tmp/out"
-  test -f "$tmp/docs/counter-schema.md"
+  test -f "$tmp/docs/counter.md"
+  test "$(ls "$tmp/docs" | wc -l)" -eq 1
+  grep -q '^# counter$' "$tmp/docs/counter.md"
+  grep -q 'counter/increment' "$tmp/docs/counter.md"
   rm -rf "$tmp/docs"
 }
 
