@@ -81,7 +81,12 @@ describe("makeFoldcaseMcpServer", () => {
     // the rest of the session, however quickly the catalog finishes loading.
     expect(transcript).toContain("foldcase_list_showcases")
     expect(transcript).toContain("foldcase_get_showcase_schema")
+    expect(transcript).toContain("foldcase_get_showcase_model_schema")
     expect(transcript).toContain("foldcase_run_showcase")
+    expect(transcript).toContain("foldcase_run_catalog")
+    // The verb that re-reads the catalog is in the same first answer: a host
+    // that discovers once must not have to restart to learn about it.
+    expect(transcript).toContain("foldcase_load_catalog")
   })
 
   test("advertises the tools capability in the initialize response", async () => {
