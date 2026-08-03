@@ -200,12 +200,17 @@ const unionTags = (branches: ReadonlyArray<JsonNode>): Option.Option<ReadonlyArr
 }
 
 /**
- * Render a JSON Schema node as a compact, human-readable type string. Collapses
- * the `number | "NaN" | "Infinity" | "-Infinity"` encoding Effect emits for a
- * plain `number` back to `number`, resolves `$ref` to its definition name, and
- * drops the `null` branch an optional field carries (optionality is a column).
+ * An anonymous struct — an inline `Schema.Struct`, with no `$ref` to a named
+ * definition and no name of its own — rendered as its field list.
  */
-export const renderType = (node: JsonNode): string => {
+const renderInlineStruct = (node: JsonNode, depth: number): string => {
+  const fields = R.toEntries(node.properties ?? {}).map(
+    ([name, propertyNode]) => `${name}: ${renderTypeAt(propertyNode, depth + 1)}`,
+  )
+  return `{ ${fields.join("; ")} }`
+}
+
+const renderTypeAt = (node: JsonNode, depth: number): string => {
   if (node.$ref !== undefined) {
     return declaredName(node.$ref)
   }
@@ -220,7 +225,7 @@ export const renderType = (node: JsonNode): string => {
     if (Option.isSome(value)) {
       return `Option<${Option.match(value.value, {
         onNone: () => "unknown",
-        onSome: renderType,
+        onSome: (some) => renderTypeAt(some, depth),
       })}>`
     }
     if (isDurationNode(node)) {
@@ -238,7 +243,7 @@ export const renderType = (node: JsonNode): string => {
     if (Option.isSome(tags)) {
       return tags.value.join(" | ")
     }
-    return Arr.dedupe(branches.map(renderType)).join(" | ")
+    return Arr.dedupe(branches.map((branch) => renderTypeAt(branch, depth))).join(" | ")
   }
   if (node.expected !== undefined) {
     return node.expected
@@ -247,13 +252,26 @@ export const renderType = (node: JsonNode): string => {
     return renderEnum(node.enum)
   }
   if (node.type === "array") {
-    return `${node.items === undefined ? "unknown" : renderType(node.items)}[]`
+    // An array wraps its element; it is not a level of struct nesting, so the
+    // depth passes through and `{ … }[]` still spells its fields out.
+    return `${node.items === undefined ? "unknown" : renderTypeAt(node.items, depth)}[]`
+  }
+  if (node.type === "object") {
+    return renderInlineStruct(node, depth)
   }
   if (node.type !== undefined && Arr.contains(PRIMITIVE_TYPES, node.type)) {
     return node.type
   }
   return "unknown"
 }
+
+/**
+ * Render a JSON Schema node as a compact, human-readable type string. Collapses
+ * the `number | "NaN" | "Infinity" | "-Infinity"` encoding Effect emits for a
+ * plain `number` back to `number`, resolves `$ref` to its definition name, and
+ * drops the `null` branch an optional field carries (optionality is a column).
+ */
+export const renderType = (node: JsonNode): string => renderTypeAt(node, 0)
 
 // FIELD + VARIANT EXTRACTION
 

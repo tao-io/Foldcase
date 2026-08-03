@@ -179,6 +179,37 @@ describe("a tagged-union field", () => {
   })
 })
 
+class RosterModel extends Schema.Class<RosterModel>("RosterModel")({
+  lead: Schema.Struct({ id: Schema.String, name: Schema.String }),
+  members: Schema.Array(Schema.Struct({ id: Schema.String, active: Schema.Boolean })),
+}) {}
+
+describe("an anonymous struct field", () => {
+  test("reads as an inline field list, since it has no name to report", async () => {
+    // An inline `Schema.Struct` emits no `$ref` and carries no name, so the
+    // table fell through to the `object` catch-all and hid every field.
+    const markdown = await Effect.runPromise(modelTableFor(RosterModel))
+
+    expect(cellsOf(rowFor(markdown, "lead"))).toEqual([
+      "`lead`",
+      "{ id: string; name: string }",
+      "no",
+    ])
+  })
+
+  test("spells its fields out inside an array too — `object[]` named nothing", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(RosterModel))
+
+    // An array wraps its element and is not a level of struct nesting, so the
+    // element still renders its fields.
+    expect(cellsOf(rowFor(markdown, "members"))).toEqual([
+      "`members`",
+      "{ id: string; active: boolean }[]",
+      "no",
+    ])
+  })
+})
+
 class Priority extends Schema.Class<Priority>("Priority")({ level: Schema.Number }) {}
 
 // A Model as a named `Schema.Class` — `toJsonSchemaDocument` emits it as a
