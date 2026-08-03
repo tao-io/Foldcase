@@ -12,6 +12,7 @@ import {
   FoldcaseCatalog,
   type FoldcaseCatalogShape,
   NoMessageSchemaError,
+  NoModelSchemaError,
   ShowcaseNotFoundError,
   ShowcaseSchema,
 } from "./catalog.js"
@@ -38,7 +39,7 @@ class ShowcaseIdInput extends Schema.Class<ShowcaseIdInput>("ShowcaseIdInput")({
  */
 const ListShowcases = Tool.make("foldcase_list_showcases", {
   description:
-    "List every Showcase in the catalog, each flagged with whether it carries an introspectable Message schema. The entry point for driving Foldcase: enumerate, then foldcase_get_showcase_schema to learn a Message payload shape, then foldcase_run_showcase to assert its play.",
+    "List every Showcase in the catalog, with the directory they were read from, each flagged with whether it carries an introspectable Message schema and a Model schema. The entry point for driving Foldcase: enumerate, then foldcase_get_showcase_schema or foldcase_get_showcase_model_schema to learn a payload shape, then foldcase_run_showcase to assert its play.",
   success: CatalogListing,
 })
   .annotate(Tool.Readonly, true)
@@ -57,6 +58,31 @@ const GetShowcaseSchema = Tool.make("foldcase_get_showcase_schema", {
   parameters: ShowcaseIdInput,
   success: ShowcaseSchema,
   failure: Schema.Union([ShowcaseNotFoundError, NoMessageSchemaError]),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false)
+
+/**
+ * Introspect a Showcase's Model Schema — what its `play` asserts on — into the
+ * same document shape.
+ *
+ * A second verb rather than a parameter on the one above. That verb is
+ * published: its name and description tell an agent it answers with the
+ * Message-union schema, and a `part` parameter would leave
+ * that description true only by default — the same call would answer with a
+ * different document depending on an argument the tool list does not lead with.
+ * A name is the cheapest thing to add and the most expensive thing to change,
+ * so the Model gets its own. It also keeps each verb's failure exact
+ * ({@link NoMessageSchemaError} against {@link NoModelSchemaError}), and the
+ * listing's two flags say which of the two is worth calling.
+ */
+const GetShowcaseModelSchema = Tool.make("foldcase_get_showcase_model_schema", {
+  description:
+    "Introspect a Showcase's Model Effect Schema into a JSON Schema document (draft-2020-12 { dialect, schema, definitions }) — the peer of foldcase_get_showcase_schema, which answers with the Message union. The Model is the state a play asserts on, so read it before writing or repairing an assertion, or before reading a Model out of the live runtime with the foldkit-devtools MCP. Fails if the id is unknown or the Showcase declares no Model schema; foldcase_list_showcases flags which ones do.",
+  parameters: ShowcaseIdInput,
+  success: ShowcaseSchema,
+  failure: Schema.Union([ShowcaseNotFoundError, NoModelSchemaError]),
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false)
@@ -123,6 +149,7 @@ const LoadCatalog = Tool.make("foldcase_load_catalog", {
 export const FoldcaseToolkit = Toolkit.make(
   ListShowcases,
   GetShowcaseSchema,
+  GetShowcaseModelSchema,
   RunShowcase,
   LoadCatalog,
 )
@@ -139,6 +166,10 @@ export const makeHandlers = (catalog: FoldcaseCatalogShape) => ({
     readonly showcase_id: string
   }): Effect.Effect<ShowcaseSchema, ShowcaseNotFoundError | NoMessageSchemaError> =>
     catalog.schemaFor(params.showcase_id),
+  foldcase_get_showcase_model_schema: (params: {
+    readonly showcase_id: string
+  }): Effect.Effect<ShowcaseSchema, ShowcaseNotFoundError | NoModelSchemaError> =>
+    catalog.modelSchemaFor(params.showcase_id),
   foldcase_run_showcase: (params: {
     readonly showcase_id: string
   }): Effect.Effect<ShowcaseReport, ShowcaseNotFoundError> => catalog.runById(params.showcase_id),

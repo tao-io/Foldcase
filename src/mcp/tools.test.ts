@@ -13,14 +13,16 @@ const withSchema: Showcase = {
   id: "sample/with-schema",
   play: () => {},
   message: Schema.TaggedStruct("Clicked", {}),
+  model: Schema.Struct({ count: Schema.Number }),
 }
 
 describe("FoldcaseToolkit", () => {
   test("exposes exactly the catalog verbs", () => {
     const names = Object.keys(FoldcaseToolkit.tools)
-    expect(names).toHaveLength(4)
+    expect(names).toHaveLength(5)
     expect(names).toEqual(
       expect.arrayContaining([
+        "foldcase_get_showcase_model_schema",
         "foldcase_get_showcase_schema",
         "foldcase_list_showcases",
         "foldcase_load_catalog",
@@ -64,6 +66,25 @@ describe("foldcase mcp handlers", () => {
     )
 
     expect(result.id).toBe("sample/with-schema")
+    expect(JSON.stringify(result.jsonSchema)).toContain("Clicked")
+  })
+
+  test("foldcase_get_showcase_model_schema introspects a Showcase's Model schema", async () => {
+    const result = await Effect.runPromise(
+      handlers.foldcase_get_showcase_model_schema({ showcase_id: "sample/with-schema" }),
+    )
+
+    expect(result.id).toBe("sample/with-schema")
+    expect(JSON.stringify(result.jsonSchema)).toContain("count")
+  })
+
+  test("foldcase_get_showcase_schema still answers with the Message schema", async () => {
+    // The published verb keeps its meaning: the Showcase declares both, and
+    // this one returns the Message. Nothing about its answer moved.
+    const result = await Effect.runPromise(
+      handlers.foldcase_get_showcase_schema({ showcase_id: "sample/with-schema" }),
+    )
+
     expect(JSON.stringify(result.jsonSchema)).toContain("Clicked")
   })
 

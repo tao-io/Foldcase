@@ -17,10 +17,15 @@ import {
 } from "../cli.js"
 import { runShowcase, type Showcase, type ShowcaseReport } from "../runner.js"
 
-/** One entry in the catalog listing: a Showcase id and whether it carries a Message schema. */
+/**
+ * One entry in the catalog listing: a Showcase id and which Schemas it carries.
+ * The two flags are read separately — a Showcase declares either, both or
+ * neither — and each says which introspection verb is worth calling.
+ */
 export class ShowcaseSummary extends Schema.Class<ShowcaseSummary>("ShowcaseSummary")({
   id: Schema.String,
   hasMessageSchema: Schema.Boolean,
+  hasModelSchema: Schema.Boolean,
 }) {}
 
 /**
@@ -72,6 +77,14 @@ export class NoMessageSchemaError extends Schema.TaggedErrorClass<NoMessageSchem
   },
 ) {}
 
+/** The Showcase exists but declares no Model schema to introspect. */
+export class NoModelSchemaError extends Schema.TaggedErrorClass<NoModelSchemaError>()(
+  "foldcase/NoModelSchemaError",
+  {
+    id: Schema.String,
+  },
+) {}
+
 /** The directory a load named cannot be read. Carries the path and the reason. */
 export class CatalogDirectoryError extends Schema.TaggedErrorClass<CatalogDirectoryError>()(
   "foldcase/CatalogDirectoryError",
@@ -93,6 +106,15 @@ export interface FoldcaseCatalogShape {
   readonly schemaFor: (
     id: string,
   ) => Effect.Effect<ShowcaseSchema, ShowcaseNotFoundError | NoMessageSchemaError>
+  /**
+   * Introspect a Showcase's Model schema into the same document shape. Fails
+   * {@link ShowcaseNotFoundError} for an unknown id, {@link NoModelSchemaError}
+   * when the Showcase declares no Model schema. This is what a `play` asserts
+   * on, so it is what an agent has to know the shape of before it writes one.
+   */
+  readonly modelSchemaFor: (
+    id: string,
+  ) => Effect.Effect<ShowcaseSchema, ShowcaseNotFoundError | NoModelSchemaError>
   /**
    * Run a Showcase's `play` and report the typed pass/fail. A failing play is a
    * datum (`ShowcaseReport { status: "failed" }`), not an Effect failure — only
@@ -132,6 +154,20 @@ type CatalogReader = (
   requested: Option.Option<string>,
   current: Option.Option<string>,
 ) => Effect.Effect<CatalogState, CatalogDirectoryError>
+
+/**
+ * Introspect one of a Showcase's declared Schemas into a JSON Schema document,
+ * or fail for the one it did not declare. Message and Model are introspected
+ * the same way and answer in the same shape, so they read the same way too.
+ */
+const introspect = <E>(
+  id: string,
+  schema: Schema.Top | undefined,
+  onMissing: () => E,
+): Effect.Effect<ShowcaseSchema, E> =>
+  schema === undefined
+    ? Effect.fail(onMissing())
+    : Effect.succeed(new ShowcaseSchema({ id, jsonSchema: Schema.toJsonSchemaDocument(schema) }))
 
 const reportOf = (state: CatalogState): CatalogLoadReport =>
   new CatalogLoadReport({
@@ -183,6 +219,7 @@ const makeCatalogWith = (
                   new ShowcaseSummary({
                     id: showcase.id,
                     hasMessageSchema: showcase.message !== undefined,
+                    hasModelSchema: showcase.model !== undefined,
                   }),
               ),
             }),
@@ -191,14 +228,13 @@ const makeCatalogWith = (
       schemaFor: (id) =>
         find(id).pipe(
           Effect.flatMap((showcase) =>
-            showcase.message === undefined
-              ? Effect.fail(new NoMessageSchemaError({ id }))
-              : Effect.succeed(
-                  new ShowcaseSchema({
-                    id,
-                    jsonSchema: Schema.toJsonSchemaDocument(showcase.message),
-                  }),
-                ),
+            introspect(id, showcase.message, () => new NoMessageSchemaError({ id })),
+          ),
+        ),
+      modelSchemaFor: (id) =>
+        find(id).pipe(
+          Effect.flatMap((showcase) =>
+            introspect(id, showcase.model, () => new NoModelSchemaError({ id })),
           ),
         ),
       runById: (id) => find(id).pipe(Effect.flatMap(runShowcase)),
