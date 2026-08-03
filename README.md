@@ -149,6 +149,23 @@ Showcases, and the [Markdown](examples/counter/docs/tasks.md) `foldcase docs` wr
 them. `mise run dogfood` runs it under both bins on every change, so the example is a check
 as well as a demo.
 
+### A type-only import must say `import type`
+
+The `foldcase` bin loads your catalog through Node's type stripping, and Node cannot tell
+a type-only import from a value import — it emits a real ESM import for both. So a
+showcase, or **any module it reaches**, that writes
+
+```ts
+import { Document, Html } from "foldkit/html" // these are types
+```
+
+will not load: `SyntaxError: The requested module 'foldkit/html' does not provide an export
+named 'Document'`. Write `import type { Document, Html } from "foldkit/html"` instead.
+Foldcase names the cause and the fix in the failed-file line, so you need not recognise the
+error yourself.
+
+`foldcase-bun` erases the import itself and has no such rule.
+
 ## The three commands
 
 ### `foldcase test` — Showcases as CI
@@ -170,8 +187,9 @@ foldcase test button.showcase.ts   # a single file
 2 total · 1 passed · 1 failed
 ```
 
-A `*.showcase.ts` that will not import — a bad path, a missing dependency — is reported as
-a failed entry for that **file**, and the rest of the run continues:
+A `*.showcase.ts` that will not import — a bad path, a missing dependency, a
+[type imported as a value](#a-type-only-import-must-say-import-type) — is reported as a
+failed entry for that **file**, and the rest of the run continues:
 
 ```
   ✗ src/ui/picker.showcase.ts — Error [ERR_MODULE_NOT_FOUND]: Cannot find module './picker'
