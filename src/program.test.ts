@@ -250,8 +250,8 @@ describe("run", () => {
     expect(documentOf(result)).toEqual({
       docs: [
         {
-          component: "counter/schema",
-          path: `${new URL("../runtime-test-docs-json", import.meta.url).pathname}/counter-schema.md`,
+          component: "counter",
+          path: `${new URL("../runtime-test-docs-json", import.meta.url).pathname}/counter.md`,
         },
       ],
       failures: [],

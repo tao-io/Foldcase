@@ -234,12 +234,12 @@ describe("runSuiteFromFiles", () => {
 })
 
 describe("docsFromFiles", () => {
-  test("renders a Model/Message Schema table autodoc per Showcase", async () => {
+  test("renders a Model/Message Schema table autodoc per component", async () => {
     const { docs } = await Effect.runPromise(docsFromFiles([fixture("schema.showcase.ts")]))
 
-    expect(docs.map((doc) => doc.component)).toEqual(["counter/schema"])
+    expect(docs.map((doc) => doc.component)).toEqual(["counter"])
     const markdown = docs[0]?.markdown ?? ""
-    expect(markdown).toContain("# counter/schema")
+    expect(markdown).toContain("# counter")
     expect(markdown).toContain("## Messages")
     expect(markdown).toContain("`Increment`")
     expect(markdown).toContain("`SetLabel`")
@@ -253,7 +253,7 @@ describe("docsFromFiles", () => {
       docsFromFiles([malformed("broken-import.showcase.ts"), fixture("schema.showcase.ts")]),
     )
 
-    expect(docs.map((doc) => doc.component)).toEqual(["counter/schema"])
+    expect(docs.map((doc) => doc.component)).toEqual(["counter"])
     expect(failures.map((failure) => failure.path)).toEqual([
       malformed("broken-import.showcase.ts"),
     ])

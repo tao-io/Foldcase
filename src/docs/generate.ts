@@ -19,11 +19,21 @@ import {
  * A rendered autodoc for one component: its name, the Showcase ids it was
  * derived from, and the Markdown Schema tables.
  *
- * A *component* is the set of Showcases that declare the same Message and Model
- * schemas — which, in a real showcase file, is every Showcase of one component,
- * because they share the declared schema objects. Keying the output on the
- * Showcase id instead produced one identical file per Showcase: five files for
- * a component with five Showcases, differing only in their title.
+ * A *component* is the set of Showcases sharing an id namespace — everything
+ * before the last `/`, so `button/starts-unclicked` and `button/counts-one-click`
+ * are the `button` component. That is the tool's own notion of a component
+ * elsewhere: `foldcase_run_catalog` filters on an `id_prefix` like `counter/`.
+ *
+ * Two earlier rules failed, and both lessons are worth keeping. Keying on the
+ * whole Showcase id produced one identical file per Showcase: five files for a
+ * component with five Showcases, differing only in their title. Keying on
+ * Schema object identity — same Message *and* same Model — fixed that for a
+ * catalog where each component file declares its own schemas, and collapsed
+ * completely on a real Foldkit app, which has one Model struct and one Message
+ * union for the whole app with each component a slice of them: 146 Showcases
+ * across 24 components wrote a single 15 KB document titled after an arbitrary
+ * Showcase. The namespace is what neither identity nor the whole id could be —
+ * per component, and stable whatever the app's schemas look like.
  */
 export class ComponentDoc extends Schema.Class<ComponentDoc>("ComponentDoc")({
   component: Schema.String,
@@ -52,50 +62,36 @@ const modelSection = Effect.fn("foldcase.docs.modelSection")(function* (showcase
 })
 
 /**
- * The name of the component a group of Showcases documents: the `/`-separated
- * id namespace they all share (`ui/picker/initial` + `ui/picker/filtering` →
- * `ui/picker`). A lone Showcase keeps its whole id, so a one-Showcase component
- * is named exactly as it was before. Ids with nothing in common fall back to
- * the first of them, so the name is always something a reader can look up.
+ * The component a Showcase belongs to: its id namespace, everything before the
+ * last `/`. `button/starts-unclicked` → `button`; `ui/picker/initial` →
+ * `ui/picker`; an id with no `/` at all is its own component. This is the same
+ * notion of a component the MCP `id_prefix` filter runs on, so what one surface
+ * calls `counter/` the other titles `counter`.
  */
-const componentName = (showcases: ReadonlyArray<Showcase>): string => {
-  const segments = showcases.map((showcase) => showcase.id.split("/"))
-  const first = segments[0] ?? []
-  const shared = first.filter((segment, index) =>
-    segments.every((candidate) => candidate[index] === segment),
-  )
-  return shared.length === 0 ? (showcases[0]?.id ?? "") : shared.join("/")
+const componentName = (id: string): string => {
+  const cut = id.lastIndexOf("/")
+  return cut === -1 ? id : id.slice(0, cut)
 }
 
 /**
- * Whether two Showcases document the same component: they declare the very same
- * Message and Model schemas. Declaring *nothing* is not a match — two opaque
- * Showcases have no reason to share a document just because neither says
- * anything.
- */
-const sameComponent = (left: Showcase, right: Showcase): boolean =>
-  (left.message !== undefined || left.model !== undefined) &&
-  left.message === right.message &&
-  left.model === right.model
-
-/**
- * Group Showcases into components, keeping the first-seen order of each group.
- * The grouping is by declaration, not by position, so a component whose
+ * Group Showcases into components by id namespace, keeping the first-seen order
+ * of each group. The grouping is by id, not by position, so a component whose
  * Showcases are split across files still lands in one document.
  */
 const componentsOf = (
   showcases: ReadonlyArray<Showcase>,
 ): ReadonlyArray<ReadonlyArray<Showcase>> => {
-  const groups: Array<Array<Showcase>> = []
+  const groups = new Map<string, Array<Showcase>>()
   for (const showcase of showcases) {
-    const group = groups.find((candidate) => sameComponent(candidate[0] as Showcase, showcase))
+    const name = componentName(showcase.id)
+    const group = groups.get(name)
     if (group === undefined) {
-      groups.push([showcase])
+      groups.set(name, [showcase])
     } else {
       group.push(showcase)
     }
   }
-  return groups
+  return [...groups.values()]
 }
 
 const byId = Order.mapInput(Order.String, (showcase: Showcase) => showcase.id)
@@ -118,7 +114,7 @@ export const renderComponentDoc = Effect.fn("foldcase.docs.renderComponentDoc")(
   const model = yield* modelSection(head)
   const sections = Arr.getSomes([message, model])
   const body = Arr.isReadonlyArrayEmpty(sections) ? NO_SCHEMA_NOTE : sections.join("\n\n")
-  const component = componentName(showcases)
+  const component = componentName(head.id)
   // With the ids out of the filename, the document is the only place that says
   // which Showcases stand behind these tables. A lone Showcase is already named
   // by the title, so listing it again would be noise.

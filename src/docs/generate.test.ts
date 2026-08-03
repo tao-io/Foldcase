@@ -24,12 +24,17 @@ const alsoFull: Showcase = { id: "counter/reset", play: () => {}, ...schemas }
 const bare: Showcase = { id: "widget/opaque", play: () => {} }
 const alsoBare: Showcase = { id: "gadget/opaque", play: () => {} }
 
+// The shape a real Foldkit app has: one Model struct and one Message union for
+// the whole app, every component a slice of them, so Showcases of *different*
+// components hand `docs` the very same two Schema objects.
+const otherComponent: Showcase = { id: "gauge/at-zero", play: () => {}, ...schemas }
+
 describe("renderComponentDoc", () => {
   test("documents both the Message and Model schema tables under a titled section", async () => {
     const doc = await Effect.runPromise(renderComponentDoc([full]))
 
-    expect(doc.component).toBe("counter/basic")
-    expect(doc.markdown).toContain("# counter/basic")
+    expect(doc.component).toBe("counter")
+    expect(doc.markdown).toContain("# counter")
     expect(doc.markdown).toContain("## Messages")
     expect(doc.markdown).toContain("| Message | Field | Type | Optional |")
     expect(doc.markdown).toContain("`Increment`")
@@ -39,8 +44,25 @@ describe("renderComponentDoc", () => {
     expect(doc.markdown).toContain("`count`")
   })
 
-  test("names the component after the id namespace its Showcases share", async () => {
-    const doc = await Effect.runPromise(renderComponentDoc([full, alsoFull]))
+  test("names the component after the id namespace, however deep it nests", async () => {
+    const initial: Showcase = { id: "ui/picker/initial", play: () => {}, ...schemas }
+    const filtering: Showcase = { id: "ui/picker/filtering", play: () => {}, ...schemas }
+    const doc = await Effect.runPromise(renderComponentDoc([initial, filtering]))
+
+    expect(doc.component).toBe("ui/picker")
+    expect(doc.markdown).toContain("# ui/picker")
+  })
+
+  test("names a component after the whole id when the id has no namespace", async () => {
+    const lone: Showcase = { id: "banner", play: () => {}, ...schemas }
+    const doc = await Effect.runPromise(renderComponentDoc([lone]))
+
+    expect(doc.component).toBe("banner")
+    expect(doc.markdown).toContain("# banner")
+  })
+
+  test("lists the Showcases it was derived from, in id order", async () => {
+    const doc = await Effect.runPromise(renderComponentDoc([alsoFull, full]))
 
     expect(doc.component).toBe("counter")
     expect(doc.showcases).toEqual(["counter/basic", "counter/reset"])
@@ -54,8 +76,8 @@ describe("renderComponentDoc", () => {
   test("documents a Showcase with no schema gracefully, not as an error", async () => {
     const doc = await Effect.runPromise(renderComponentDoc([bare]))
 
-    expect(doc.component).toBe("widget/opaque")
-    expect(doc.markdown).toContain("# widget/opaque")
+    expect(doc.component).toBe("widget")
+    expect(doc.markdown).toContain("# widget")
     expect(doc.markdown.toLowerCase()).toContain("no model or message schema")
     // A bare showcase must not emit empty table headers.
     expect(doc.markdown).not.toContain("| Message | Field |")
@@ -73,7 +95,22 @@ describe("generateComponentDocs", () => {
     expect(docs[0]?.showcases).toEqual(["counter/basic", "counter/reset"])
   })
 
-  test("keeps components apart when their declared schemas differ", async () => {
+  test("keeps components apart when a whole app shares one Model and one Message", async () => {
+    // The Foldkit shape: `counter/*` and `gauge/*` declare the identical Schema
+    // objects, and used to collapse into a single document titled after
+    // whichever Showcase came first.
+    const docs = await Effect.runPromise(
+      generateComponentDocs([full, alsoFull, otherComponent]),
+    )
+
+    expect(docs.map((doc) => doc.component)).toEqual(["counter", "gauge"])
+    expect(docs[1]?.showcases).toEqual(["gauge/at-zero"])
+  })
+
+  test("keeps one namespace one component, whatever its Showcases declare", async () => {
+    // A namespace is the component. A Showcase declaring a different Message
+    // does not split `counter` in two — the app is free to re-declare, and a
+    // reader looking for `counter` must find one document.
     const other: Showcase = {
       id: "counter/other",
       play: () => {},
@@ -81,20 +118,19 @@ describe("generateComponentDocs", () => {
     }
     const docs = await Effect.runPromise(generateComponentDocs([full, alsoFull, other]))
 
-    expect(docs.map((doc) => doc.component)).toEqual(["counter", "counter/other"])
+    expect(docs.map((doc) => doc.component)).toEqual(["counter"])
+    expect(docs[0]?.showcases).toEqual(["counter/basic", "counter/other", "counter/reset"])
   })
 
-  test("never merges Showcases that simply declare nothing", async () => {
-    // Two schemaless Showcases share the same (absent) schemas, which must not
-    // be read as "the same component".
+  test("never merges Showcases from different namespaces", async () => {
     const docs = await Effect.runPromise(generateComponentDocs([bare, alsoBare]))
 
-    expect(docs.map((doc) => doc.component)).toEqual(["gadget/opaque", "widget/opaque"])
+    expect(docs.map((doc) => doc.component)).toEqual(["gadget", "widget"])
   })
 
   test("sorts components by name for deterministic output", async () => {
     const docs = await Effect.runPromise(generateComponentDocs([bare, full, alsoFull]))
 
-    expect(docs.map((doc) => doc.component)).toEqual(["counter", "widget/opaque"])
+    expect(docs.map((doc) => doc.component)).toEqual(["counter", "widget"])
   })
 })
