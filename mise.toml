@@ -160,3 +160,112 @@ node dist/main.js docs examples/counter/src "$tmp/docs" > /dev/null
 diff -r examples/counter/docs "$tmp/docs"
 echo 'foldcase: dogfood passed — 8 Showcases, 2 documents, both runtimes'
 """
+
+[tasks.pack]
+description = "Pack the npm tarball, check what is in it, then install and run it the way a consumer does"
+# `smoke` and `dogfood` drive this repository's own `dist/`. This drives the
+# *tarball* — the only check that sees what npm would upload and what an
+# installer would unpack. It needs no prior build: `npm pack` runs the `prepack`
+# script, which is `mise run build`.
+run = """
+set -e
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+npm pack --pack-destination "$tmp" > /dev/null
+tarball="$(ls "$tmp"/*.tgz)"
+tar -tzf "$tarball" | sed 's|^package/||' | sort > "$tmp/contents"
+
+ships() {
+  grep -qx "$1" "$tmp/contents" || {
+    echo "foldcase pack: the tarball is missing $1" >&2
+    exit 1
+  }
+}
+withholds() {
+  ! grep -q "^$1" "$tmp/contents" || {
+    echo "foldcase pack: the tarball ships $1, which stays in the repository" >&2
+    exit 1
+  }
+}
+
+# Both bins; the library entry a consumer imports `Showcase` from; the coverage
+# instrument, which tsc does not emit and only the build task copies; and the
+# three files the licence rests on.
+ships dist/main.js
+ships dist/main.bun.js
+ships dist/runner.d.ts
+ships dist/coverage/collector.mjs
+ships README.md
+ships LICENSE
+ships NOTICE
+# What ships is the build output. The sources, the suites, the example and the
+# ADRs are read on GitHub, not downloaded on every install.
+withholds src/
+withholds test/
+withholds examples/
+withholds docs/
+
+# A directory that holds nothing of this repository but the tarball. The peer
+# versions come out of devDependencies, so it installs what the repository
+# develops against rather than a second pin that can drift from it.
+consumer="$tmp/consumer"
+mkdir -p "$consumer"
+node --input-type=module -e '
+  import { readFileSync, writeFileSync } from "node:fs"
+  const [directory, tarball] = process.argv.slice(1)
+  const developed = JSON.parse(readFileSync("package.json", "utf8")).devDependencies
+  writeFileSync(`${directory}/package.json`, JSON.stringify({
+    name: "foldcase-consumer",
+    private: true,
+    type: "module",
+    dependencies: {
+      foldcase: `file:${tarball}`,
+      effect: developed.effect,
+      "@effect/platform-bun": developed["@effect/platform-bun"],
+      "@effect/platform-node": developed["@effect/platform-node"],
+    },
+  }, null, 2))
+' "$consumer" "$tarball"
+
+cat > "$consumer/demo.showcase.ts" <<'SHOWCASE'
+import type { Showcase } from "foldcase"
+
+const update = (count: number): number => count + 1
+
+export const showcases: ReadonlyArray<Showcase> = [
+  {
+    id: "demo/increment",
+    play: () => {
+      if (update(1) !== 2) {
+        throw new Error("update(1) should be 2")
+      }
+    },
+  },
+]
+SHOWCASE
+
+(
+  cd "$consumer"
+  bun install > /dev/null
+
+  # Run the bins the way a consumer's package script does — through
+  # `node_modules/.bin`, on their own shebang. That is what proves the installer
+  # linked them, that they are executable, and that `#!/usr/bin/env node` and
+  # `#!/usr/bin/env bun` pick the runtime each shell is written for.
+  echo '── node_modules/.bin/foldcase (Node)'
+  ./node_modules/.bin/foldcase test demo.showcase.ts > "$tmp/out"
+  grep -q '1 total · 1 passed · 0 failed' "$tmp/out"
+
+  echo '── node_modules/.bin/foldcase-bun (Bun)'
+  ./node_modules/.bin/foldcase-bun test demo.showcase.ts > "$tmp/out"
+  grep -q '1 total · 1 passed · 0 failed' "$tmp/out"
+
+  # And the library entry resolves through `exports` under both runtimes, which
+  # a bin invocation never touches.
+  echo '── import "foldcase"'
+  node --input-type=module -e 'import { runShowcase } from "foldcase"; if (typeof runShowcase !== "function") { process.exit(1) }'
+  bun -e 'import { runShowcase } from "foldcase"; if (typeof runShowcase !== "function") { process.exit(1) }'
+)
+echo 'foldcase: the tarball packs the artifact and runs installed, under Node and Bun'
+"""
