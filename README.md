@@ -75,6 +75,10 @@ it could never load a `*.showcase.ts` from your project — which is the tool's 
 ### Peer dependencies
 
 - **`effect` v4** — a peer dependency, so your app and Foldcase share one Effect instance.
+  The range is `>=4.0.0-beta.90`, and both ends of it are run: the suite passes on the
+  floor and on `4.0.0-beta.102`, the version Foldkit pins. Effect is in beta, and its JSON
+  Schema output moves between betas, so the docs generator reads a Model's types from the
+  shape of the encoding rather than from names that come and go.
 - **Node on `PATH`** — only for `foldcase test --coverage`, explained below. Under the Node
   bin you already have it.
 

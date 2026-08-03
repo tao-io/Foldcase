@@ -114,6 +114,25 @@ const isNumberNoiseEnum = (node: JsonNode): boolean =>
 const refName = (ref: string): string =>
   Arr.last(ref.split("/")).pipe(Option.getOrElse(() => ref))
 
+/**
+ * The suffix Effect appends when it names a definition after the encoding it
+ * emits rather than after the type: a `Schema.Class` named `Task` is defined as
+ * `Task` on one Effect beta and as `TaskJsonEncoding` on the next.
+ */
+const ENCODING_SUFFIX = "JsonEncoding"
+
+/**
+ * The name a `$ref` reports in a table — the type the Model holds, without the
+ * encoding's suffix. {@link refName} keeps the raw key, because `definitions`
+ * is still keyed by it; only the rendering drops the suffix.
+ */
+const declaredName = (ref: string): string => {
+  const name = refName(ref)
+  return name.length > ENCODING_SUFFIX.length && name.endsWith(ENCODING_SUFFIX)
+    ? name.slice(0, -ENCODING_SUFFIX.length)
+    : name
+}
+
 const renderLiteral = (value: unknown): string => (P.isString(value) ? `"${value}"` : String(value))
 
 const renderEnum = (values: ReadonlyArray<unknown>): string => values.map(renderLiteral).join(" | ")
@@ -152,6 +171,22 @@ const optionValueNode = (node: JsonNode): Option.Option<Option.Option<JsonNode>>
 const isOptionNode = (node: JsonNode): boolean => Option.isSome(optionValueNode(node))
 
 /**
+ * The four representations a `Duration` serializes to. The field is recognised
+ * by this shape rather than by the declared type's name, because the name
+ * reaches the document only on some Effect betas — beta.102 stopped carrying it
+ * into a union node — while the shape is the encoding itself and does not move.
+ */
+const DURATION_TAGS: ReadonlyArray<string> = ["Infinity", "NegativeInfinity", "Nanos", "Millis"]
+
+const isDurationNode = (node: JsonNode): boolean => {
+  const branches = node.anyOf ?? []
+  return (
+    branches.length === DURATION_TAGS.length &&
+    sameTags(DURATION_TAGS, Arr.getSomes(branches.map(tagOf)))
+  )
+}
+
+/**
  * Render a JSON Schema node as a compact, human-readable type string. Collapses
  * the `number | "NaN" | "Infinity" | "-Infinity"` encoding Effect emits for a
  * plain `number` back to `number`, resolves `$ref` to its definition name, and
@@ -159,7 +194,7 @@ const isOptionNode = (node: JsonNode): boolean => Option.isSome(optionValueNode(
  */
 export const renderType = (node: JsonNode): string => {
   if (node.$ref !== undefined) {
-    return refName(node.$ref)
+    return declaredName(node.$ref)
   }
   if (node.anyOf !== undefined) {
     const branches = node.anyOf.filter((branch) => branch.type !== "null")
@@ -174,6 +209,9 @@ export const renderType = (node: JsonNode): string => {
         onNone: () => "unknown",
         onSome: renderType,
       })}>`
+    }
+    if (isDurationNode(node)) {
+      return "Duration"
     }
     if (node.expected !== undefined) {
       return node.expected

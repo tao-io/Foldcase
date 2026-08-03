@@ -82,10 +82,10 @@
   },
   "devDependencies": {
     "@effect/language-service": "^0.86.2",
-    "@effect/platform-bun": "4.0.0-beta.90",
-    "@effect/platform-node": "4.0.0-beta.90",
+    "@effect/platform-bun": "4.0.0-beta.102",
+    "@effect/platform-node": "4.0.0-beta.102",
     "@types/bun": "latest",
-    "effect": "4.0.0-beta.90",
+    "effect": "4.0.0-beta.102",
     "oxlint": "1.71.0",
     "typescript": "^6.0.3"
   }

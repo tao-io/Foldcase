@@ -101,6 +101,25 @@ describe("a Duration field", () => {
   })
 })
 
+class Task extends Schema.Class<Task>("Task")({ id: Schema.String }) {}
+
+class BoardModel extends Schema.Class<BoardModel>("BoardModel")({
+  lead: Task,
+  tasks: Schema.Array(Task),
+}) {}
+
+describe("a field holding another Schema class", () => {
+  test("documents by the class's own name, not by the name of its encoding", async () => {
+    const markdown = await Effect.runPromise(modelTableFor(BoardModel))
+
+    // The document names the definition after the encoding it emits — `Task`
+    // on one Effect beta, `TaskJsonEncoding` on the next. A Model table reports
+    // the type the Model holds, and that name does not move with the encoding.
+    expect(cellsOf(rowFor(markdown, "lead"))).toEqual(["`lead`", "Task", "no"])
+    expect(cellsOf(rowFor(markdown, "tasks"))).toEqual(["`tasks`", "Task[]", "no"])
+  })
+})
+
 class OptionModel extends Schema.Class<OptionModel>("OptionModel")({
   selected: Schema.Option(Schema.String),
   label: Schema.String,
