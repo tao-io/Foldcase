@@ -151,8 +151,8 @@ export interface Showcase {
 
 `play` is any thunk that throws when an assertion fails, so a Showcase is not tied to one
 assertion library or one framework. `message` and `model` are optional; a Showcase that
-declares neither still runs, and `foldcase docs` documents it with a note instead of
-failing.
+declares neither still runs, and `foldcase docs` simply writes no page for it — there is
+nothing to table.
 
 Everything Foldcase does is derived from this one record. See
 [ADR-0001](docs/adr/0001-showcase-one-definition-many-surfaces.md).
