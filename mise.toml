@@ -137,6 +137,29 @@ smoke() {
   grep -q '^# counter$' "$tmp/docs/counter.md"
   grep -q 'counter/increment' "$tmp/docs/counter.md"
   rm -rf "$tmp/docs"
+
+  # lab scaffolds the entry module a consumer's dev server builds, and stops
+  # (ADR-0004) — nothing here bundles, serves or watches. The entry has to name
+  # the lab entry point and reach the catalog by a relative specifier, because
+  # that pair is what the consumer's bundler resolves.
+  "$@" lab test/fixtures "$tmp/lab/entry.ts" > "$tmp/out"
+  grep -q 'foldcase lab: wrote' "$tmp/out"
+  grep -q 'from "foldcase/lab"' "$tmp/lab/entry.ts"
+  grep -q 'from "\\.\\..*test/fixtures/counter-logic.showcase"' "$tmp/lab/entry.ts"
+
+  # Written, then checked: the same catalog must read as current.
+  "$@" lab --check test/fixtures "$tmp/lab/entry.ts" > "$tmp/out"
+  grep -q 'is up to date' "$tmp/out"
+
+  # And a check against an entry nobody wrote must fail, or the gate is
+  # decorative. It writes nothing, so the file is still absent afterwards.
+  if "$@" lab --check test/fixtures "$tmp/lab/absent.ts" > "$tmp/out" 2>&1; then
+    echo "$label: a missing entry must exit non-zero under --check" >&2
+    exit 1
+  fi
+  grep -q 'would change — missing' "$tmp/out"
+  test ! -f "$tmp/lab/absent.ts"
+  rm -rf "$tmp/lab"
 }
 
 smoke 'node dist/main.js' node dist/main.js
