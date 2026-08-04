@@ -48,6 +48,26 @@ describe("FoldcaseToolkit", () => {
     }
   })
 
+  test("says which answers come from disk and which can be stale", () => {
+    // The descriptions are the only thing an agent reads before it calls, so
+    // they carry the one asymmetry in this server: a run re-reads the files in
+    // a child process, while the listing and the two schema verbs answer from
+    // the catalog this process imported — and an imported module is cached by
+    // URL, so an edited file's Schemas stay as they were until a restart.
+    const { tools } = FoldcaseToolkit
+    for (const tool of [tools.foldcase_run_showcase, tools.foldcase_run_catalog]) {
+      expect([tool.name, tool.description?.includes("from disk")]).toEqual([tool.name, true])
+    }
+    for (const tool of [
+      tools.foldcase_list_showcases,
+      tools.foldcase_get_showcase_schema,
+      tools.foldcase_get_showcase_model_schema,
+      tools.foldcase_load_catalog,
+    ]) {
+      expect([tool.name, tool.description?.includes("restart")]).toEqual([tool.name, true])
+    }
+  })
+
   test("every verb is annotated read-only, non-destructive and closed-world", () => {
     // The three verbs read the declared catalog and run a `play` in-process.
     // Effect's defaults are the opposite (`destructiveHint: true`,

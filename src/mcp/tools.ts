@@ -40,7 +40,7 @@ class ShowcaseIdInput extends Schema.Class<ShowcaseIdInput>("ShowcaseIdInput")({
  */
 const ListShowcases = Tool.make("foldcase_list_showcases", {
   description:
-    "List every Showcase in the catalog, with the directory they were read from, each flagged with whether it carries an introspectable Message schema and a Model schema. The entry point for driving Foldcase: enumerate, then foldcase_get_showcase_schema or foldcase_get_showcase_model_schema to learn a payload shape, then foldcase_run_showcase to assert one play, or foldcase_run_catalog to assert them all.",
+    "List every Showcase in the catalog, with the directory they were read from, each flagged with whether it carries an introspectable Message schema and a Model schema. The entry point for driving Foldcase: enumerate, then foldcase_get_showcase_schema or foldcase_get_showcase_model_schema to learn a payload shape, then foldcase_run_showcase to assert one play, or foldcase_run_catalog to assert them all. It answers from the catalog this server has loaded: foldcase_load_catalog picks up a file that appeared or vanished, but a Showcase renamed inside a file that was already loaded is listed under its old id until the server restarts. The run verbs are never stale — they read the files from disk.",
   success: CatalogListing,
 })
   .annotate(Tool.Readonly, true)
@@ -55,7 +55,7 @@ const ListShowcases = Tool.make("foldcase_list_showcases", {
  */
 const GetShowcaseSchema = Tool.make("foldcase_get_showcase_schema", {
   description:
-    "Introspect a Showcase's Message-union Effect Schema into a JSON Schema document (draft-2020-12 { dialect, schema, definitions }). Use it to construct a valid Message object to dispatch into the live runtime via the foldkit-devtools MCP's foldkit_dispatch_message. Fails if the id is unknown or the Showcase declares no Message schema.",
+    "Introspect a Showcase's Message-union Effect Schema into a JSON Schema document (draft-2020-12 { dialect, schema, definitions }). Use it to construct a valid Message object to dispatch into the live runtime via the foldkit-devtools MCP's foldkit_dispatch_message. Fails if the id is unknown or the Showcase declares no Message schema. A Schema is a live object, so it cannot be read out of a fresh process the way a run is: this answers from the module this server imported, and after you edit a Schema in a file that has already loaded, only a restart shows the new one.",
   parameters: ShowcaseIdInput,
   success: ShowcaseSchema,
   failure: Schema.Union([ShowcaseNotFoundError, NoMessageSchemaError]),
@@ -80,7 +80,7 @@ const GetShowcaseSchema = Tool.make("foldcase_get_showcase_schema", {
  */
 const GetShowcaseModelSchema = Tool.make("foldcase_get_showcase_model_schema", {
   description:
-    "Introspect a Showcase's Model Effect Schema into a JSON Schema document (draft-2020-12 { dialect, schema, definitions }) — the peer of foldcase_get_showcase_schema, which answers with the Message union. The Model is the state a play asserts on, so read it before writing or repairing an assertion, or before reading a Model out of the live runtime with the foldkit-devtools MCP. Fails if the id is unknown or the Showcase declares no Model schema; foldcase_list_showcases flags which ones do.",
+    "Introspect a Showcase's Model Effect Schema into a JSON Schema document (draft-2020-12 { dialect, schema, definitions }) — the peer of foldcase_get_showcase_schema, which answers with the Message union. The Model is the state a play asserts on, so read it before writing or repairing an assertion, or before reading a Model out of the live runtime with the foldkit-devtools MCP. Fails if the id is unknown or the Showcase declares no Model schema; foldcase_list_showcases flags which ones do. Same caveat as that verb: the document comes from the module this server imported, so an edited Model reads as it was until the server restarts.",
   parameters: ShowcaseIdInput,
   success: ShowcaseSchema,
   failure: Schema.Union([ShowcaseNotFoundError, NoModelSchemaError]),
@@ -97,7 +97,7 @@ const GetShowcaseModelSchema = Tool.make("foldcase_get_showcase_model_schema", {
  */
 const RunShowcase = Tool.make("foldcase_run_showcase", {
   description:
-    "Run a Showcase's play headlessly and return the typed pass/fail report (a failing play is reported as status 'failed' with the serialized assertion error, not a tool error). This closes the self-healing loop: after dispatching a Message via the foldkit-devtools MCP, run the Showcase to assert the deterministic Model outcome. Fails only if the id is unknown.",
+    "Run a Showcase's play headlessly and return the typed pass/fail report (a failing play is reported as status 'failed' with the serialized assertion error, not a tool error). The play is read from disk on every call, in a fresh process, so the code that runs is the code you just wrote — edit the file and call this again, with no reload and no restart in between. This closes the self-healing loop: after dispatching a Message via the foldkit-devtools MCP, run the Showcase to assert the deterministic Model outcome. Fails only if the id is unknown, and says which ids the fresh read found.",
   parameters: ShowcaseIdInput,
   success: ShowcaseReport,
   failure: ShowcaseNotFoundError,
@@ -127,7 +127,7 @@ class IdPrefixInput extends Schema.Class<IdPrefixInput>("IdPrefixInput")({
  */
 const RunCatalog = Tool.make("foldcase_run_catalog", {
   description:
-    "Run every Showcase in the catalog and return one suite report: total, passed, failed, and a typed report per Showcase (a failing play is status 'failed' with the serialized assertion error, not a tool error). Pass `id_prefix` to run one component's Showcases, e.g. 'counter/'. Reach for it to check a whole component or the whole catalog after an edit — one call instead of foldcase_run_showcase per id. A file that would not load is reported as a failed entry for that file. Fails only if the prefix matches no Showcase, and names the ids it could have matched.",
+    "Run every Showcase in the catalog and return one suite report: total, passed, failed, and a typed report per Showcase (a failing play is status 'failed' with the serialized assertion error, not a tool error). Pass `id_prefix` to run one component's Showcases, e.g. 'counter/'. Reach for it to check a whole component or the whole catalog after an edit — one call instead of foldcase_run_showcase per id. The directory is walked and every file read from disk on each call, so an edited play and a file written since the server started are both in this suite. A file that would not load is reported as a failed entry for that file. Fails only if the prefix matches no Showcase, and names the ids it could have matched.",
   parameters: IdPrefixInput,
   success: SuiteReport,
   failure: NoShowcaseMatchedError,
@@ -162,7 +162,7 @@ class CatalogDirInput extends Schema.Class<CatalogDirInput>("CatalogDirInput")({
  */
 const LoadCatalog = Tool.make("foldcase_load_catalog", {
   description:
-    "Re-read the Showcase catalog from disk and report what came back: the directory read, how many Showcases it holds, and the files that would not load (with the reason). Call it after writing or deleting a Showcase file, so the catalog the other verbs answer from is the one on disk. Pass `dir` to serve another directory or subtree instead — it stays the served catalog until the next call. Fails only if the directory cannot be read. A module already imported is cached by the runtime, so an edit inside a file that has loaded needs a restart, not a reload.",
+    "Re-read the Showcase catalog from disk and report what came back: the directory read, how many Showcases it holds, and the files that would not load (with the reason). Pass `dir` to serve another directory or subtree instead — it stays the served catalog until the next call. Fails only if the directory cannot be read. You do not need it before a run: foldcase_run_showcase and foldcase_run_catalog read the files themselves, every time. What it refreshes is the metadata the other three verbs answer from — call it after writing or deleting a Showcase file, so the listing knows the file exists. It cannot refresh a file that was already imported, because a runtime caches a module by URL: a Schema edited inside such a file needs a restart, not a reload.",
   parameters: CatalogDirInput,
   success: CatalogLoadReport,
   failure: CatalogDirectoryError,
