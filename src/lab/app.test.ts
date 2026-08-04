@@ -306,10 +306,13 @@ describe("filtering the catalog", () => {
     expect(matchingTotal(wide())).toBe(3)
   })
 
-  test("keeps a component that matched but drew nothing, because a fold hides its entries", () => {
+  test("keeps the entries a fold hides, so the heading can say how many it is hiding", () => {
     const [folded] = update(wide(), ToggledComponent({ component: "button" }))
 
-    expect(drawn(folded)).toEqual([["alpha", ["alpha/opens-clean"]], ["button", []]])
+    expect(drawn(folded)).toEqual([
+      ["alpha", ["alpha/opens-clean"]],
+      ["button", ["button/counts-one-click", "button/starts-unclicked"]],
+    ])
   })
 
   test("shows a match inside a folded component, because a filter that hides its own hits is a lie", () => {
