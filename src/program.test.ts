@@ -312,6 +312,7 @@ describe("run", () => {
       suite: { reports: ReadonlyArray<{ id: string; file: string }> }
     }
     expect(document.suite.reports.map((report) => report.file)).toEqual([
+      `${malformed}/bad-dispatches.showcase.ts`,
       `${malformed}/bad-message.showcase.ts`,
       `${malformed}/broken-import.showcase.ts`,
     ])
@@ -421,6 +422,7 @@ describe("run", () => {
     }
     expect(document.docs).toEqual([])
     expect(document.failures.map((failure) => failure.path)).toEqual([
+      `${malformed}/bad-dispatches.showcase.ts`,
       `${malformed}/bad-message.showcase.ts`,
       `${malformed}/broken-import.showcase.ts`,
     ])

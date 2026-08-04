@@ -85,7 +85,14 @@ const isShowcase = (value: unknown): value is Showcase => {
     const candidate = Reflect.get(value, key)
     return candidate === undefined || Schema.isSchema(candidate)
   }
-  return isSchemaOrAbsent("message") && isSchemaOrAbsent("model")
+  // `dispatches` is read as a list of Message tags wherever a coverage gap is
+  // reported, so a module declaring anything else is malformed here rather than
+  // silently contributing nonsense to the gap — the same rule, for the same
+  // reason, as the two Schema fields above.
+  const dispatches = Reflect.get(value, "dispatches")
+  const dispatchesAreTags =
+    dispatches === undefined || (Array.isArray(dispatches) && dispatches.every(P.isString))
+  return isSchemaOrAbsent("message") && isSchemaOrAbsent("model") && dispatchesAreTags
 }
 
 const readShowcases = (

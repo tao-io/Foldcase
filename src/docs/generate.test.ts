@@ -4,7 +4,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 import type { Showcase } from "../runner.js"
-import { generateComponentDocs, renderComponentDoc } from "./generate.js"
+import { componentGaps, generateComponentDocs, renderComponentDoc } from "./generate.js"
 
 const Message = Schema.Union([
   Schema.TaggedStruct("Increment", {}),
@@ -113,6 +113,95 @@ describe("renderComponentDoc", () => {
     const doc = await Effect.runPromise(renderComponentDoc([bare]))
 
     expect(Option.isNone(doc)).toBe(true)
+  })
+})
+
+describe("componentGaps", () => {
+  test("names the Message tags no Showcase of the component declares it dispatches", async () => {
+    const increments: Showcase = {
+      id: "counter/increments",
+      play: () => {},
+      dispatches: ["Increment"],
+      ...schemas,
+    }
+    const gaps = await Effect.runPromise(componentGaps([increments]))
+
+    expect(gaps.map((gap) => gap.component)).toEqual(["counter"])
+    expect(gaps[0]?.undispatched).toEqual(["SetLabel"])
+    expect(gaps[0]?.unknown).toEqual([])
+  })
+
+  test("reads the declarations of every Showcase in the component, not just the first", async () => {
+    const increments: Showcase = {
+      id: "counter/increments",
+      play: () => {},
+      dispatches: ["Increment"],
+      ...schemas,
+    }
+    const labels: Showcase = {
+      id: "counter/labels",
+      play: () => {},
+      dispatches: ["SetLabel"],
+      ...schemas,
+    }
+    const gaps = await Effect.runPromise(componentGaps([increments, labels]))
+
+    // Both tags are dispatched somewhere in the component, so nothing is
+    // missing — and the component is still reported, because "covered" and
+    // "nobody said" must not read the same.
+    expect(gaps.map((gap) => gap.component)).toEqual(["counter"])
+    expect(gaps[0]?.undispatched).toEqual([])
+    expect(gaps[0]?.unknown).toEqual([])
+  })
+
+  test("reports nothing for a component where no Showcase declares dispatches", async () => {
+    // Nobody declared, so nothing is known. Reporting an empty gap here would
+    // read as "every Message is showcased", which is the one wrong answer.
+    const gaps = await Effect.runPromise(componentGaps([full, alsoFull]))
+
+    expect(gaps).toEqual([])
+  })
+
+  test("names a declared tag the union does not carry, so a typo cannot lie quietly", async () => {
+    const typo: Showcase = {
+      id: "counter/typo",
+      play: () => {},
+      dispatches: ["Increment", "SetLable"],
+      ...schemas,
+    }
+    const gaps = await Effect.runPromise(componentGaps([typo]))
+
+    expect(gaps[0]?.unknown).toEqual(["SetLable"])
+    // And the tag it was meant to be is still missing from the showcased set.
+    expect(gaps[0]?.undispatched).toEqual(["SetLabel"])
+  })
+
+  test("takes an empty declaration as a declaration — a play that dispatches nothing", async () => {
+    const inert: Showcase = { id: "counter/inert", play: () => {}, dispatches: [], ...schemas }
+    const gaps = await Effect.runPromise(componentGaps([inert]))
+
+    expect(gaps[0]?.undispatched).toEqual(["Increment", "SetLabel"])
+  })
+
+  test("reports nothing for a component that declares no Message union to compare against", async () => {
+    const opaque: Showcase = { id: "widget/opaque", play: () => {}, dispatches: ["Clicked"] }
+    const gaps = await Effect.runPromise(componentGaps([opaque]))
+
+    expect(gaps).toEqual([])
+  })
+
+  test("reports one entry per component, sorted by name", async () => {
+    const zeta: Showcase = { id: "zeta/one", play: () => {}, dispatches: ["Increment"], ...schemas }
+    const alpha: Showcase = {
+      id: "alpha/one",
+      play: () => {},
+      dispatches: ["Increment", "SetLabel"],
+      ...schemas,
+    }
+    const gaps = await Effect.runPromise(componentGaps([zeta, bare, alpha]))
+
+    expect(gaps.map((gap) => gap.component)).toEqual(["alpha", "zeta"])
+    expect(gaps[1]?.undispatched).toEqual(["SetLabel"])
   })
 })
 
