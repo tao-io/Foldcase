@@ -21,6 +21,8 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
+import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 
 import { type CatalogLoad, runCatalog } from "../cli.js"
 import { runShowcase, ShowcaseReport, SuiteReport } from "../runner.js"
@@ -175,3 +177,92 @@ export const runSelection = (
 
 const ranSuite = (load: CatalogLoad): Effect.Effect<RanSuite> =>
   runCatalog(load).pipe(Effect.map((suite) => new RanSuite({ suite })))
+
+// ── Running it in a child of the current runtime ─────────────────────────────
+
+/**
+ * The child could not answer: it would not start, it exited non-zero, or what
+ * it wrote on stdout is not a {@link FreshRunDocument}. Tagged so the run verbs
+ * can report a run that never happened as a failed run — an agent has to read
+ * *why* it got no verdict, and a silent pass would be the worse lie.
+ */
+export class FreshRunError extends Schema.TaggedErrorClass<FreshRunError>()(
+  "foldcase/FreshRunError",
+  { reason: Schema.String },
+) {
+  // A schema-backed error keeps its payload in fields, so the `message` it
+  // inherits is empty. Render the payload, as every other error here does.
+  override get message(): string {
+    return this.reason
+  }
+}
+
+/**
+ * The child entry beside this module: `freshRunChild.ts` while the suite runs
+ * the sources under Bun, `freshRunChild.js` once `tsc` has compiled both into
+ * `dist/`. `tsc` emits it like any other module, so nothing has to copy it.
+ */
+export const childEntryPath = (directory: string, moduleUrl: string): string =>
+  `${directory}/freshRunChild.${moduleUrl.endsWith(".ts") ? "ts" : "js"}`
+
+const decodeDocument = Schema.decodeUnknownEffect(Schema.fromJsonString(FreshRunDocument))
+
+/**
+ * Run a selection in a child process of the current runtime, and decode what it
+ * answered.
+ *
+ * `process.execPath` is the binary already running this code, so the child is
+ * the same runtime as the parent — a Node server spawns Node, a Bun server
+ * spawns Bun — and no module here has to name one. The child imports every file
+ * for the first time, which is the whole point: an edit made since the server
+ * started is read, because nothing in that process has read it before.
+ */
+export const spawnFreshRun = Effect.fn("foldcase.mcp.spawnFreshRun")(function* (
+  selection: FreshSelection,
+  files: ReadonlyArray<string>,
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const entry = childEntryPath(import.meta.dirname, import.meta.url)
+  const command = ChildProcess.make(
+    process.execPath,
+    [entry, ...freshRunArgv(selection, files)],
+    { extendEnv: true },
+  )
+
+  const output = yield* Effect.scoped(
+    Effect.gen(function* () {
+      const handle = yield* spawner.spawn(command)
+      const { exitCode, stderr, stdout } = yield* Effect.all(
+        {
+          stdout: Stream.mkString(Stream.decodeText(handle.stdout)),
+          stderr: Stream.mkString(Stream.decodeText(handle.stderr)),
+          exitCode: handle.exitCode,
+        },
+        { concurrency: "unbounded" },
+      )
+      return { exitCode: Number(exitCode), stderr, stdout }
+    }),
+  ).pipe(
+    // A spawn-level failure is the run failing, not a defect — normalise the
+    // cause into the typed error at this boundary, as the collector does.
+    Effect.mapError((cause) => new FreshRunError({ reason: `spawn failed: ${String(cause)}` })),
+  )
+
+  if (output.exitCode !== 0) {
+    return yield* new FreshRunError({
+      reason: `the fresh run exited ${output.exitCode}: ${output.stderr.trim()}`,
+    })
+  }
+
+  // A file that would not load is in the document, so anything on stderr is a
+  // note from the child itself — worth surfacing, never the failure channel.
+  if (output.stderr.trim() !== "") {
+    yield* Effect.logWarning(`foldcase mcp: ${output.stderr.trim()}`)
+  }
+
+  return yield* decodeDocument(output.stdout).pipe(
+    Effect.mapError(
+      (cause) => new FreshRunError({ reason: `undecodable fresh-run output: ${cause}` }),
+    ),
+  )
+})

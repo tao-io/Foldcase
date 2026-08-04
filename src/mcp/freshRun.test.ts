@@ -4,6 +4,7 @@ import * as Option from "effect/Option"
 
 import { loadShowcasesFromFiles } from "../cli.js"
 import {
+  childEntryPath,
   FreshSelection,
   freshRunArgv,
   parseFreshRunArgv,
@@ -46,6 +47,20 @@ describe("the fresh-run argument vector", () => {
     expect(parseFreshRunArgv(["Some", "id"])).toEqual(Option.none())
     // A mode with no selector word at all: the child was handed half a request.
     expect(parseFreshRunArgv(["One"])).toEqual(Option.none())
+  })
+})
+
+describe("the child entry", () => {
+  test("is the sibling with the extension the caller itself was read as", () => {
+    // The suite runs the sources under Bun; a consumer runs `dist/`. The child
+    // is compiled by `tsc` like every other module, so both spellings are real
+    // and each parent spawns the one beside it.
+    expect(childEntryPath("/repo/src/mcp", "file:///repo/src/mcp/freshRun.ts")).toBe(
+      "/repo/src/mcp/freshRunChild.ts",
+    )
+    expect(childEntryPath("/repo/dist/mcp", "file:///repo/dist/mcp/freshRun.js")).toBe(
+      "/repo/dist/mcp/freshRunChild.js",
+    )
   })
 })
 
