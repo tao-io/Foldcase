@@ -55,6 +55,50 @@ this tool, and each of these is something it hit on the first run.
 
 ### Added
 
+- **The browser lab, `foldcase/lab`.** A Foldkit application that renders a catalog: it
+  groups the Showcases by component — the id namespace, the same rule `foldcase docs` and
+  an MCP `id_prefix` already run on — says what each Showcase declares, names beside the
+  gallery the files that would not load, and draws the component of any Showcase that
+  declares a `mount`. It is a library, not a server. No bundler runs in this repository
+  for it: the entry module it ships with is built by the consumer's own Vite, the one a
+  Foldkit app already runs for `@foldkit/vite-plugin`
+  ([ADR-0004](docs/adr/0004-the-lab-is-a-foldkit-app-the-consumer-builds.md)).
+- **`mount`, the one seam the lab needed on `Showcase`.**
+  `(container: HTMLElement) => Teardown | Promise<Teardown>`, optional, so every catalog
+  written before it stays valid. A Showcase without it is listed, run and tabled exactly as
+  before, and gets no canvas.
+  [ADR-0001](docs/adr/0001-showcase-one-definition-many-surfaces.md) expected a `view`
+  here, and Foldkit cannot give a host one: the builder a view takes is invariant in the
+  app's Message union and there is no `Html.map`, so embedding is the only route Foldkit
+  offers. `mount` is the shape of `Runtime.embed`, and it is opaque for the same reason
+  `play` is — the closure lives in the app under showcase, so the record stays
+  framework-agnostic.
+- **`foldcase lab [dir] [entry]`** — writes the entry module the lab starts from, then
+  stops. It bundles nothing, serves nothing and starts no watcher. `--json` prints the
+  catalog the lab renders beside the path it wrote, so an agent reads the gallery without
+  opening it; `--check` writes nothing and exits non-zero when the entry on disk is missing
+  or would change, the drift gate `docs --check` already carries.
+- **`foldkit` as an optional peer dependency** — the first time this line declares Foldkit
+  at all. Only `foldcase/lab` needs it, and an entry point nobody imports is never
+  resolved, so a consumer of `foldcase test` is never asked for it.
+- **An address per Showcase: `?showcase=<id>`.** A Showcase id is a URL. A reader clicks an
+  entry and copies the address out of the bar; an agent builds the same address from an id
+  `foldcase_list_showcases` already served, opens it in whatever browser it can already
+  drive, and screenshots the drawn state. No new tool, no new dependency, and nothing added
+  to the tarball.
+- **No MCP tool for the lab, and that was measured rather than assumed.** Each mounted
+  Showcase is its own Foldkit runtime and registers with Foldkit's own devtools bridge, so
+  `@foldkit/devtools-mcp` listed the lab and the mounted Showcase separately and its verbs
+  reached both. The lab hands devtools its own Message union, which is what lets
+  `foldkit_dispatch_message` select a Showcase — `SelectedShowcase({ id })` — by the ids
+  the catalog already serves.
+- **Two Foldkit behaviours the `mount` contract now names, both measured against a live
+  runtime.** `Runtime.embed` *replaces* the element it is handed, so a host passes a fresh
+  slot it created rather than a node its own virtual DOM diffs — otherwise the host's next
+  patch and the embedded runtime overwrite the same node. And a Foldkit runtime dies if its
+  container carries no `id`; it dies silently, because `embed` forks and the failure lands
+  in a forked fiber where the caller cannot see it. The slot the lab creates is fresh and
+  carries an id.
 - **A documentation site, in this repository, at `docs/site/`.** It is a
   [foldocs](https://github.com/tarkaworks/foldocs) application — Foldkit and Effect, the
   same line this tool is written for — and every page of it is *derived* from `README.md`,

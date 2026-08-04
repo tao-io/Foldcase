@@ -515,6 +515,23 @@ Regenerate it whenever a catalog file appears or vanishes, the way you regenerat
 reads the gallery without opening it. `--check` writes nothing and exits non-zero when the
 entry on disk is missing or would change — the same drift gate as `docs --check`.
 
+#### How an agent drives the lab
+
+Every affordance in the lab is addressed by the ids `foldcase_list_showcases` already
+serves, so an agent needs nothing the catalog did not already tell it. A reader selects a
+Showcase by clicking; an agent opens `?showcase=<id>` or dispatches
+`SelectedShowcase({ id })` through `foldkit_dispatch_message` — the lab hands devtools its
+own Message union, which is what makes the second route work. Each mounted Showcase is its
+own Foldkit runtime, so the live verbs reach it unchanged and the lab adds no tool of its
+own.
+
+| what you want | how you get it |
+|---|---|
+| open a state | `?showcase=<id>`, or `foldkit_dispatch_message` with `SelectedShowcase({ id })` |
+| tell the two runtimes apart | `foldkit_list_runtimes` shows the lab and the mounted Showcase separately; one Showcase is mounted at a time, and the lab's model is the one that carries the selection |
+| read or drive the component | `foldkit_get_model`, the message history and time travel, on the Showcase's own runtime |
+| a screenshot of one state | nothing from Foldcase: the id is the address, so open it in the browser you already drive |
+
 ### `foldcase mcp` — the catalog server
 
 The wiring and the six tools are [above](#wire-it-into-your-agent). Server semantics worth
