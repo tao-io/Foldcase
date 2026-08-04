@@ -1,6 +1,6 @@
 # The mark
 
-Four files, one drawing.
+Five files, one drawing.
 
 | File | Use it on |
 |---|---|
@@ -8,6 +8,7 @@ Four files, one drawing.
 | [`mark-inverse.svg`](mark-inverse.svg) | dark backgrounds |
 | [`lockup.svg`](lockup.svg) | light backgrounds, where the name is needed |
 | [`lockup-inverse.svg`](lockup-inverse.svg) | dark backgrounds, where the name is needed |
+| [`favicon.svg`](favicon.svg) | anywhere below 32 pixels — see below |
 
 ## What it draws
 
@@ -38,6 +39,12 @@ which this tool is written in, and the blunt orthogonal weight from
 ## Below 32 pixels
 
 The triad fills in: the ring and the seams stop being told apart, and the mark reads as a
-dark blob. A favicon wants the inverse cut — a solid hexagon with the three rhombi knocked
-out of it — where the ink is the frame and the seams do the drawing. That file is not here
-yet; it is the same three numbers, inverted.
+dark blob. So `favicon.svg` is the inverse cut — a solid hexagon with the three rhombi
+knocked out of it — where the ink is the frame and the seams do the drawing. Same three
+numbers, inverted, so it stays on the grid.
+
+It is also the one file that carries **both** inks, in a `prefers-color-scheme` rule rather
+than a second file. Everywhere else the caller knows its own background and picks the
+right file; a favicon does not get that choice, because the browser decides what to draw
+it on. One ink at a time is still the rule — this file just cannot know which one until it
+is rendered.

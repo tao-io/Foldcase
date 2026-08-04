@@ -13,7 +13,9 @@ export default defineConfig({
       'One typed record per component state — read by your coding agent, your CI, your docs, and your coverage.',
     githubUrl: 'https://github.com/tao-io/foldcase',
     keywords: ['Foldcase', 'Foldkit', 'Effect', 'Showcase', 'testing', 'MCP'],
-    favicon: '/favicon.svg',
+    // Copied out of docs/brand/ by scripts/sync-content.mjs, never committed
+    // here — the brand directory is the one copy of every mark.
+    favicon: '/brand/favicon.svg',
     locale: 'en',
   },
   i18n: {

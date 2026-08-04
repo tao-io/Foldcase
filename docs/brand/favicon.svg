@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Foldcase">
+  <!-- Foldcase favicon — the inverse cut of the mark: the hexagon is solid and
+       the three rhombi are knocked out of it, so below 32px the seams draw the
+       triad instead of disappearing into it. Same three numbers: ring 24, gap
+       14, seam 10. A favicon cannot choose its file per background — the
+       browser picks the context — so this is the one file that carries both
+       inks. -->
+  <style>
+    path { fill: #0B0C0E }
+    @media (prefers-color-scheme: dark) { path { fill: #FAFAFA } }
+  </style>
+  <path fill-rule="evenodd" d="M128 16 224 72V184L128 240 32 184V72Z M136 124 136 68 184 96 184 152Z M128 138 176 166 128 194 80 166Z M120 124 72 152 72 96 120 68Z"/>
+</svg>

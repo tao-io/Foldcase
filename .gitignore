@@ -27,5 +27,7 @@ dist/
 # The documentation site (ADR-0003): its pages are derived from this
 # repository on every build, never written by hand or committed.
 /docs/site/content/
+# Brand files copied out of docs/brand/ by the same script.
+/docs/site/public/brand/
 # alchemy deployment state — may hold credentials.
 .alchemy/

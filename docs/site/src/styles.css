@@ -1,4 +1,17 @@
 @import '@foldocs/tailwind/preset.css';
 @import '@foldocs/twoslash/twoslash.css';
 
-/* Add project-specific documentation styles below. */
+/* The mark in the header. Foldocs bakes its own logo into the layout, so the
+   Foldcase mark goes on as a mask rather than as a second SVG: the shape comes
+   from docs/brand/mark.svg and the ink from `currentColor`, which is how one
+   file serves both the light and the dark theme. Brand rule kept: one ink, no
+   gradient, no second colour. */
+.fd-brand-mark > svg {
+  display: none;
+}
+
+.fd-brand-mark {
+  background-color: currentColor;
+  mask: url('/brand/mark.svg') center / contain no-repeat;
+  -webkit-mask: url('/brand/mark.svg') center / contain no-repeat;
+}

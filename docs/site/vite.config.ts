@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+
 import { defineConfig } from 'vite'
 
 import { foldkit } from '@foldkit/vite-plugin'
@@ -19,6 +21,15 @@ export default defineConfig({
       islands: markdownIslands,
       markdownOptions: { islands: markdownIslandDefinitions },
       highlightCode: createTwoslashHighlighter(),
+      // The share card carries the Foldcase mark, read from the one copy of it
+      // in docs/brand/. Foldocs strips the fills and recolours it to the card's
+      // own ink, so the light file is the right one to hand over.
+      og: {
+        logoSvg: readFileSync(
+          new URL('../brand/mark.svg', import.meta.url),
+          'utf8',
+        ),
+      },
     }),
     foldkit(),
   ],

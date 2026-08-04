@@ -1,7 +1,21 @@
+<p align="center">
+  <img src="docs/brand/mark.svg#gh-light-mode-only" alt="Foldcase" width="88" height="88">
+  <img src="docs/brand/mark-inverse.svg#gh-dark-mode-only" alt="Foldcase" width="88" height="88">
+</p>
+
 # Foldcase
 
 **One typed record per component state — read by your coding agent, your CI, your docs,
 and your coverage.**
+
+<!-- site:skip -->
+
+📖 **[Read the documentation](https://foldcase-docs.1st-account.workers.dev)** — this
+README, the changelog and every ADR, with search, per-page Markdown and an `llms.txt` for
+agents. It is generated from the files in this repository, so it cannot say anything they
+do not (see [ADR-0003](docs/adr/0003-the-documentation-site-lives-here.md)).
+
+<!-- /site:skip -->
 
 Foldcase exists so a coding agent can work on a [Foldkit](https://github.com/foldkit/foldkit)
 codebase without guessing. Foldkit ships two ways to test a component — a Story over
