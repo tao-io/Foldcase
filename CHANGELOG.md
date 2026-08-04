@@ -101,6 +101,29 @@ this tool, and each of these is something it hit on the first run.
   stick so a leaf name always has its namespace, the tab title names the Showcase, and
   below 880px the two columns become two rows instead of clipping the component off the
   right edge.
+- **The lab has a palette, and it ships both schemes.** Every colour and both font stacks
+  are now custom properties on the lab's root, so a consumer restyles the whole surface by
+  setting six values rather than by out-specifying a hundred rules — and the dark scheme
+  costs one block of overrides, because nothing else in the sheet knows which scheme it is
+  drawing. The neutrals are violet-tinted rather than slate and the accent is violet rather
+  than framework blue, so the chrome reads as one family instead of as browser defaults.
+  Selection is a wash and an accent rule rather than a saturated bar: the old fill was the
+  first thing the eye landed on, louder than the component it pointed at. Type is split
+  between two families by what the text is — prose and names in the UI face, and everything
+  a reader might retype in the mono one, so the id in the heading, the path, the counts and
+  the row tags all read as values. Every piece of text was measured at 4.5:1 or better in
+  both schemes, over both stands, which took darkening the muted grey in light and
+  lightening it in dark; the palette's own value read at 3.48:1.
+- **The lab says whose lab it is, and what it can draw before you click.** A bar across the
+  top carries the mark and the wordmark, spanning both columns, because the catalog and the
+  stage are two halves of one instrument. Under the filter a strip counts the list in one
+  line — how many entries, how many of them the canvas can draw, how many components hold
+  them — and a row whose Showcase declares no `mount` says so on the row. It marks the rows
+  with no mount and not the rows with one: a component gallery declares a mount for nearly
+  everything, so the other way round is a word repeated a hundred and forty-six times and
+  read none. Finding out that a row had nothing behind it used to cost a click each. The
+  canvas is a card on a sunken well with a strip naming what is mounted, so a component
+  that draws its own border is no longer indistinguishable from the lab's chrome.
 - **`mount`, the one seam the lab needed on `Showcase`.**
   `(container: HTMLElement) => Teardown | Promise<Teardown>`, optional, so every catalog
   written before it stays valid. A Showcase without it is listed, run and tabled exactly as
