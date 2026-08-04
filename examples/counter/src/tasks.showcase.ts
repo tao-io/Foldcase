@@ -39,6 +39,7 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message,
     model: Model,
+    dispatches: ["AddedTask"],
   },
   {
     id: "tasks/toggling-one-leaves-the-other",
@@ -57,6 +58,7 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message,
     model: Model,
+    dispatches: ["AddedTask", "ToggledTask"],
   },
   {
     id: "tasks/open-filter-hides-the-done-one",
@@ -76,6 +78,7 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message,
     model: Model,
+    dispatches: ["AddedTask", "ToggledTask", "ChangedFilter"],
   },
   {
     id: "tasks/selection-is-cleared",
@@ -91,5 +94,6 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message,
     model: Model,
+    dispatches: ["AddedTask", "SelectedTask", "ClearedSelection"],
   },
 ]

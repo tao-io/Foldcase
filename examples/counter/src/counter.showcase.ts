@@ -9,6 +9,11 @@
 // controls the way a user would — by role and name — clicks them, and asserts
 // on the markup. Neither needs a DOM: a Scene renders to Foldkit's virtual tree
 // and queries that, so both bins run these under a bare runtime.
+//
+// Every entry declares what its play sends. `dispatches: []` is a claim, not a
+// blank: it says the play sends nothing. Foldcase holds the declarations of a
+// component against its Message union and names any tag no play sends, so a
+// missing Showcase shows up in the docs instead of going unnoticed.
 
 import assert from "node:assert/strict"
 
@@ -41,6 +46,7 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message,
     model: Model,
+    dispatches: [],
   },
   {
     id: "counter/counts-up-and-down",
@@ -55,6 +61,7 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message,
     model: Model,
+    dispatches: ["ClickedIncrement", "ClickedDecrement"],
   },
   {
     id: "counter/step-of-ten",
@@ -71,6 +78,7 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message,
     model: Model,
+    dispatches: ["ChangedStep", "ClickedIncrement"],
   },
   {
     id: "counter/reset-keeps-the-step",
@@ -88,6 +96,7 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message,
     model: Model,
+    dispatches: ["ChangedStep", "ClickedIncrement", "ClickedReset"],
   },
   {
     id: "counter/renders-the-controls",
@@ -103,6 +112,7 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message,
     model: Model,
+    dispatches: [],
   },
   {
     id: "counter/the-buttons-move-the-count",
@@ -120,5 +130,6 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message,
     model: Model,
+    dispatches: ["ClickedIncrement", "ClickedDecrement", "ClickedReset"],
   },
 ]
