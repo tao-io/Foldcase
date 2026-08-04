@@ -23,6 +23,8 @@ coverage — so what the agent reads and what CI enforces cannot drift apart.
 - **`foldcase mcp`** — six read-only tools that serve the catalog to an agent over stdio.
 - **`foldcase docs`** — one Markdown file per component, tabling its Model and Message
   Schemas.
+- **`foldcase lab`** — the entry module for a browser gallery, built and served by the dev
+  server your Foldkit app already runs.
 
 ```
   ✓ counter/starts-at-zero
@@ -337,7 +339,7 @@ error yourself.
 
 `foldcase-bun` erases the import itself and has no such rule.
 
-## The three commands
+## The four commands
 
 ### `foldcase test` — Showcases as CI
 
@@ -490,6 +492,29 @@ nothing was written because no Showcase declares a Schema.
 }
 ```
 
+### `foldcase lab` — the browser gallery
+
+Writes the entry module for the browser lab, and stops. It bundles nothing, serves
+nothing and starts no watcher: a Foldkit app already runs Vite with
+`@foldkit/vite-plugin`, and that dev server is the one that builds the lab
+([ADR-0004](docs/adr/0004-the-lab-is-a-foldkit-app-the-consumer-builds.md)).
+
+```bash
+foldcase lab src/ui src/lab.entry.ts
+foldcase lab                # the entry goes to FOLDCASE_LAB_ENTRY, default ./foldcase-lab.entry.ts
+```
+
+The module it writes imports `foldcase/lab`, imports the `showcases` of every catalog it
+discovered, and starts the runtime on them. Point a page at it — `<script type="module"
+src="/src/lab.entry.ts"></script>` — and open the dev server you already run. A Showcase
+that declares a `mount` draws in the canvas; one that does not says so, and the panel
+beside it reads what the record declares.
+
+Regenerate it whenever a catalog file appears or vanishes, the way you regenerate docs.
+`--json` prints the catalog the lab renders from beside the path it wrote, so an agent
+reads the gallery without opening it. `--check` writes nothing and exits non-zero when the
+entry on disk is missing or would change — the same drift gate as `docs --check`.
+
 ### `foldcase mcp` — the catalog server
 
 The wiring and the six tools are [above](#wire-it-into-your-agent). Server semantics worth
@@ -518,6 +543,7 @@ Exit codes:
 |---|---|---|
 | `test` | every Showcase passed | a failed Showcase, an unloadable file, or no `*.showcase.ts` found |
 | `docs` | every file loaded — even if nothing was written | a load failure, a Schema that will not introspect, or no `*.showcase.ts` found |
+| `lab` | the entry was written, or `--check` found it current | a load failure, an entry that `--check` found missing or changed, or no `*.showcase.ts` found |
 | `mcp` | — (serves until the host closes stdio) | the server would not launch |
 | any | | unknown or missing verb, or extra positionals — refused with the usage banner |
 
@@ -529,6 +555,7 @@ Environment:
 |---|---|---|---|
 | `FOLDCASE_SHOWCASE_DIR` | `mcp` only | `.` | the served catalog root |
 | `FOLDCASE_DOCS_DIR` | `docs` only | `foldcase-docs` | the out-dir when no second positional names one |
+| `FOLDCASE_LAB_ENTRY` | `lab` only | `foldcase-lab.entry.ts` | the entry module's path when no second positional names one |
 
 Discovery is a recursive walk for files ending in `.showcase.ts`, sorted so the report is
 deterministic run to run. It does not skip `node_modules`, so point the commands at your
