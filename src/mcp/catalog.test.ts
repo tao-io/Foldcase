@@ -83,6 +83,55 @@ describe("FoldcaseCatalog list", () => {
   })
 })
 
+describe("FoldcaseCatalog list gaps", () => {
+  // A component with a two-tag union and a play that declares one of them: the
+  // shape an agent has to be able to see, because the tag nobody dispatches is
+  // the Showcase it should write next.
+  const CounterMessage = Schema.Union([
+    Schema.TaggedStruct("Increment", {}),
+    Schema.TaggedStruct("Reset", {}),
+  ])
+  const increments: Showcase = {
+    id: "counter/increments",
+    play: () => {},
+    message: CounterMessage,
+    dispatches: ["Increment"],
+  }
+
+  test("says what each Showcase declares it dispatches", async () => {
+    const catalog = Effect.runSync(makeCatalog([increments, passing]))
+    const listing = await Effect.runPromise(catalog.list)
+
+    expect(listing.showcases.map((entry) => entry.dispatches)).toEqual([["Increment"], undefined])
+  })
+
+  test("names the Messages of a component that no Showcase dispatches", async () => {
+    const catalog = Effect.runSync(makeCatalog([increments]))
+    const listing = await Effect.runPromise(catalog.list)
+
+    expect(listing.gaps).toEqual([
+      { component: "counter", undispatched: ["Reset"], unknown: [] },
+    ])
+  })
+
+  test("names a declared tag the union does not carry, and reports nothing for a component nobody declared", async () => {
+    const typo: Showcase = {
+      id: "gauge/typo",
+      play: () => {},
+      message: CounterMessage,
+      dispatches: ["Incremnet"],
+    }
+    const quiet: Showcase = { id: "widget/quiet", play: () => {}, message: CounterMessage }
+    const catalog = Effect.runSync(makeCatalog([typo, quiet]))
+    const listing = await Effect.runPromise(catalog.list)
+
+    // The component nobody declared for is absent, not an empty gap: unknown
+    // must never read as fully showcased.
+    expect(listing.gaps?.map((gap) => gap.component)).toEqual(["gauge"])
+    expect(listing.gaps?.[0]?.unknown).toEqual(["Incremnet"])
+  })
+})
+
 describe("FoldcaseCatalog modelSchemaFor", () => {
   test("introspects a Showcase's Model schema into a JSON Schema document", async () => {
     const catalog = Effect.runSync(makeCatalog([withSchema]))

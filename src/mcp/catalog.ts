@@ -18,6 +18,11 @@ import {
   loadShowcasesFromFiles,
   ShowcaseModuleError,
 } from "../cli.js"
+// The gap derivation lives beside the notion of a component it is keyed on —
+// the id namespace of ADR-0001 › Amendment 3, which `src/docs/generate.ts`
+// owns. This surface reads that one derivation rather than grouping and
+// introspecting a second time.
+import { ComponentGap, componentGaps } from "../docs/generate.js"
 import {
   SerializedError,
   type Showcase,
@@ -42,16 +47,30 @@ export class ShowcaseSummary extends Schema.Class<ShowcaseSummary>("ShowcaseSumm
   id: Schema.String,
   hasMessageSchema: Schema.Boolean,
   hasModelSchema: Schema.Boolean,
+  /**
+   * The Message tags this Showcase's play declares it dispatches, when it
+   * declares any. Absent means the Showcase says nothing about what it sends —
+   * not that it sends nothing — which is why it is the whole component's gap
+   * below, and not this field, that answers "what is missing".
+   */
+  dispatches: Schema.optional(Schema.Array(Schema.String)),
 }) {}
 
 /**
  * The catalog listing — every discovered Showcase, in discovery order, and the
  * directory they were read from. The directory is absent only for a catalog
  * served from memory (tests, embedding), which no directory backs.
+ *
+ * `gaps` is the message-tag coverage of each component the answer is knowable
+ * for: the Messages no `play` declares it dispatches, and the declared tags the
+ * union does not carry. It is the same derivation `foldcase docs` prints under
+ * a Messages table, and it is optional so a consumer decoding a listing from an
+ * older server stays right.
  */
 export class CatalogListing extends Schema.Class<CatalogListing>("CatalogListing")({
   dir: Schema.optional(Schema.String),
   showcases: Schema.Array(ShowcaseSummary),
+  gaps: Schema.optional(Schema.Array(ComponentGap)),
 }) {}
 
 /**
@@ -350,19 +369,25 @@ const makeCatalogWith = (
 
     return {
       list: SynchronizedRef.get(state).pipe(
-        Effect.map(
-          (current) =>
-            new CatalogListing({
-              dir: Option.getOrUndefined(current.dir),
-              showcases: current.showcases.map(
-                (showcase) =>
-                  new ShowcaseSummary({
-                    id: showcase.id,
-                    hasMessageSchema: showcase.message !== undefined,
-                    hasModelSchema: showcase.model !== undefined,
-                  }),
-              ),
-            }),
+        Effect.flatMap((current) =>
+          componentGaps(current.showcases).pipe(
+            Effect.map(
+              (gaps) =>
+                new CatalogListing({
+                  dir: Option.getOrUndefined(current.dir),
+                  showcases: current.showcases.map(
+                    (showcase) =>
+                      new ShowcaseSummary({
+                        id: showcase.id,
+                        hasMessageSchema: showcase.message !== undefined,
+                        hasModelSchema: showcase.model !== undefined,
+                        dispatches: showcase.dispatches,
+                      }),
+                  ),
+                  gaps,
+                }),
+            ),
+          ),
         ),
       ),
       schemaFor: (id) =>

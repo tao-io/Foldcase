@@ -68,6 +68,18 @@ describe("FoldcaseToolkit", () => {
     }
   })
 
+  test("the listing verb says what a gap is, and what to do about one", () => {
+    // `gaps` is the field an agent is meant to act on — a listed `undispatched`
+    // tag is a Showcase nobody has written — and a field a description does not
+    // mention is a field no agent reads.
+    const description = FoldcaseToolkit.tools.foldcase_list_showcases.description ?? ""
+
+    expect(description).toContain("gaps")
+    expect(description).toContain("undispatched")
+    expect(description).toContain("unknown")
+    expect(description).toContain("write a Showcase")
+  })
+
   test("every verb is annotated read-only, non-destructive and closed-world", () => {
     // The three verbs read the declared catalog and run a `play` in-process.
     // Effect's defaults are the opposite (`destructiveHint: true`,
