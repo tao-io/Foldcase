@@ -9,16 +9,29 @@ import * as Path from "effect/Path"
 import type { PlatformError } from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import * as SynchronizedRef from "effect/SynchronizedRef"
+import type { ChildProcessSpawner } from "effect/unstable/process"
 
 import {
   type CatalogLoad,
   discoverShowcaseFiles,
   type LoadedShowcase,
   loadShowcasesFromFiles,
-  runCatalog,
   ShowcaseModuleError,
 } from "../cli.js"
-import { runShowcase, type Showcase, type ShowcaseReport, type SuiteReport } from "../runner.js"
+import {
+  SerializedError,
+  type Showcase,
+  ShowcaseReport,
+  type SuiteReport,
+  suiteOf,
+} from "../runner.js"
+import {
+  type FreshRunDocument,
+  FreshRunError,
+  FreshSelection,
+  runSelection,
+  spawnFreshRun,
+} from "./freshRun.js"
 
 /**
  * One entry in the catalog listing: a Showcase id and which Schemas it carries.
@@ -159,6 +172,10 @@ export interface FoldcaseCatalogShape {
    * datum (`ShowcaseReport { status: "failed" }`), not an Effect failure — only
    * an unknown id fails, with {@link ShowcaseNotFoundError}. This is the catalog
    * verb an agent calls after dispatching via devtools-mcp to assert the play.
+   *
+   * A catalog read from a directory runs it in a fresh child process, so the
+   * play that runs is the one on disk — not the module this process imported
+   * before the agent's last edit.
    */
   readonly runById: (id: string) => Effect.Effect<ShowcaseReport, ShowcaseNotFoundError>
   /**
@@ -166,6 +183,9 @@ export interface FoldcaseCatalogShape {
    * an id prefix — `counter/` runs one component's Showcases. A failing play is
    * a datum here too; only a prefix that matches nothing fails, with
    * {@link NoShowcaseMatchedError} carrying the ids it could have matched.
+   *
+   * Fresh from disk, on the same terms as {@link runById} — including the
+   * directory walk, so a file written since the server started is in the suite.
    */
   readonly runAll: (
     prefix: Option.Option<string>,
@@ -203,6 +223,18 @@ type CatalogReader = (
 ) => Effect.Effect<CatalogState, CatalogDirectoryError>
 
 /**
+ * How a catalog runs a selection of its plays. The two implementations are the
+ * whole of ADR-0001 › Amendment 3: a catalog read from a directory runs it in a
+ * child process, which reads the files again and so runs the code on disk; an
+ * in-memory catalog runs it here, because its plays are closures this process
+ * holds and no other process can be handed.
+ */
+type CatalogRunner = (
+  state: CatalogState,
+  selection: FreshSelection,
+) => Effect.Effect<FreshRunDocument, FreshRunError>
+
+/**
  * Introspect one of a Showcase's declared Schemas into a JSON Schema document,
  * or fail for the one it did not declare. Message and Model are introspected
  * the same way and answer in the same shape, so they read the same way too.
@@ -215,6 +247,59 @@ const introspect = <E>(
   schema === undefined
     ? Effect.fail(onMissing())
     : Effect.succeed(new ShowcaseSchema({ id, jsonSchema: Schema.toJsonSchemaDocument(schema) }))
+
+/**
+ * The report for a run that never happened: the child would not start, or
+ * answered something this request cannot read. It is a failed *report* rather
+ * than a tool error because the caller asked for a verdict on a play, and
+ * "could not run it, here is why" is a verdict — silence, or a bare tool
+ * failure, would leave an agent to guess whether its Showcase is broken.
+ */
+const runFailureReport = (id: string, reason: string): ShowcaseReport =>
+  new ShowcaseReport({
+    id,
+    status: "failed",
+    error: new SerializedError({ name: FreshRunError.identifier, message: reason }),
+  })
+
+/** Read a fresh run's document as the answer `runById` declares. */
+const showcaseReportOf = (
+  id: string,
+  document: FreshRunDocument,
+): Effect.Effect<ShowcaseReport, ShowcaseNotFoundError> => {
+  switch (document._tag) {
+    case "foldcase/RanShowcase":
+      return Effect.succeed(document.report)
+    case "foldcase/NoSuchShowcase":
+      return Effect.fail(
+        new ShowcaseNotFoundError({ id: document.id, available: document.available }),
+      )
+    default:
+      // A selection of one can only answer with those two. Reaching here means
+      // the run answered a different question — report it, rather than inventing
+      // a pass or a fail.
+      return Effect.succeed(runFailureReport(id, `a run of ${id} answered ${document._tag}`))
+  }
+}
+
+/** Read a fresh run's document as the answer `runAll` declares. */
+const suiteReportOf = (
+  key: string,
+  document: FreshRunDocument,
+): Effect.Effect<SuiteReport, NoShowcaseMatchedError> => {
+  switch (document._tag) {
+    case "foldcase/RanSuite":
+      return Effect.succeed(document.suite)
+    case "foldcase/NoSuchPrefix":
+      return Effect.fail(
+        new NoShowcaseMatchedError({ prefix: document.prefix, available: document.available }),
+      )
+    default:
+      return Effect.succeed(
+        suiteOf([runFailureReport(key, `a run of ${key} answered ${document._tag}`)]),
+      )
+  }
+}
 
 const reportOf = (state: CatalogState): CatalogLoadReport =>
   new CatalogLoadReport({
@@ -233,9 +318,15 @@ const reportOf = (state: CatalogState): CatalogLoadReport =>
 const makeCatalogWith = (
   initial: CatalogState,
   read: CatalogReader,
+  runFresh: CatalogRunner,
 ): Effect.Effect<FoldcaseCatalogShape> =>
   Effect.gen(function* () {
     const state = yield* SynchronizedRef.make(initial)
+
+    // Every run reads the served catalog for its directory, and nothing else:
+    // the ids, the files and the plays all come from the run itself.
+    const run = (selection: FreshSelection): Effect.Effect<FreshRunDocument, FreshRunError> =>
+      SynchronizedRef.get(state).pipe(Effect.flatMap((current) => runFresh(current, selection)))
 
     // Finds the loaded entry, not the bare record: the file travels with it, so
     // a single-Showcase run reports which file to open just as a whole run does.
@@ -286,41 +377,40 @@ const makeCatalogWith = (
             introspect(id, showcase.model, () => new NoModelSchemaError({ id })),
           ),
         ),
-      runById: (id) => find(id).pipe(Effect.flatMap((entry) => runShowcase(entry.showcase, entry.file))),
-      runAll: (prefix) =>
-        SynchronizedRef.get(state).pipe(
-          Effect.flatMap((current) => {
-            const selected = Option.match(prefix, {
-              onNone: () => current.loaded,
-              onSome: (start) =>
-                current.loaded.filter((entry) => entry.showcase.id.startsWith(start)),
-            })
-            if (Option.isSome(prefix) && Arr.isReadonlyArrayEmpty(selected)) {
-              return Effect.fail(
-                new NoShowcaseMatchedError({
-                  prefix: prefix.value,
-                  available: current.showcases.map((showcase) => showcase.id),
-                }),
-              )
-            }
-            // Through the loader's own suite verb, so the whole-catalog verdict
-            // is the one `foldcase test` gives: a file that would not load is a
-            // failed entry beside the plays. Its Showcases never got ids, so a
-            // prefix cannot tell whether one of them would have matched — the
-            // honest answer is to report the file either way.
-            return runCatalog({
-              loaded: selected,
-              showcases: selected.map((entry) => entry.showcase),
-              failures: current.failures,
-            })
-          }),
+      runById: (id) =>
+        run(FreshSelection.One({ id })).pipe(
+          Effect.flatMap((document) => showcaseReportOf(id, document)),
+          Effect.catchTag("foldcase/FreshRunError", (error) =>
+            Effect.succeed(runFailureReport(id, error.reason)),
+          ),
         ),
+      runAll: (prefix) => {
+        const key = Option.getOrElse(prefix, () => "the catalog")
+        return run(
+          Option.match(prefix, {
+            onNone: () => FreshSelection.Every(),
+            onSome: (start) => FreshSelection.Under({ prefix: start }),
+          }),
+        ).pipe(
+          Effect.flatMap((document) => suiteReportOf(key, document)),
+          Effect.catchTag("foldcase/FreshRunError", (error) =>
+            Effect.succeed(suiteOf([runFailureReport(key, error.reason)])),
+          ),
+        )
+      },
       load: (dir) =>
         SynchronizedRef.modifyEffect(state, (current) =>
           read(dir, current.dir).pipe(Effect.map((next) => [reportOf(next), next] as const)),
         ),
     }
   })
+
+/**
+ * Run a selection here, in this process, over the catalog already loaded. The
+ * only way to run an in-memory catalog: a `play` is a closure, and a closure
+ * cannot be handed to a process that has never seen the module holding it.
+ */
+const runInProcess: CatalogRunner = (state, selection) => runSelection(state, selection)
 
 /**
  * Build the catalog surface over an in-memory set of Showcases — the shape
@@ -336,7 +426,7 @@ export const makeCatalog = (
     loaded: showcases.map((showcase) => ({ showcase })),
     showcases,
   }
-  return makeCatalogWith(state, () => Effect.succeed(state))
+  return makeCatalogWith(state, () => Effect.succeed(state), runInProcess)
 }
 
 /**
@@ -382,7 +472,7 @@ export const loadCatalogFromDir = (
 ): Effect.Effect<
   FoldcaseCatalogShape,
   CatalogDirectoryError,
-  FileSystem.FileSystem | Path.Path
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
 > =>
   Effect.gen(function* () {
     // Resolve to an absolute dir first: discovered paths are dynamically
@@ -392,8 +482,11 @@ export const loadCatalogFromDir = (
     const root = path.resolve(dir)
     // The reader outlives this Effect — every later load re-runs it, from a
     // tool call — so it carries the platform services rather than asking the
-    // caller's context for them again.
-    const services = yield* Effect.context<FileSystem.FileSystem | Path.Path>()
+    // caller's context for them again. The runner below outlives it for the
+    // same reason, and needs the spawner on top of them.
+    const services = yield* Effect.context<
+      ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
+    >()
     const read: CatalogReader = (requested, current) =>
       readCatalogDir(
         Option.match(requested, {
@@ -404,8 +497,26 @@ export const loadCatalogFromDir = (
           onSome: (target) => path.resolve(root, target),
         }),
       ).pipe(Effect.provideContext(services))
+    // Discovery is part of the run, not of the load: the walk hits the disk
+    // every time, so a `*.showcase.ts` written since the server started is in
+    // the suite without anyone calling `foldcase_load_catalog` first.
+    const runFresh: CatalogRunner = (current, selection) =>
+      Option.match(current.dir, {
+        onNone: () => runInProcess(current, selection),
+        onSome: (served) =>
+          discoverShowcaseFiles(served).pipe(
+            // The one thing here that is not data: the directory being served
+            // has gone. Normalise the platform error once, at this boundary,
+            // into the error the run reports.
+            Effect.mapError(
+              (cause: PlatformError) =>
+                new FreshRunError({ reason: `${served}: ${cause.message}` }),
+            ),
+            Effect.flatMap((files) => spawnFreshRun(selection, files)),
+          ),
+      }).pipe(Effect.provideContext(services))
     const initial = yield* read(Option.none(), Option.none())
-    return yield* makeCatalogWith(initial, read)
+    return yield* makeCatalogWith(initial, read, runFresh)
   })
 
 /** Config key for the directory the catalog server scans. Defaults to the cwd. */
@@ -423,7 +534,7 @@ export class FoldcaseCatalog extends Context.Service<FoldcaseCatalog, FoldcaseCa
   static readonly layer: Layer.Layer<
     FoldcaseCatalog,
     CatalogDirectoryError | Config.ConfigError,
-    FileSystem.FileSystem | Path.Path
+    ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path
   > = Layer.effect(FoldcaseCatalog)(showcaseDir.pipe(Effect.flatMap(loadCatalogFromDir)))
 
   /** Test/embed layer: serves a fixed set of Showcases with no disk access. */

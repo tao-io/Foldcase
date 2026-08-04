@@ -5,6 +5,7 @@ import * as Logger from "effect/Logger"
 import type * as Path from "effect/Path"
 import type * as Stdio from "effect/Stdio"
 import { McpServer } from "effect/unstable/ai"
+import type { ChildProcessSpawner } from "effect/unstable/process"
 
 import { type CatalogDirectoryError, FoldcaseCatalog } from "./catalog.js"
 import { FoldcaseHandlers, FoldcaseToolkit } from "./tools.js"
@@ -52,9 +53,16 @@ export const makeFoldcaseMcpServer = <E, R>(
     Layer.provide(Layer.succeed(Logger.LogToStderr)(true)),
   )
 
-/** The live server: the catalog is discovered from `FOLDCASE_SHOWCASE_DIR`. */
+/**
+ * The live server: the catalog is discovered from `FOLDCASE_SHOWCASE_DIR`.
+ *
+ * It asks for a `ChildProcessSpawner` on top of the reading services, because a
+ * run leaves the process: the catalog spawns a child of the current runtime so
+ * the play that runs is the one on disk (ADR-0001 › Amendment 3). Both shells
+ * already provide it — it is part of `NodeServices` and of `BunServices`.
+ */
 export const FoldcaseMcpServer: Layer.Layer<
   never,
   CatalogDirectoryError | Config.ConfigError,
-  FileSystem.FileSystem | Path.Path | Stdio.Stdio
+  ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | Stdio.Stdio
 > = makeFoldcaseMcpServer(FoldcaseCatalog.layer)
