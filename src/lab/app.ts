@@ -4,12 +4,15 @@ import { pipe } from "effect/Function"
 import * as M from "effect/Match"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import { Mount, Runtime } from "foldkit"
+import { Command, Mount, Runtime } from "foldkit"
 import type { Document, Html, HtmlBuilder } from "foldkit/html"
 import { m } from "foldkit/message"
+import { load, pushUrl, UrlRequest } from "foldkit/navigation"
 import type { DevToolsConfig, MakeRuntimeReturn } from "foldkit/runtime"
+import { Url, toString as urlToString } from "foldkit/url"
 
 import type { CatalogLoad } from "../cli.js"
+import { addressedId, addressOf } from "./address.js"
 import type { LabComponent, LabEntry } from "./catalog.js"
 import { LabCatalog, labCatalogOf } from "./catalog.js"
 
@@ -32,14 +35,71 @@ export const SelectedShowcase = m("SelectedShowcase", { id: Schema.String })
  */
 export const MountedShowcase = m("MountedShowcase", { id: Schema.String })
 
-export const Message = Schema.Union([SelectedShowcase, MountedShowcase])
+/**
+ * The address changed under the lab — a reader edited the bar, went back, or
+ * followed a link — and the lab reads the selection back out of it. Every
+ * address the lab itself writes arrives here too, because `pushUrl` announces
+ * the change, so this is the one place the address becomes a selection.
+ */
+export const ChangedAddress = m("ChangedAddress", { url: Url })
+
+/**
+ * A link inside the lab was clicked. The lab's own view holds none, but an
+ * embedded component's might, and the runtime intercepts those too — so this
+ * arm exists to navigate honestly rather than to swallow the click.
+ */
+export const RequestedAddress = m("RequestedAddress", { request: UrlRequest })
+
+/** The address is written. The acknowledgement `update` records and drops. */
+export const WroteAddress = m("WroteAddress")
+
+/** The page is leaving for somewhere the lab does not own. Same, and terminal. */
+export const LeftForPage = m("LeftForPage")
+
+export const Message = Schema.Union([
+  SelectedShowcase,
+  MountedShowcase,
+  ChangedAddress,
+  RequestedAddress,
+  WroteAddress,
+  LeftForPage,
+])
 export type Message = typeof Message.Type
+
+// COMMAND
+
+/**
+ * Writing the address is a Command and not a side effect in `update`, which is
+ * what keeps the rule above testable: the test reads the address off the
+ * Command it was handed and never opens a browser.
+ */
+const WriteAddress = Command.define("WriteAddress", {
+  args: { address: Schema.String },
+  messages: [WroteAddress],
+  execute: ({ address }) => pushUrl(address).pipe(Effect.as(WroteAddress())),
+})
+
+/** Leaving for another origin, the one navigation the lab does not come back from. */
+const LeavePage = Command.define("LeavePage", {
+  args: { href: Schema.String },
+  messages: [LeftForPage],
+  execute: ({ href }) => load(href).pipe(Effect.as(LeftForPage())),
+})
 
 // MODEL
 
 /**
- * What the lab shell holds: the document the catalog projection produced, and
- * which entry the reader is looking at.
+ * What the lab shell holds: the document the catalog projection produced, the
+ * address it is at, and which entry the reader is looking at.
+ *
+ * `url` is here because the selection *is* the address: `update` has to write
+ * the next address against the one the page is on, so that the consumer's own
+ * path, hash and query parameters survive a move (see `./address.ts`). Keeping
+ * it in the Model is what keeps that rule pure.
+ *
+ * `maybeUnknownId` is the id an address named that the catalog does not
+ * declare. It is held rather than dropped so the lab can say so: an address a
+ * reader mistyped or an agent guessed must not read as an empty gallery.
  *
  * The `mount` thunks are deliberately **not** here. A Model is a Schema, and a
  * closure has no encoding — so the factory closes over them, keyed by id,
@@ -48,22 +108,59 @@ export type Message = typeof Message.Type
  */
 export const Model = Schema.Struct({
   catalog: LabCatalog,
+  url: Url,
   maybeSelectedId: Schema.Option(Schema.String),
+  maybeUnknownId: Schema.Option(Schema.String),
 })
 export type Model = typeof Model.Type
 
 const idsOf = (catalog: LabCatalog): ReadonlyArray<string> =>
   entriesOf(catalog).map((entry) => entry.id)
 
+/** What the selection becomes when an address names an id — or names none. */
+type Selection = Pick<Model, "maybeSelectedId" | "maybeUnknownId">
+
 /**
- * The Model a lab opens on: the whole document, showing its first entry in id
- * order. An empty catalog opens on nothing, which is the honest answer rather
- * than a selection of something that is not there.
+ * The one rule for reading an address into a selection, and every entrance uses
+ * it: the first render, a later URL change, and a Message an agent dispatched.
+ *
+ * An address that names nothing leaves the selection where it is — on the first
+ * render that is the default entry, and later it is whatever the reader was
+ * looking at, so a link out of an embedded component cannot quietly move the
+ * gallery. An address that names an id the catalog does not declare leaves the
+ * selection alone too, and keeps the id, because the lab has to say it looked
+ * and did not find it rather than draw nothing and let the reader guess.
  */
-export const initialModel = (catalog: LabCatalog): Model => ({
-  catalog,
-  maybeSelectedId: Arr.head(idsOf(catalog)),
-})
+const selectionAt = (model: Model, maybeId: Option.Option<string>): Selection =>
+  pipe(
+    maybeId,
+    Option.match({
+      onNone: (): Selection => ({
+        maybeSelectedId: model.maybeSelectedId,
+        maybeUnknownId: Option.none(),
+      }),
+      onSome: (id): Selection =>
+        Arr.contains(idsOf(model.catalog), id)
+          ? { maybeSelectedId: Option.some(id), maybeUnknownId: Option.none() }
+          : { maybeSelectedId: model.maybeSelectedId, maybeUnknownId: Option.some(id) },
+    }),
+  )
+
+/**
+ * The Model a lab opens on: the whole document, showing the entry the address
+ * names, or its first entry in id order when the address names none. An empty
+ * catalog opens on nothing, which is the honest answer rather than a selection
+ * of something that is not there.
+ */
+export const initialModel = (catalog: LabCatalog, url: Url): Model => {
+  const opened: Model = {
+    catalog,
+    url,
+    maybeSelectedId: Arr.head(idsOf(catalog)),
+    maybeUnknownId: Option.none(),
+  }
+  return { ...opened, ...selectionAt(opened, addressedId(url)) }
+}
 
 const entriesOf = (catalog: LabCatalog): ReadonlyArray<LabEntry> =>
   catalog.components.flatMap((component) => component.entries)
@@ -84,25 +181,46 @@ export const selectedEntry = (model: Model): Option.Option<LabEntry> =>
 
 /**
  * Pure, and the whole of the lab's behaviour: the sidebar moves the selection,
- * and the canvas reports that it drew. Everything the browser does lives in the
- * view and in the Mount, so this is unit-testable with no DOM under it.
+ * the selection writes the address, the address moves the selection back, and
+ * the canvas reports that it drew. Everything the browser does lives in the
+ * view, the Mount and the two Commands, so this is unit-testable with no DOM
+ * under it.
  *
- * An id the catalog does not declare leaves the Model alone. The lab shows what
- * the record says exists and nothing else, and a dispatch that came from an
- * agent gets the same answer as a click that came from a reader.
+ * An id the catalog does not declare never becomes the selection, and it is
+ * never written to the address either — but it is kept and shown, so a reader
+ * who mistyped and an agent who guessed both get told. A dispatch that came
+ * from an agent gets the same answer as a click that came from a reader.
  */
-export const update = (model: Model, message: Message): readonly [Model, ReadonlyArray<never>] =>
+export const update = (
+  model: Model,
+  message: Message,
+): readonly [Model, ReadonlyArray<Command.Command<Message>>] =>
   pipe(
     M.value(message),
+    M.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
     M.tagsExhaustive({
-      SelectedShowcase: ({ id }) =>
-        [
-          Arr.contains(idsOf(model.catalog), id)
-            ? { ...model, maybeSelectedId: Option.some(id) }
-            : model,
-          [],
-        ] as const,
-      MountedShowcase: () => [model, []] as const,
+      SelectedShowcase: ({ id }) => {
+        const selection = selectionAt(model, Option.some(id))
+        return [
+          { ...model, ...selection },
+          Option.isNone(selection.maybeUnknownId)
+            ? [WriteAddress({ address: addressOf(model.url, id) })]
+            : [],
+        ]
+      },
+      ChangedAddress: ({ url }) => [{ ...model, url, ...selectionAt(model, addressedId(url)) }, []],
+      RequestedAddress: ({ request }) =>
+        pipe(
+          M.value(request),
+          M.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
+          M.tagsExhaustive({
+            Internal: ({ url }) => [model, [WriteAddress({ address: urlToString(url) })]],
+            External: ({ href }) => [model, [LeavePage({ href })]],
+          }),
+        ),
+      MountedShowcase: () => [model, []],
+      WroteAddress: () => [model, []],
+      LeftForPage: () => [model, []],
     }),
   )
 
@@ -137,6 +255,9 @@ const STYLESHEET = `
 #foldcase-lab-failures { margin-top: 24px; border-left: 3px solid #dc2626;
   padding-left: 12px; font-size: 12px; }
 #foldcase-lab-failures h2 { color: #dc2626; }
+#foldcase-lab-unknown-id { margin: 0 0 20px; border: 1px solid #f59e0b;
+  border-radius: 6px; background: #fffbeb; color: #92400e;
+  padding: 10px 12px; font-size: 13px; }
 `
 
 /** The part of an id that is not its component namespace. */
@@ -210,6 +331,31 @@ const sidebar = (model: Model, h: HtmlBuilder<Message>): Html =>
       ...Arr.map(model.catalog.components, (component) => componentSection(component, model, h)),
       ...failureSection(model.catalog.failures, h),
     ],
+  )
+
+/**
+ * The address named an id this catalog does not declare, said plainly.
+ *
+ * The lab falls back to the entry it was on, so there is always something
+ * drawn — and this is why the drawn thing is not the one that was asked for. An
+ * agent that built an address from a stale or guessed id reads its mistake here
+ * instead of screenshotting the wrong component and believing it.
+ */
+const unknownIdNotice = (
+  maybeUnknownId: Model["maybeUnknownId"],
+  h: HtmlBuilder<Message>,
+): ReadonlyArray<Html> =>
+  pipe(
+    maybeUnknownId,
+    Option.match({
+      onNone: (): ReadonlyArray<Html> => [],
+      onSome: (id) => [
+        h.p(
+          [h.Id("foldcase-lab-unknown-id"), h.DataAttribute("unknown-id", id)],
+          [`The id “${id}” is not one this catalog declares. Showing what was open instead.`],
+        ),
+      ],
+    }),
   )
 
 /** What the record declares about the selected entry, in the record's terms. */
@@ -337,15 +483,18 @@ export const makeLabApplication = (config: {
             sidebar(model, h),
             h.main(
               [h.Id("foldcase-lab-main")],
-              pipe(
-                selectedEntry(model),
-                Option.match({
-                  onNone: () => [
-                    h.p([h.Id("foldcase-lab-empty")], ["Nothing selected."]),
-                  ],
-                  onSome: (entry) => [details(entry, h), stage(entry, h)],
-                }),
-              ),
+              [
+                ...unknownIdNotice(model.maybeUnknownId, h),
+                ...pipe(
+                  selectedEntry(model),
+                  Option.match({
+                    onNone: (): ReadonlyArray<Html> => [
+                      h.p([h.Id("foldcase-lab-empty")], ["Nothing selected."]),
+                    ],
+                    onSome: (entry) => [details(entry, h), stage(entry, h)],
+                  }),
+                ),
+              ],
             ),
           ],
         ),
@@ -355,10 +504,20 @@ export const makeLabApplication = (config: {
 
   return Runtime.makeApplication({
     Model,
-    init: () => [initialModel(catalog), []] as const,
+    // The routing `init`, which is why it takes a `Url`: the address decides
+    // what the lab opens on, so a cold load of `?showcase=<id>` draws that
+    // Showcase and nothing has to be clicked first. That is the whole of the
+    // agent's screenshot-by-id path — any agent that can drive a browser can
+    // point it at an id and photograph the drawn state, with no new tool, no
+    // new dependency and nothing added to the tarball. See `./address.ts`.
+    init: (url) => [initialModel(catalog, url), []] as const,
     update,
     view,
     container: config.container,
+    routing: {
+      onUrlRequest: (request) => RequestedAddress({ request }),
+      onUrlChange: (url) => ChangedAddress({ url }),
+    },
     // The lab's own Message union, handed to devtools on purpose: it is what
     // lets `@foldkit/devtools-mcp`'s `foldkit_dispatch_message` drive this lab.
     // Selecting a Showcase is `SelectedShowcase({ id })`, addressed by the same
