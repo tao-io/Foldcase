@@ -3,11 +3,17 @@
 // Assertions come from `node:assert`, not from `bun:test`: a Showcase is loaded
 // by whichever bin you run — `foldcase` under Node, `foldcase-bun` under Bun —
 // so an import that only one runtime has would tie the catalog to that runtime.
+//
+// Two kinds of play live here. A `Story.story` drives the `update` and asserts
+// on the Model it returns. A `Scene.scene` mounts `{ update, view }`, finds the
+// controls the way a user would — by role and name — clicks them, and asserts
+// on the markup. Neither needs a DOM: a Scene renders to Foldkit's virtual tree
+// and queries that, so both bins run these under a bare runtime.
 
 import assert from "node:assert/strict"
 
 import type { Showcase } from "foldcase"
-import { Story } from "foldkit/test"
+import { Scene, Story } from "foldkit/test"
 
 import {
   ChangedStep,
@@ -18,7 +24,11 @@ import {
   Message,
   Model,
   update,
+  view,
 } from "./counter"
+
+/** The paragraph the view prints the count into. */
+const shownCount = Scene.selector("p")
 
 export const showcases: ReadonlyArray<Showcase> = [
   {
@@ -75,6 +85,38 @@ export const showcases: ReadonlyArray<Showcase> = [
           assert.equal(model.count, 0)
           assert.equal(model.step, 5)
         }),
+      ),
+    message: Message,
+    model: Model,
+  },
+  {
+    id: "counter/renders-the-controls",
+    play: () =>
+      Scene.scene(
+        { update, view },
+        Scene.given(initialModel),
+        Scene.expectAll(Scene.all.role("button")).toHaveCount(3),
+        Scene.expect(Scene.role("button", { name: "-" })).toExist(),
+        Scene.expect(Scene.role("button", { name: "Reset" })).toExist(),
+        Scene.expect(Scene.role("button", { name: "+" })).toExist(),
+        Scene.expect(shownCount).toHaveText("0"),
+      ),
+    message: Message,
+    model: Model,
+  },
+  {
+    id: "counter/the-buttons-move-the-count",
+    play: () =>
+      Scene.scene(
+        { update, view },
+        Scene.given(initialModel),
+        Scene.click(Scene.role("button", { name: "+" })),
+        Scene.click(Scene.role("button", { name: "+" })),
+        Scene.expect(shownCount).toHaveText("2"),
+        Scene.click(Scene.role("button", { name: "-" })),
+        Scene.expect(shownCount).toHaveText("1"),
+        Scene.click(Scene.role("button", { name: "Reset" })),
+        Scene.expect(shownCount).toHaveText("0"),
       ),
     message: Message,
     model: Model,

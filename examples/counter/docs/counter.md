@@ -1,6 +1,6 @@
 # counter
 
-Showcases: `counter/counts-up-and-down`, `counter/reset-keeps-the-step`, `counter/starts-at-zero`, `counter/step-of-ten`
+Showcases: `counter/counts-up-and-down`, `counter/renders-the-controls`, `counter/reset-keeps-the-step`, `counter/starts-at-zero`, `counter/step-of-ten`, `counter/the-buttons-move-the-count`
 
 ## Messages
 

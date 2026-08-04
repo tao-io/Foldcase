@@ -1,7 +1,8 @@
 // A complete Foldkit component: one Model, one Message union, one pure update,
-// and a view that never runs in a Showcase. Foldcase asserts on the Model the
-// update returns, so the view is here to prove the point — a component can
-// render and still be tested without a DOM.
+// and a view. The catalog next door showcases it both ways — a Story asserting
+// on the Model the update returns, and a Scene clicking the buttons and reading
+// the markup back. Neither needs a DOM: a Scene renders to Foldkit's virtual
+// tree, so the whole component is tested under a bare Node or Bun.
 
 import * as Match from "effect/Match"
 import * as Schema from "effect/Schema"
