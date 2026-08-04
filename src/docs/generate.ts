@@ -85,9 +85,11 @@ const modelSection = Effect.fn("foldcase.docs.modelSection")(function* (
  * last `/`. `button/starts-unclicked` → `button`; `ui/picker/initial` →
  * `ui/picker`; an id with no `/` at all is its own component. This is the same
  * notion of a component the MCP `id_prefix` filter runs on, so what one surface
- * calls `counter/` the other titles `counter`.
+ * calls `counter/` the other titles `counter`, and what the lab groups a gallery
+ * by (ADR-0001 › Amendment 3 — one rule, read from here by every surface that
+ * needs it rather than copied).
  */
-const componentName = (id: string): string => {
+export const componentName = (id: string): string => {
   const cut = id.lastIndexOf("/")
   return cut === -1 ? id : id.slice(0, cut)
 }

@@ -560,6 +560,10 @@ describe("ADR-0001 — every surface derives from the definition", () => {
       "src/coverage/collect.ts",
       "src/coverage/report.ts",
       "src/docs/generate.ts",
+      // The lab's catalog projection: the row ADR-0001 reserved for a browser
+      // shell, filled in. It reads the record and nothing else — no source
+      // parse, no DOM crawl — so it derives like the surfaces before it.
+      "src/lab/catalog.ts",
       "src/mcp/catalog.ts",
       "src/mcp/tools.ts",
       "src/program.ts",
