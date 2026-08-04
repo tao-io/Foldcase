@@ -66,11 +66,6 @@ export class InitFileError extends Schema.TaggedErrorClass<InitFileError>()(
 const JsonObject = Schema.Record(Schema.String, Schema.Unknown)
 
 /**
- * The config as it sits on disk: JSON text, decoded to that object and encoded
- * back with two-space indentation, because a human edits this file after us.
- * One codec both ways, so what is written is what was read.
- */
-/**
  * `Schema.fromJsonString`, but the text it encodes to is indented. Same shape
  * as the library's own — a JSON parse on the way in, a stringify on the way out
  * — with the two spaces a config file a human opens has to have.
@@ -86,6 +81,10 @@ const fromIndentedJsonString = <S extends Schema.Constraint>(schema: S) =>
     ),
   )
 
+/**
+ * The config as it sits on disk: JSON text, decoded to that object and encoded
+ * back the same way, so one codec answers for both directions of the merge.
+ */
 const McpConfig = fromIndentedJsonString(JsonObject)
 
 const decodeConfig = Schema.decodeEffect(McpConfig)
