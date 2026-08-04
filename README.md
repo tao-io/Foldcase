@@ -47,6 +47,74 @@ all read off that single record — never parsed back out of your source
 A Showcase dispatches a typed Message and asserts on a deterministic Model — no DOM, no
 selectors, no waiting.
 
+## Story, Scene, Showcase
+
+Foldkit already ships two ways to test a component. Foldcase adds a third that is not a
+way of testing at all.
+
+**Story** — `foldkit/story` — drives `update` and nothing else. Hand it a starting
+Model, send Messages, assert on the Model that comes out. It also accounts for every
+Command the reducer returned, so a story cannot pass on one you forgot to think about.
+
+```ts
+story(
+  update,
+  given(initialModel),
+  message(ClickedIncrement()),
+  Command.expectNone(),
+  model((m) => assert.equal(m.count, 1)),
+)
+```
+
+**Scene** — `foldkit/scene` — mounts `{ update, view }` and reads the rendered markup
+the way a user does: `getByRole`, `getByLabel`, `click`, `type`, `dropFiles`. It needs a
+DOM, so it runs under a test runner with one wired up.
+
+```ts
+scene(
+  { update, view },
+  given(homeModel),
+  expect(role("link", { name: "Calendar" })).toExist(),
+)
+```
+
+The two answer different questions, and neither catches the other's bugs. A Story asks
+whether the state machine is right. A Scene asks whether the markup reaches it. Building
+the Foldkit component gallery turned up the gap in one afternoon: a Story proved
+`DragAndDrop` moves a card from one column to the other, and the browser showed that no
+key press sends that Message. The Model was right and nothing could reach it.
+
+**A Showcase is neither.** It is a record, not a function:
+
+```ts
+{ id, play, message?, model? }
+```
+
+`play` usually holds a Story — that is the cheap, deterministic half — but the runner
+never looks inside it. What Foldcase reads is everything around it: the `id` names one
+component in one state, and `message`/`model` are the Schemas that state is built from.
+
+That difference is the whole point. A Story and a Scene are functions a runner calls; they
+run, they pass, and they are gone. Nothing can ask them which components exist or what a
+Message payload looks like. A Showcase is a **description that stays readable**, so one
+declaration feeds the CI run, the Markdown tables, the coverage attribution and the
+agent's catalog at once.
+
+| | drives | needs a DOM | answers |
+|---|---|---|---|
+| **Story** | `update` | no | is the state machine right |
+| **Scene** | `update` + `view` | yes | does the markup reach it |
+| **Showcase** | whatever `play` holds — usually a Story | no | which components exist, in which states, built from which Schemas |
+
+So the three stack rather than compete. A Scene mounts the whole app. A Story tests a
+reducer and has no notion of a component at all. A Showcase sits between them: one
+component, one state, outside the app — and it is the only one of the three that writes
+that fact down.
+
+Foldcase does not depend on Foldkit, and `play` is an opaque thunk, so a Showcase can hold
+a Scene, another assertion library, or plain code. Hold a Scene and you trade the DOM-free
+determinism for what a Scene sees; that is a real trade, not a mistake.
+
 ## Install
 
 ```bash
