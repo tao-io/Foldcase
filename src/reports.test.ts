@@ -8,7 +8,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 import { run } from "./program.js"
-import { CoverageReport, DocsDocument, TestDocument } from "./reports.js"
+import { CoverageReport, DocsDocument, LabCatalog, LabDocument, TestDocument } from "./reports.js"
 
 const fixtures = `${import.meta.dir}/../test/fixtures`
 
@@ -32,6 +32,7 @@ const stdoutOf = async (argv: ReadonlyArray<string>): Promise<string> => {
 
 const decodeTestDocument = Schema.decodeEffect(Schema.fromJsonString(TestDocument))
 const decodeDocsDocument = Schema.decodeEffect(Schema.fromJsonString(DocsDocument))
+const decodeLabDocument = Schema.decodeEffect(Schema.fromJsonString(LabDocument))
 
 describe("the --json documents are a contract a consumer can decode", () => {
   test("TestDocument decodes what `test --json` printed", async () => {
@@ -78,6 +79,30 @@ describe("the --json documents are a contract a consumer can decode", () => {
     expect(document.docs[0]?.path.endsWith("/counter.md")).toBe(true)
     expect(document.failures).toEqual([])
     await Bun.$`rm -rf ${out}`.quiet()
+  })
+
+  test("LabDocument decodes what `lab --json` printed", async () => {
+    const out = `${import.meta.dir}/../runtime-reports-lab/entry.ts`
+    await Bun.$`rm -rf ${import.meta.dir}/../runtime-reports-lab`.quiet()
+    const document = await Effect.runPromise(
+      decodeLabDocument(
+        await stdoutOf(["lab", "--json", `${fixtures}/counter-logic.showcase.ts`, out]),
+      ),
+    )
+
+    expect(document.catalog.components.map((component) => component.component)).toEqual(["counter"])
+    expect(document.catalog.total).toBe(1)
+    expect(document.entry.status).toBe("written")
+    expect(document.entry.path.endsWith("/entry.ts")).toBe(true)
+    // The catalog half on its own: a reader taking only the gallery out of the
+    // document decodes it with the Schema the lab itself renders from.
+    const half = Schema.decodeUnknownOption(LabCatalog)(
+      (JSON.parse(
+        await stdoutOf(["lab", "--json", `${fixtures}/counter-logic.showcase.ts`, out]),
+      ) as { catalog: unknown }).catalog,
+    )
+    expect(Option.isSome(half)).toBe(true)
+    await Bun.$`rm -rf ${import.meta.dir}/../runtime-reports-lab`.quiet()
   })
 
   test("and they are published, so a consumer can import them at all", () => {

@@ -446,6 +446,47 @@ describe("run", () => {
     await Bun.$`rm -rf ${import.meta.dir}/../runtime-test-lab`.quiet()
   })
 
+  test("lab --json prints the catalog and the entry it wrote, and only that", async () => {
+    const out = `${import.meta.dir}/../runtime-test-lab-json/entry.ts`
+    await Bun.$`rm -rf ${import.meta.dir}/../runtime-test-lab-json`.quiet()
+    const result = await runCapturing([
+      "lab",
+      "--json",
+      `${fixtures}/counter-logic.showcase.ts`,
+      out,
+    ])
+
+    expect(result.code).toBe(0)
+    expect(documentOf(result)).toEqual({
+      catalog: {
+        components: [
+          {
+            component: "counter",
+            entries: [
+              {
+                id: "counter/increment",
+                component: "counter",
+                file: `${resolved}/fixtures/counter-logic.showcase.ts`,
+                hasMount: false,
+                hasMessageSchema: false,
+                hasModelSchema: false,
+              },
+            ],
+          },
+        ],
+        failures: [],
+        total: 1,
+      },
+      entry: {
+        path: `${new URL("../runtime-test-lab-json/entry.ts", import.meta.url).pathname}`,
+        status: "written",
+      },
+    })
+    // The human line is a diagnostic here, and diagnostics leave stdout alone.
+    expect(result.err.join("\n")).toContain("wrote")
+    await Bun.$`rm -rf ${import.meta.dir}/../runtime-test-lab-json`.quiet()
+  })
+
   test("lab over a directory with no Showcases is a failure, not an empty entry", async () => {
     expect(await exitCodeOf(["lab", `${import.meta.dir}/../docs`])).toBe(1)
   })

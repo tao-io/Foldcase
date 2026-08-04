@@ -22,6 +22,7 @@ import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 
 import {
+  type CatalogLoad,
   discoverShowcaseFiles,
   docsFromFiles,
   loadShowcasesFromFiles,
@@ -36,11 +37,12 @@ import {
   writeComponentDocs,
   type WrittenDoc,
 } from "./docs/generate.js"
-import { labEntryModule } from "./lab/scaffold.js"
+import { labCatalogOf } from "./lab/catalog.js"
+import { LabEntryFile, labEntryModule } from "./lab/scaffold.js"
 import { FoldcaseMcpServer } from "./mcp/server.js"
 // The `--json` documents are a published contract, so they are declared on the
 // entry point a consumer imports and used here — not the other way round.
-import { DocsDocument, TestDocument } from "./reports.js"
+import { DocsDocument, LabDocument, TestDocument } from "./reports.js"
 import { formatSuite, type Showcase, type SuiteReport, suiteExitCode } from "./runner.js"
 
 /** The one-line usage banner, printed to stderr for an unknown subcommand. */
@@ -321,13 +323,6 @@ const printChecked = (
         ),
       )
 
-/**
- * How this run left the entry module: `written`, or — under `--check`, which
- * writes nothing — how the file already there compared with what this run would
- * have written.
- */
-type LabEntryStatus = "written" | "current" | "missing" | "changed"
-
 // The default path `foldcase lab` writes its entry module to, overridable by
 // the second positional argument. Read via Config, the way the docs out-dir is.
 const labEntryPath = Config.string("FOLDCASE_LAB_ENTRY").pipe(
@@ -354,20 +349,26 @@ const compareEntry = Effect.fn("foldcase.lab.check")(function* (out: string, sou
   return (yield* fs.readFileString(out)) === source ? ("current" as const) : ("changed" as const)
 })
 
-const printLabEntry = (
-  out: string,
-  status: LabEntryStatus,
-  say: (line: string) => Effect.Effect<void>,
-) => {
-  switch (status) {
+const printLabEntry = (entry: LabEntryFile, say: (line: string) => Effect.Effect<void>) => {
+  switch (entry.status) {
     case "written":
-      return say(`foldcase lab: wrote ${out}`)
+      return say(`foldcase lab: wrote ${entry.path}`)
     case "current":
-      return say(`foldcase lab: ${out} is up to date`)
+      return say(`foldcase lab: ${entry.path} is up to date`)
     default:
-      return say(`foldcase lab: ${out} would change — ${status}`)
+      return say(`foldcase lab: ${entry.path} would change — ${entry.status}`)
   }
 }
+
+const encodeLabDocument = Schema.encodeEffect(Schema.fromJsonString(LabDocument))
+
+// The catalog in the document is the same projection the lab shell renders
+// from, so an agent reads the gallery without opening a browser.
+const printLabDocument = (load: CatalogLoad, entry: LabEntryFile) =>
+  encodeLabDocument(new LabDocument({ catalog: labCatalogOf(load), entry })).pipe(
+    Effect.orDie,
+    Effect.flatMap(Console.log),
+  )
 
 const lab = Effect.fn("foldcase.lab")(function* (
   target: string,
@@ -389,10 +390,14 @@ const lab = Effect.fn("foldcase.lab")(function* (
     yield* Option.match(outOverride, { onNone: () => labEntryPath, onSome: Effect.succeed }),
   )
   const source = labEntryModule(out, files)
-  const status = check ? yield* compareEntry(out, source) : yield* writeEntry(out, source)
+  const entry = new LabEntryFile({
+    path: out,
+    status: check ? yield* compareEntry(out, source) : yield* writeEntry(out, source),
+  })
+  yield* json ? printLabDocument(load, entry) : Effect.void
   // The human line is the output when it is the only output, and a diagnostic
   // when the document has stdout — the same split `docs --check` makes.
-  yield* printLabEntry(out, status, json ? Console.error : Console.log)
+  yield* printLabEntry(entry, json ? Console.error : Console.log)
   // A file that would not load is still an ordinary module to a bundler, so the
   // entry names it and the dev server decides. Saying so here is the note for a
   // reader watching the terminal, and it stays on stderr in both modes.
@@ -402,7 +407,7 @@ const lab = Effect.fn("foldcase.lab")(function* (
   })
   // Drift fails the run exactly as a drifted document does: `--check` is a CI
   // gate, and the exit code is the only thing a CI job reads.
-  const drifted = status === "missing" || status === "changed"
+  const drifted = entry.status === "missing" || entry.status === "changed"
   return Arr.isReadonlyArrayEmpty(load.failures) && !drifted ? 0 : 1
 })
 

@@ -8,6 +8,23 @@
  * knows nothing of what a catalog file is called.
  */
 
+import * as Schema from "effect/Schema"
+
+/**
+ * The entry module as one run of `foldcase lab` left it: where it goes, and how
+ * it stands.
+ *
+ * `written` is a run that wrote it. The other three are what `--check` found,
+ * which writes nothing: `current` when the file there is the module this run
+ * would have written, `changed` when it is not, `missing` when there is no file
+ * there at all. One field rather than a flag and an optional reason, so a reader
+ * of the document can never meet "checked" without an answer.
+ */
+export class LabEntryFile extends Schema.Class<LabEntryFile>("LabEntryFile")({
+  path: Schema.String,
+  status: Schema.Literals(["written", "current", "missing", "changed"]),
+}) {}
+
 const SEPARATOR = /[/\\]/
 
 const segmentsOf = (path: string): ReadonlyArray<string> =>

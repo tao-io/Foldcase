@@ -16,6 +16,10 @@ import * as Schema from "effect/Schema"
 import { ShowcaseModuleError } from "./cli.js"
 import { CoverageReport } from "./coverage/report.js"
 import { StaleDoc, WrittenDoc } from "./docs/generate.js"
+// The lab's own two Schemas: the catalog projection it renders from, and the
+// entry module the verb scaffolds. Taken from the lab, never re-stated here.
+import { LabCatalog } from "./lab/catalog.js"
+import { LabEntryFile } from "./lab/scaffold.js"
 import { SuiteReport } from "./runner.js"
 
 /**
@@ -45,6 +49,20 @@ export class DocsDocument extends Schema.Class<DocsDocument>("foldcase/DocsDocum
   stale: Schema.optional(Schema.Array(StaleDoc)),
 }) {}
 
+/**
+ * What `foldcase lab --json` prints: the catalog the lab renders from, and the
+ * entry module this run wrote — or, under `--check`, would have written.
+ *
+ * The two halves are the two questions a caller has. The catalog is what the
+ * browser will show, so an agent can read the gallery without opening it; the
+ * entry says which file to point a dev server at, and whether the one on disk
+ * still agrees with the catalog.
+ */
+export class LabDocument extends Schema.Class<LabDocument>("foldcase/LabDocument")({
+  catalog: LabCatalog,
+  entry: LabEntryFile,
+}) {}
+
 // The parts, re-exported from where they are declared. A consumer decoding half
 // a document — the coverage, one written page — names the same Schema the tool
 // encoded it with.
@@ -52,4 +70,6 @@ export { ShowcaseModuleError } from "./cli.js"
 export { SkippedFile } from "./coverage/coverage.js"
 export { CoverageReport, FileCoverage, ShowcaseCoverage } from "./coverage/report.js"
 export { StaleDoc, WrittenDoc } from "./docs/generate.js"
+export { LabCatalog, LabComponent, LabEntry } from "./lab/catalog.js"
+export { LabEntryFile } from "./lab/scaffold.js"
 export { SerializedError, ShowcaseReport, SuiteReport } from "./runner.js"
