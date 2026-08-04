@@ -69,8 +69,38 @@ this tool, and each of these is something it hit on the first run.
   you had just clicked meant scrolling back up six thousand pixels. Each column now scrolls
   itself, the selected row scrolls into view — through Foldkit's Mount, which hands the lab
   the element, rather than a query the surface gate rightly forbids — and a component folds
-  to one row, though never the one holding the selection. The whole sidebar folds from 7021
-  pixels to 1438.
+  to one row. The whole sidebar folds from 7021 pixels to 1438.
+- **The lab filters, and the arrow keys walk what the filter left.** A filter answers
+  "which Showcase", where a fold could only ever answer "which component", and a catalog of
+  a few hundred had no other way in than scrolling it. The sidebar carries a filter over
+  the ids, sticky above a list that no longer scrolls out from under it, saying how many of
+  the catalog it is showing; a live filter opens every group it matched, because a filter
+  that hid its own hits behind an old fold would lie about the catalog. `↑` and `↓` move
+  between the rows on screen and stop at the ends rather than wrapping, and the chosen row
+  is the only one in the tab order — reaching the canvas by keyboard took 171 presses and
+  now takes two.
+- **The fold no longer swallows the click on the component you are looking at.** It used to
+  record the fold and apply it later, when the reader had moved on and the sidebar
+  reshuffled under them: a click with no feedback, then a movement with no cause. The fold
+  is immediate now, and arriving at a Showcase opens the component it belongs to instead —
+  so a deep link, a back button and an agent's dispatch all land on a row that is on
+  screen, which is what the old rule was protecting.
+- **The lab draws as an instrument.** A design critique of the shell scored it 16 of 40
+  and named the cause: the whole chrome was one type size, so hierarchy came from three
+  greys, and the largest text in the viewport belonged to the component under test. The lab
+  now draws on a tinted ground with its own surfaces on white, so the boundary around a
+  live component is a change of surface rather than the 2px dashed rectangle that used to
+  mark it at 1.48:1 — the mark every other interface uses for a placeholder. The id is a
+  heading split at its last slash; the three seams are chips whose words carry the fact,
+  where a column of `true` with one `false` in it was scanned by shape; the state most
+  catalogs are in most of the time is an empty state in the canvas's own geometry rather
+  than an unstyled sentence in a white void; and the files that would not load sit at the
+  head of the sidebar, where the reader is when they wonder why a component is missing,
+  rather than seven thousand pixels below it. No text is under 4.76:1, the focus ring on
+  the chosen row is white over the fill rather than blue over blue, the group headings
+  stick so a leaf name always has its namespace, the tab title names the Showcase, and
+  below 880px the two columns become two rows instead of clipping the component off the
+  right edge.
 - **`mount`, the one seam the lab needed on `Showcase`.**
   `(container: HTMLElement) => Teardown | Promise<Teardown>`, optional, so every catalog
   written before it stays valid. A Showcase without it is listed, run and tabled exactly as
