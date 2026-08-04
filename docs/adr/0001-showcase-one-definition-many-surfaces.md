@@ -1,10 +1,10 @@
 ---
 type: adr
 title: A Showcase is defined once; every surface is derived from that definition
-description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase.
+description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase; Amendment 3 says what a component is.
 status: accepted
 created: 2026-07-31
-updated: 2026-07-31
+updated: 2026-08-04
 ---
 
 # 0001 — A Showcase is defined once; every surface is derived
@@ -62,7 +62,7 @@ The surfaces, and what each one projects:
 | Surface | Command | What it derives from the definition |
 |---|---|---|
 | **CI test runner** | `foldcase test` | Runs each `play`; reports a Schema-decoded `ShowcaseReport` per Showcase and a rolled-up `SuiteReport`; the exit code is the suite verdict. |
-| **Agent tools** | `foldcase mcp` | `list` from the ids, `schemaFor` from `message`, `runById` from `play` — three Schema-typed MCP verbs, no hand-rolled JSON-RPC. |
+| **Agent tools** | `foldcase mcp` | `foldcase_list_showcases` from the ids, `foldcase_get_showcase_schema` and `foldcase_get_showcase_model_schema` from `message` and `model`, `foldcase_run_showcase` and `foldcase_run_catalog` from `play`, `foldcase_load_catalog` from the one loader — six Schema-typed MCP verbs, no hand-rolled JSON-RPC. |
 | **Markdown autodocs** | `foldcase docs` | Introspects `message` and `model` into JSON Schema through the *same* path the MCP surface uses, then renders one table per component. |
 | **Coverage attribution** | `foldcase test --coverage` | Measures V8 precise coverage around each `play`, then reports one row per declared `Showcase` (see Amendment 1, 2026-07-31), rolled up by union. |
 | **Browser lab shell** | *not built yet* | Must also be a projection. When it lands, it renders from the declaration, not from a DOM crawl or a source parse. |
@@ -242,11 +242,13 @@ component is the unit of *documentation*, and the ADR's own table says the docs 
 "renders one table per component".
 
 **Decision: a component is the set of Showcases that declare the same `message` and
-`model`.** In a real showcase file that is exactly the Showcases of one component, because
-they share the declared schema objects — so the grouping is derived from the record, not
-from a naming convention. The document is named after the `/`-separated id namespace its
-Showcases share (`ui/picker/*` → `ui-picker.md`) and lists the ids it came from. Showcases
-that declare *neither* schema are never merged: having nothing to say is not a component.
+`model`.** (Superseded by Amendment 3, 2026-08-04: this rule collapsed on a real Foldkit
+app, and the component is now the id namespace.) In a real showcase file that is exactly
+the Showcases of one component, because they share the declared schema objects — so the
+grouping is derived from the record, not from a naming convention. The document is named
+after the `/`-separated id namespace its Showcases share (`ui/picker/*` → `ui-picker.md`)
+and lists the ids it came from. Showcases that declare *neither* schema are never merged:
+having nothing to say is not a component.
 
 This changes output filenames, which is a breaking change for anyone linking to them.
 
@@ -260,3 +262,44 @@ annotation — the declared type's name, through a supported option rather than 
 the Schema AST. `foldcase mcp` still serves the plain encoded JSON Schema, because an agent
 constructing a payload needs the wire form. Two projections of one declaration, which is
 what this ADR asks for.
+
+## Amendment 3 — 2026-08-04: a component is an id namespace
+
+Amendment 2 keyed a document on **the set of Showcases that declare the same `message` and
+`model`**. Schema object identity was chosen because it reads the grouping out of the
+record instead of out of a naming convention, which is what this ADR asks a surface to do.
+It held for the fixtures, where each component file declares its own schemas. It collapsed
+on the first real Foldkit app it met.
+
+A Foldkit app has **one** Model struct and **one** Message union for the whole app; a
+component is a slice of them, so every Showcase in the app declares the same two objects.
+Schema identity therefore answered "one component" for the whole app: 146 Showcases across
+24 components wrote a single 15 KB document, titled after an arbitrary Showcase and
+listing every id in one paragraph. The rule was right that a naming convention is weaker
+evidence than the record; it was wrong about what a real app's record says.
+
+**Decision: a component is an id namespace — everything before the last `/` of the id.**
+`button/starts-unclicked` and `button/counts-one-click` are the `button` component,
+`ui/picker/initial` is `ui/picker`, and an id with no `/` is its own component.
+
+This is not a new description of a component. It is the one the tool already ran on:
+`foldcase_run_catalog` narrows a run with an `id_prefix` like `counter/`, so what one
+surface filters on, the other titles. It is also stable whatever the app's schemas look
+like, which Schema identity was not.
+
+Asking the app for a narrower per-component Schema was the alternative, and this ADR
+forbids it: a schema declared to satisfy the docs surface is a second description of a
+component wearing the first one's name, and it would drift from the Model the app really
+updates.
+
+Filenames and the `Showcases:` list are unchanged — the document was already named after
+the namespace. Two rules follow from a group no longer sharing one declaration:
+
+- **Each table is read from the first Showcase, in id order, that declares that Schema.** A
+  namespace may hold plain update-logic Showcases beside schema-carrying ones, and two
+  siblings may declare different objects. The earliest wins rather than the run failing
+  over a disagreement an app is entitled to; the listed ids say where else to look.
+- **A component whose Showcases declare neither schema gets no document.** The Consequences
+  above say such a Showcase is "documented with a note"; since this amendment it is `none`.
+  A page whose only content is a note that there is nothing to say costs a reader more than
+  no page. The Showcase stays valid and still runs, which is what that clause protected.
