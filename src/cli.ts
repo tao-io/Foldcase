@@ -20,8 +20,19 @@ import {
 const SHOWCASE_SUFFIX = ".showcase.ts"
 
 /**
+ * A dependency's catalog is not the target's catalog. A `*.showcase.ts` shipped
+ * inside an installed package used to join the suite of whatever project
+ * installed it, so a stranger's failing Showcase failed the project's run.
+ *
+ * The test is on the path *segment*, not the text: `my_node_modules_fixture` is
+ * a directory of the target's own and stays in.
+ */
+const inNodeModules = (entry: string): boolean => entry.split(/[/\\]/).includes("node_modules")
+
+/**
  * Recursively find every `*.showcase.ts` file under `dir`, as absolute paths in
  * a stable (sorted) order so the suite report is deterministic run to run.
+ * Anything under a `node_modules/` is a dependency's, and is left out.
  */
 export const discoverShowcaseFiles = (dir: string) =>
   Effect.gen(function* () {
@@ -29,7 +40,7 @@ export const discoverShowcaseFiles = (dir: string) =>
     const path = yield* Path.Path
     const entries = yield* fs.readDirectory(dir, { recursive: true })
     const files = entries
-      .filter((entry) => entry.endsWith(SHOWCASE_SUFFIX))
+      .filter((entry) => entry.endsWith(SHOWCASE_SUFFIX) && !inNodeModules(entry))
       .map((entry) => path.join(dir, entry))
     return Arr.sort(files, Order.String)
   })

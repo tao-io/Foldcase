@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import { BunFileSystem, BunPath } from "@effect/platform-bun"
 
@@ -17,6 +18,8 @@ const malformed = (name: string): string => `${import.meta.dir}/../test/malforme
 const typeOnly = (name: string): string => `${import.meta.dir}/../test/type-only/${name}`
 const fixtures = `${import.meta.dir}/../test/fixtures`
 const PlatformLive = Layer.mergeAll(BunFileSystem.layer, BunPath.layer)
+/** A catalog with no imports, so discovery has a real file to find. */
+const catalogFile = `export const showcases = [{ id: "tmp/one", play: () => {} }]\n`
 
 /**
  * Import a file in a real Node process and hand back what it threw. `bun test`
@@ -56,6 +59,28 @@ describe("discoverShowcaseFiles", () => {
     expect(files.some((path) => path.endsWith("sample.showcase.ts"))).toBe(true)
     const ascending = files.every((path, index) => index === 0 || (files[index - 1] ?? "") <= path)
     expect(ascending).toBe(true)
+  })
+
+  test("skips node_modules, whose catalogs belong to a dependency, not the target", async () => {
+    // A dependency shipping its own `*.showcase.ts` used to join the catalog of
+    // whatever project installed it: the suite ran someone else's Showcases and
+    // reported their failures as the project's. The match is on the path
+    // segment, so a directory merely *named* like it survives.
+    const found = await Effect.runPromise(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const dir = yield* fs.makeTempDirectoryScoped()
+        yield* fs.makeDirectory(`${dir}/node_modules/some-dep`, { recursive: true })
+        yield* fs.makeDirectory(`${dir}/my_node_modules_fixture`, { recursive: true })
+        yield* fs.writeFileString(`${dir}/own.showcase.ts`, catalogFile)
+        yield* fs.writeFileString(`${dir}/node_modules/some-dep/dep.showcase.ts`, catalogFile)
+        yield* fs.writeFileString(`${dir}/my_node_modules_fixture/near.showcase.ts`, catalogFile)
+        const files = yield* discoverShowcaseFiles(dir)
+        return files.map((file) => file.slice(dir.length + 1))
+      }).pipe(Effect.scoped, Effect.provide(PlatformLive)),
+    )
+
+    expect(found).toEqual(["my_node_modules_fixture/near.showcase.ts", "own.showcase.ts"])
   })
 })
 
