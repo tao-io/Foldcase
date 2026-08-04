@@ -36,6 +36,7 @@ import {
   writeComponentDocs,
   type WrittenDoc,
 } from "./docs/generate.js"
+import { labEntryModule } from "./lab/scaffold.js"
 import { FoldcaseMcpServer } from "./mcp/server.js"
 // The `--json` documents are a published contract, so they are declared on the
 // entry point a consumer imports and used here — not the other way round.
@@ -44,7 +45,7 @@ import { formatSuite, type Showcase, type SuiteReport, suiteExitCode } from "./r
 
 /** The one-line usage banner, printed to stderr for an unknown subcommand. */
 export const usage =
-  "usage: foldcase <test [dir-or-file] [--coverage] [--json] | docs [dir] [out-dir] [--json] [--check] | mcp>   (test/docs default to the current directory; --coverage adds a V8 line/function coverage summary; --json prints one JSON document on stdout instead of the summary, diagnostics on stderr; docs writes Schema-table Markdown to out-dir, default FOLDCASE_DOCS_DIR; --check writes nothing and exits non-zero if any document would change; mcp serves the catalog over stdio)"
+  "usage: foldcase <test [dir-or-file] [--coverage] [--json] | docs [dir] [out-dir] [--json] [--check] | lab [dir] [out-file] [--json] [--check] | mcp>   (test/docs/lab default to the current directory; --coverage adds a V8 line/function coverage summary; --json prints one JSON document on stdout instead of the summary, diagnostics on stderr; docs writes Schema-table Markdown to out-dir, default FOLDCASE_DOCS_DIR; lab scaffolds the entry module your own dev server builds, default FOLDCASE_LAB_ENTRY, and neither bundles nor serves; --check writes nothing and exits non-zero if what is there would change; mcp serves the catalog over stdio)"
 
 /** What the argument vector asked for. */
 export type Command = Data.TaggedEnum<{
@@ -68,6 +69,19 @@ export type Command = Data.TaggedEnum<{
      * The drift gate a CI job runs, so a committed page cannot fall behind the
      * catalog it was rendered from.
      */
+    readonly check: boolean
+  }
+  /**
+   * Scaffold the entry module a consumer's own dev server builds, over every
+   * Showcase under `target`. The lab is a library, not a server (ADR-0004):
+   * this writes one file and stops — it bundles nothing, serves nothing and
+   * watches nothing.
+   */
+  readonly Lab: {
+    readonly target: string
+    readonly outFile: Option.Option<string>
+    readonly json: boolean
+    /** Compare instead of write, exactly as `docs --check` does. */
     readonly check: boolean
   }
   /** Serve the catalog to an agent over stdio MCP. */
@@ -156,6 +170,19 @@ export const parseCommand = (argv: ReadonlyArray<string>): Command => {
           Command.Docs({
             target: target ?? DEFAULT_TARGET,
             outDir: Option.fromUndefinedOr(outDir),
+            json: flags.has("--json"),
+            check: flags.has("--check"),
+          }),
+      )
+    case "lab":
+      return Option.getOrElse(
+        Option.orElse(surplus("lab takes a target and an out-file", 2, positionals), () =>
+          unknown("lab takes --json and --check", ["--json", "--check"], flags),
+        ),
+        () =>
+          Command.Lab({
+            target: target ?? DEFAULT_TARGET,
+            outFile: Option.fromUndefinedOr(outDir),
             json: flags.has("--json"),
             check: flags.has("--check"),
           }),
@@ -294,6 +321,91 @@ const printChecked = (
         ),
       )
 
+/**
+ * How this run left the entry module: `written`, or — under `--check`, which
+ * writes nothing — how the file already there compared with what this run would
+ * have written.
+ */
+type LabEntryStatus = "written" | "current" | "missing" | "changed"
+
+// The default path `foldcase lab` writes its entry module to, overridable by
+// the second positional argument. Read via Config, the way the docs out-dir is.
+const labEntryPath = Config.string("FOLDCASE_LAB_ENTRY").pipe(
+  Config.withDefault("foldcase-lab.entry.ts"),
+)
+
+// Write the entry module, making the directory it goes in if the consumer named
+// one that is not there yet.
+const writeEntry = Effect.fn("foldcase.lab.write")(function* (out: string, source: string) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  yield* fs.makeDirectory(path.dirname(out), { recursive: true })
+  yield* fs.writeFileString(out, source)
+  return "written" as const
+})
+
+// The comparison behind `--check`: reads, and writes nothing at all. Repairing
+// the file it is judging would make the very next run pass for no reason.
+const compareEntry = Effect.fn("foldcase.lab.check")(function* (out: string, source: string) {
+  const fs = yield* FileSystem.FileSystem
+  if (!(yield* fs.exists(out))) {
+    return "missing" as const
+  }
+  return (yield* fs.readFileString(out)) === source ? ("current" as const) : ("changed" as const)
+})
+
+const printLabEntry = (
+  out: string,
+  status: LabEntryStatus,
+  say: (line: string) => Effect.Effect<void>,
+) => {
+  switch (status) {
+    case "written":
+      return say(`foldcase lab: wrote ${out}`)
+    case "current":
+      return say(`foldcase lab: ${out} is up to date`)
+    default:
+      return say(`foldcase lab: ${out} would change — ${status}`)
+  }
+}
+
+const lab = Effect.fn("foldcase.lab")(function* (
+  target: string,
+  outOverride: Option.Option<string>,
+  json: boolean,
+  check: boolean,
+) {
+  const path = yield* Path.Path
+  const { files } = yield* resolveTarget(target)
+  // Same guard as `test` and `docs`: an entry module over no catalog would draw
+  // an empty lab, and exiting 0 on it would read as a lab that works.
+  if (Arr.isReadonlyArrayEmpty(files)) {
+    return yield* noShowcases(target)
+  }
+  // The catalog is loaded, not parsed: the entry the lab reads at runtime is
+  // built from the same records every other surface sees (ADR-0001).
+  const load = yield* loadShowcasesFromFiles(files)
+  const out = path.resolve(
+    yield* Option.match(outOverride, { onNone: () => labEntryPath, onSome: Effect.succeed }),
+  )
+  const source = labEntryModule(out, files)
+  const status = check ? yield* compareEntry(out, source) : yield* writeEntry(out, source)
+  // The human line is the output when it is the only output, and a diagnostic
+  // when the document has stdout — the same split `docs --check` makes.
+  yield* printLabEntry(out, status, json ? Console.error : Console.log)
+  // A file that would not load is still an ordinary module to a bundler, so the
+  // entry names it and the dev server decides. Saying so here is the note for a
+  // reader watching the terminal, and it stays on stderr in both modes.
+  yield* Effect.forEach(load.failures, (failure) => Console.error(`foldcase lab: ${failure.message}`), {
+    concurrency: 1,
+    discard: true,
+  })
+  // Drift fails the run exactly as a drifted document does: `--check` is a CI
+  // gate, and the exit code is the only thing a CI job reads.
+  const drifted = status === "missing" || status === "changed"
+  return Arr.isReadonlyArrayEmpty(load.failures) && !drifted ? 0 : 1
+})
+
 const docs = Effect.fn("foldcase.docs")(function* (
   target: string,
   outOverride: Option.Option<string>,
@@ -358,6 +470,8 @@ export const runCommand = Command.$match({
   Test: ({ coverage, json, target }) => reserveStdout(json, test(target, coverage, json)),
   Docs: ({ check, json, outDir, target }) =>
     reserveStdout(json, docs(target, outDir, json, check)),
+  Lab: ({ check, json, outFile, target }) =>
+    reserveStdout(json, lab(target, outFile, json, check)),
   Mcp: () => Layer.launch(FoldcaseMcpServer),
   // The reason goes above the banner, so a reader meets the word that was
   // wrong before the form that is right — both on stderr, both in one write.

@@ -145,6 +145,39 @@ describe("parseCommand", () => {
     )
   })
 
+  test("reads `lab`, with an optional out-file", () => {
+    expect(parseCommand(["lab"])).toEqual(
+      Command.Lab({ target: ".", outFile: Option.none(), json: false, check: false }),
+    )
+    expect(parseCommand(["lab", "src/ui", "src/lab-entry.ts"])).toEqual(
+      Command.Lab({
+        target: "src/ui",
+        outFile: Option.some("src/lab-entry.ts"),
+        json: false,
+        check: false,
+      }),
+    )
+    expect(parseCommand(["lab", "--json", "--check", "src/ui"])).toEqual(
+      Command.Lab({ target: "src/ui", outFile: Option.none(), json: true, check: true }),
+    )
+  })
+
+  test("refuses a third positional for `lab`, whose second one is the out-file", () => {
+    expect(parseCommand(["lab", "src/ui", "entry.ts", "extra"])).toEqual(
+      Command.Usage({
+        reason: Option.some("lab takes a target and an out-file; it did not understand: extra"),
+      }),
+    )
+  })
+
+  test("refuses --coverage for `lab`, which runs no Showcase", () => {
+    expect(parseCommand(["lab", "src/ui", "--coverage"])).toEqual(
+      Command.Usage({
+        reason: Option.some("lab takes --json and --check; it did not understand: --coverage"),
+      }),
+    )
+  })
+
   test("refuses every flag for `mcp`, which takes none, and names them all", () => {
     expect(parseCommand(["mcp", "--json", "--coverage"])).toEqual(
       Command.Usage({
@@ -394,6 +427,27 @@ describe("run", () => {
     ])
     // The human line is a diagnostic here, and diagnostics leave stdout alone.
     expect(result.err.join("\n")).toContain("would change")
+  })
+
+  test("lab writes the entry module a dev server builds, and exits clean", async () => {
+    const out = `${import.meta.dir}/../runtime-test-lab/entry.ts`
+    await Bun.$`rm -rf ${import.meta.dir}/../runtime-test-lab`.quiet()
+    const result = await runCapturing(["lab", `${fixtures}/counter-logic.showcase.ts`, out])
+
+    expect(result.code).toBe(0)
+    const written = await Bun.file(out).text()
+    expect(written).toContain('import { makeLabApplication } from "foldcase/lab"')
+    // The catalog it discovered, imported by a path relative to the entry.
+    expect(written).toContain("../test/fixtures/counter-logic.showcase")
+    // The path is the resolved one, as `docs` reports a written page.
+    expect(result.out.join("\n")).toContain(
+      `foldcase lab: wrote ${new URL("../runtime-test-lab/entry.ts", import.meta.url).pathname}`,
+    )
+    await Bun.$`rm -rf ${import.meta.dir}/../runtime-test-lab`.quiet()
+  })
+
+  test("lab over a directory with no Showcases is a failure, not an empty entry", async () => {
+    expect(await exitCodeOf(["lab", `${import.meta.dir}/../docs`])).toBe(1)
   })
 
   test("docs over an unloadable module writes what it can and exits non-zero", async () => {
