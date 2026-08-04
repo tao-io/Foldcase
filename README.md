@@ -97,7 +97,18 @@ Message and Model Schemas — see [Writing a Showcase](#writing-a-showcase).
 
 ## Wire it into your agent
 
-Add the server to `.mcp.json` (Claude Code and most MCP hosts):
+One command does the wiring:
+
+```bash
+npx foldcase init        # or: bunx foldcase-bun init
+```
+
+It adds the server entry below to `.mcp.json` — choosing `bunx` or `npx` by your
+lockfile, and setting `FOLDCASE_SHOWCASE_DIR=src` when `src/` exists — and appends the
+[`AGENTS.md` block](#paste-into-your-agentsmd). Both edits are idempotent and merge-safe:
+an existing `.mcp.json` keeps its other servers, a `foldcase` entry already there is left
+alone, and a second run reports `kept` and changes nothing. By hand, the same entry
+(Claude Code and most MCP hosts) is:
 
 ```json
 {
@@ -125,30 +136,34 @@ The six tools, all annotated `readOnlyHint: true`, `destructiveHint: false`,
 
 | Tool | What it does |
 |---|---|
-| `foldcase_list_showcases` | Enumerate every Showcase, each flagged with which Schemas it carries, and name the directory they were read from. |
+| `foldcase_list_showcases` | Enumerate every Showcase — which Schemas it carries, which Messages it dispatches, the directory served — and per-component `gaps`: the Messages no play dispatches. |
 | `foldcase_get_showcase_schema` | Introspect a Showcase's Message union into a JSON Schema document, so the agent builds a valid payload by construction. |
 | `foldcase_get_showcase_model_schema` | The same for the Model — the shape a `play` asserts on, which an agent has to know before it writes one. |
-| `foldcase_run_showcase` | Run one Showcase's `play` and return the typed pass/fail report, naming the file it came from. |
-| `foldcase_run_catalog` | Run the whole catalog into one suite report, or the part of it under an id prefix: `counter/` runs one component. |
-| `foldcase_load_catalog` | Re-read the catalog from disk after files appear or vanish, or point the server at another directory under the root. Reports how many Showcases came back and which files would not load. |
+| `foldcase_run_showcase` | Run one Showcase's `play` — in a fresh subprocess, from the code on disk — and return the typed pass/fail report, naming the file it came from. |
+| `foldcase_run_catalog` | Run the whole catalog into one suite report, or the part of it under an id prefix: `counter/` runs one component. Fresh from disk, like `foldcase_run_showcase`. |
+| `foldcase_load_catalog` | Refresh the listing after files appear or vanish, or point the server at another directory under the root. Reports how many Showcases came back and which files would not load. A run never needs it. |
 
 The loop an agent runs:
 
 1. `foldcase_list_showcases` — which components exist, in which states; the
    `hasMessageSchema` / `hasModelSchema` flags say which introspection call is worth
-   making.
+   making, and `gaps` names, per component, the Messages no play dispatches — the next
+   Showcase to write.
 2. `foldcase_get_showcase_schema` — the Message union as a draft-2020-12 JSON Schema
    document: a valid payload by construction, not by reading the source.
 3. `foldcase_get_showcase_model_schema` — the shape a `play` asserts on; read it before
    writing one.
 4. Edit the code, or add a Showcase.
 5. `foldcase_run_showcase` for one state, or `foldcase_run_catalog` with
-   `id_prefix: "counter/"` for one component. A failing `play` is `status: "failed"` with
-   a full `SerializedError` — data, never a tool error — and a mistyped id returns every
+   `id_prefix: "counter/"` for one component. A run executes in a fresh subprocess and
+   reads the disk, so the edit it is verifying — even a brand-new file — is already in
+   it, no reload needed. A failing `play` is `status: "failed"` with a full
+   `SerializedError` — data, never a tool error — and a mistyped id returns every
    available id, so it corrects itself in one round trip.
-6. `foldcase_load_catalog` after files appear or vanish. It cannot see an edit **inside**
-   a file that already loaded — both runtimes cache modules by URL — so after such an
-   edit, verify with `foldcase test` from the shell or restart the server.
+6. `foldcase_load_catalog` to refresh the *listing* after files appear or vanish. The
+   listing and the two schema tools read modules the server already imported, so after an
+   edit inside a loaded file their metadata can lag until the server restarts; the run
+   tools never lag.
 
 No MCP host? The same loop is the CLI: `foldcase test --json` prints one typed JSON
 document on stdout, diagnostics on stderr, and every report names its file.
@@ -174,14 +189,17 @@ supposed to do*.
 ## Showcases (Foldcase)
 
 - Components are described by Showcases: `export const showcases: ReadonlyArray<Showcase>`
-  in `*.showcase.ts` files. The record is `{ id, play, message?, model? }`; an id is
-  `component/state`.
+  in `*.showcase.ts` files. The record is `{ id, play, message?, model?, dispatches? }`;
+  an id is `component/state`.
 - To learn a component, use the `foldcase_*` MCP tools or `npx foldcase test --json` —
   do not parse `*.showcase.ts` files or crawl the source for the same facts.
-- When you add a component state, add a Showcase for it. When you change a Message or
-  Model Schema, regenerate the tables: `npx foldcase docs src docs/schemas`.
-- `foldcase_load_catalog` sees files that appeared or vanished, not edits inside a file
-  that already loaded. After such an edit, verify with `npx foldcase test` instead.
+- When you add a component state, add a Showcase for it, and name the Message tags its
+  play sends in `dispatches` — the listing's `gaps` then says which Messages still have
+  no Showcase.
+- When you change a Message or Model Schema, regenerate the tables: `npx foldcase docs
+  src docs/schemas`. In CI, `--check` fails on drift instead of writing.
+- The run tools execute what is on disk, edits included. Only the listing and schema
+  tools can lag behind an edit inside a loaded file; restart the server to refresh them.
 - Exit 1 means a failed Showcase, an unloadable file, or an empty catalog. All three are
   reported as data; one bad file never hides the rest.
 ```
@@ -234,8 +252,11 @@ story(
 **Scene** — `foldkit/scene` — mounts `{ update, view }` and reads the rendered markup
 the way a user does: `getByRole`, `getByLabel`, `click`, `type`, `dropFiles`. It renders
 to Foldkit's virtual tree and queries that, so it needs no browser and no DOM — the
-vitest-plus-happy-dom setup in Foldkit's examples is convention, not a requirement. What
-it deliberately cannot see is the Model: a Scene asserts through the view.
+vitest-plus-happy-dom setup in Foldkit's examples is convention, not a requirement;
+[`examples/counter`](examples/counter) runs two Scene Showcases under both bins with no
+DOM package installed. A failed assertion names the locator — `Expected element matching
+button "Restart" to exist` — so a miss reads as "the control you asked for is not in the
+markup". What a Scene deliberately cannot see is the Model: it asserts through the view.
 
 ```ts
 scene(
@@ -257,7 +278,7 @@ browser in the loop for what only it can show.
 **A Showcase is neither.** It is a record, not a function:
 
 ```ts
-{ id, play, message?, model? }
+{ id, play, message?, model?, dispatches? }
 ```
 
 `play` usually holds a Story — the cheap, deterministic half — but the runner never looks
@@ -302,6 +323,7 @@ export const showcases: ReadonlyArray<Showcase> = [
       ),
     message: Message, // optional — the Message-union Schema
     model: Model, // optional — the Model Schema
+    dispatches: ["ClickedIncrement"], // optional — the tags this play sends
   },
 ]
 ```
@@ -318,21 +340,25 @@ export interface Showcase {
   readonly play: () => void | Promise<void> // throws on assertion failure
   readonly message?: Schema.Top // Message-union Schema — read by `mcp` and `docs`
   readonly model?: Schema.Top // Model Schema — read by `docs` and `mcp`
+  readonly dispatches?: ReadonlyArray<string> // Message tags the play sends — validated against `message`
 }
 ```
 
 `play` is any thunk that throws when an assertion fails, so a Showcase is not tied to one
 assertion library or one framework. `message` and `model` are optional; a Showcase that
 declares neither still runs, and `foldcase docs` simply writes no page for it — there is
-nothing to table.
+nothing to table. `dispatches` is optional too, and declared rather than observed — a
+closure cannot be watched — so it is validated against the Message union: a tag the union
+does not carry fails `foldcase docs`, and an absent declaration means *unknown*, never
+"sends nothing" (an empty array says that).
 
 Everything Foldcase does is derived from this one record. See
 [ADR-0001](docs/adr/0001-showcase-one-definition-many-surfaces.md).
 
-A working app is in [`examples/counter`](examples/counter) — two Foldkit components, eight
-Showcases, and the [Markdown](examples/counter/docs/tasks.md) `foldcase docs` writes from
-them. `mise run dogfood` drives it under both bins in CI, so the example is a check as
-well as a demo.
+A working app is in [`examples/counter`](examples/counter) — two Foldkit components, ten
+Showcases (two of them holding a Scene), every `dispatches` declared, and the
+[Markdown](examples/counter/docs/tasks.md) `foldcase docs` writes from them. `mise run
+dogfood` drives it under both bins in CI, so the example is a check as well as a demo.
 
 ### A type-only import must say `import type`
 
@@ -351,7 +377,7 @@ error yourself.
 
 `foldcase-bun` erases the import itself and has no such rule.
 
-## The three commands
+## The four commands
 
 ### `foldcase test` — Showcases as CI
 
@@ -376,9 +402,10 @@ failed entry for that **file**, and the rest of the run continues:
 2 total · 1 passed · 1 failed
 ```
 
-Extra positionals are refused, not ignored: `foldcase test a.ts b.ts` names what it did
-not understand and exits 1, because running half of what you asked for behind a green exit
-would be a lie.
+Extra positionals and unknown flags are refused, not ignored: `foldcase test a.ts b.ts`
+and `foldcase test src --covrage` both name what was not understood and exit 1, because
+running half of what you asked for behind a green exit would be a lie — and for an agent,
+a typo that silently no-ops is the worst failure mode.
 
 #### `--coverage`
 
@@ -489,6 +516,12 @@ reads `Option<T>` with Optional `yes`; a named class resolves to its definition 
 `|` inside a type is escaped so the table survives it. Output is sorted, so regenerating
 gives a clean diff.
 
+A Showcase may declare `dispatches` — the Message tags its play sends. Once any Showcase
+of a component declares them, the page adds a `Not showcased:` line naming the union tags
+no play dispatches: the next Showcase to write. A declared tag the union does not carry
+is a lie in the catalog — it is named on stderr and the command exits 1. A component
+where no Showcase declares stays silent, because unknown must never read as covered.
+
 A file that will not load is named on stderr and the command exits non-zero; the documents
 it could write are still written. With every file loaded, the exit is 0 — including when
 nothing was written because no Showcase declares a Schema.
@@ -500,9 +533,19 @@ nothing was written because no Showcase declares a Schema.
   "docs": [{ "component": "counter", "path": "/abs/docs/schemas/counter.md" }],
   "failures": [{ "_tag": "foldcase/ShowcaseModuleError",
                  "path": "/abs/src/ui/picker.showcase.ts",
-                 "reason": "Cannot find module './picker'" }]
+                 "reason": "Cannot find module './picker'" }],
+  "gaps": [{ "component": "counter",
+             "undispatched": ["ClickedReset"], "unknown": [] }]
 }
 ```
+
+#### `--check`
+
+Compares instead of writing — nothing is created, nothing is touched. A document that
+would change or is missing is listed with its reason, and the exit is 1 on any drift, any
+load failure, or any unknown dispatch; 0 when everything is current. In `--json` the same
+appears as `stale: [{ component, path, reason: "missing" | "changed" }]`. Put it in CI
+beside `foldcase test`, so the tables cannot drift from the catalog.
 
 ### `foldcase mcp` — the catalog server
 
@@ -515,6 +558,9 @@ knowing:
   that moves it. A directory parameter on every verb would make an id mean nothing on its
   own, so the directory is state, and every listing and load report says which one is
   being served. A load that fails leaves the last good catalog in place.
+- The run tools spawn a fresh subprocess of the server's own runtime and load from disk,
+  so they always run current code. The child reuses the same single loader, and a spawn
+  failure is folded into the report as a failed entry, never a silent pass.
 - A showcase file that will not load is logged to stderr and the rest of the catalog is
   served anyway. Only a `FOLDCASE_SHOWCASE_DIR` that cannot be read at launch fails the
   server itself.
@@ -524,6 +570,14 @@ foldcase mcp                                    # point your MCP host's stdio co
 FOLDCASE_SHOWCASE_DIR=src/ui foldcase mcp       # serve a specific directory
 ```
 
+### `foldcase init` — wire a consumer repo
+
+Writes the `.mcp.json` server entry and the `AGENTS.md` section shown in
+[Wire it into your agent](#wire-it-into-your-agent), idempotently, and reports one line
+per artifact — `foldcase init: .mcp.json created|updated|kept`. `--json` prints the same
+outcome as one `InitDocument`. An `.mcp.json` that will not parse is refused and left
+untouched.
+
 ## Reference
 
 Exit codes:
@@ -531,9 +585,10 @@ Exit codes:
 | Command | 0 | 1 |
 |---|---|---|
 | `test` | every Showcase passed | a failed Showcase, an unloadable file, or no `*.showcase.ts` found |
-| `docs` | every file loaded — even if nothing was written | a load failure, a Schema that will not introspect, or no `*.showcase.ts` found |
+| `docs` | every file loaded — even if nothing was written | a load failure, a Schema that will not introspect, a dispatched tag the union does not carry, `--check` drift, or no `*.showcase.ts` found |
 | `mcp` | — (serves until the host closes stdio) | the server would not launch |
-| any | | unknown or missing verb, or extra positionals — refused with the usage banner |
+| `init` | wired — created, updated, or already there | a target that does not exist, or an `.mcp.json` that will not parse |
+| any | | unknown or missing verb, an unknown flag, or extra positionals — refused with the usage banner |
 
 `--coverage` never changes an exit code.
 
@@ -545,9 +600,8 @@ Environment:
 | `FOLDCASE_DOCS_DIR` | `docs` only | `foldcase-docs` | the out-dir when no second positional names one |
 
 Discovery is a recursive walk for files ending in `.showcase.ts`, sorted so the report is
-deterministic run to run. It does not skip `node_modules`, so point the commands at your
-source directory — `foldcase test src` — rather than a directory that contains installed
-packages.
+deterministic run to run. `node_modules` is skipped wherever it appears, so a dependency
+cannot join your catalog.
 
 CI is the exit code:
 
@@ -555,6 +609,7 @@ CI is the exit code:
 - uses: oven-sh/setup-bun@v2
 - run: bun install --frozen-lockfile
 - run: bunx foldcase-bun test src
+- run: bunx foldcase-bun docs src docs/schemas --check
 ```
 
 Add `--json` and redirect stdout when a later step consumes the report.
@@ -617,6 +672,7 @@ Foldkit Showcases run in your app's own closure while Foldcase stays framework-b
 | `foldcase/mcp` | `FoldcaseMcpServer`, the launchable stdio server Layer, and `makeFoldcaseMcpServer` over your own catalog Layer |
 | `foldcase/mcp/catalog` | the `FoldcaseCatalog` service (`.layer`, `.layerFromShowcases`), `makeCatalog`, `loadCatalogFromDir`, and the listing / load-report / error Schemas |
 | `foldcase/mcp/tools` | `FoldcaseToolkit`, `FoldcaseHandlers`, `makeHandlers` |
+| `foldcase/reports` | the `--json` documents as Schemas — `TestDocument`, `DocsDocument`, `InitDocument` — plus `CoverageReport`, `StaleDoc`, `ComponentGap` and the report Schemas they carry, so a consumer decodes a document with the Schema that produced it |
 
 Every report is a decoded `Schema` value, not a loose object, so a failure is structured
 data you can act on rather than a string you have to parse. `loadShowcasesFromFiles`

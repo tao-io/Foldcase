@@ -175,7 +175,7 @@ bun dist/main.bun.js test examples/counter/src
 # shows is what the tool writes.
 node dist/main.js docs examples/counter/src "$tmp/docs" > /dev/null
 diff -r examples/counter/docs "$tmp/docs"
-echo 'foldcase: dogfood passed — 8 Showcases, 2 documents, both runtimes'
+echo 'foldcase: dogfood passed — 10 Showcases, 2 documents, both runtimes'
 """
 
 [tasks."docs:build"]
