@@ -224,7 +224,7 @@ type CatalogReader = (
 
 /**
  * How a catalog runs a selection of its plays. The two implementations are the
- * whole of ADR-0001 › Amendment 3: a catalog read from a directory runs it in a
+ * whole of ADR-0001 › Amendment 4: a catalog read from a directory runs it in a
  * child process, which reads the files again and so runs the code on disk; an
  * in-memory catalog runs it here, because its plays are closures this process
  * holds and no other process can be handed.

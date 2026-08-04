@@ -1,7 +1,7 @@
 ---
 type: adr
 title: A Showcase is defined once; every surface is derived from that definition
-description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase; Amendment 3 says what a component is.
+description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase; Amendment 3 says what a component is; Amendment 4 moves a run into a fresh process, so what it reports is the code on disk.
 status: accepted
 created: 2026-07-31
 updated: 2026-08-04
@@ -303,3 +303,48 @@ the namespace. Two rules follow from a group no longer sharing one declaration:
   above say such a Showcase is "documented with a note"; since this amendment it is `none`.
   A page whose only content is a note that there is nothing to say costs a reader more than
   no page. The Showcase stays valid and still runs, which is what that clause protected.
+
+## Amendment 4 — 2026-08-04: a run reads the disk
+
+`foldcase mcp` held its catalog in memory and ran a `play` in its own process. Both
+runtimes cache an ES module by URL, so once a `*.showcase.ts` had been imported, importing
+it again handed back the module that was already there. An agent that fixed a component,
+called `foldcase_load_catalog` and ran the Showcase read a report of the code it had just
+replaced — and concluded the fix had not worked. The reload verb could not help: it
+re-imports the same URL.
+
+**Decision: the two run verbs run in a fresh child process of the current runtime.**
+`foldcase_run_showcase` and `foldcase_run_catalog`, over a catalog read from a directory,
+walk that directory again, hand the files to a child spawned on `process.execPath`, and
+decode the one JSON document the child writes on stdout. The child has imported nothing
+before, so what it runs is what is on disk. An in-memory catalog (`layerFromShowcases`)
+keeps the in-process path — a `play` is a closure, and a closure cannot be handed to a
+process that never saw the module holding it, which is the same structural reason
+Amendment 1 gives for the coverage collector.
+
+This ADR is untouched by it, in the three ways that matter:
+
+- **The record is still the single description.** The child reads it with the one loader,
+  `loadShowcasesFromFiles`, in another process. It is not a second loader in the sense the
+  gate fences: it imports no path of its own choosing — the parent's directory walk, also
+  `src/cli.ts`, decides which files it is handed.
+- **One function decides what a run means.** `runSelection` in `src/mcp/freshRun.ts` takes
+  a loaded catalog and a selection, and the in-process path and the child both call it. So
+  crossing a process boundary changes where the catalog was read and nothing else: a
+  failing play is still data, a report still names its file, a prefix run still folds in
+  every load failure, and both errors still carry the ids they could have matched.
+- **Nothing new crosses the boundary.** The document the child writes is built from the
+  report Schemas `src/runner.ts` already declares. `src/mcp/freshRun.ts` is on the list of
+  modules that derive from the definition, for that reason.
+
+What does **not** cross the boundary is a Schema: it is a live object, so
+`foldcase_list_showcases`, `foldcase_get_showcase_schema` and
+`foldcase_get_showcase_model_schema` still answer from the module this process imported.
+`foldcase_load_catalog` refreshes them for a file that appeared or vanished; a Schema
+edited inside a file that was already loaded needs a restart. The tool descriptions say
+so — an agent reading them has to know which answers it can trust after an edit, and the
+honest split is: runs, always; metadata, until the file was first imported.
+
+The cost is a process per run. That is the right trade for an agent loop, where the
+alternative is a wrong answer that costs a turn to discover and often is not discovered
+at all.

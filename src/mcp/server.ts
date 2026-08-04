@@ -58,7 +58,7 @@ export const makeFoldcaseMcpServer = <E, R>(
  *
  * It asks for a `ChildProcessSpawner` on top of the reading services, because a
  * run leaves the process: the catalog spawns a child of the current runtime so
- * the play that runs is the one on disk (ADR-0001 › Amendment 3). Both shells
+ * the play that runs is the one on disk (ADR-0001 › Amendment 4). Both shells
  * already provide it — it is part of `NodeServices` and of `BunServices`.
  */
 export const FoldcaseMcpServer: Layer.Layer<
