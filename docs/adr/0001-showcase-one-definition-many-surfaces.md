@@ -1,7 +1,7 @@
 ---
 type: adr
 title: A Showcase is defined once; every surface is derived from that definition
-description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase; Amendment 3 says what a component is; Amendment 4 moves a run into a fresh process, so what it reports is the code on disk.
+description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase; Amendment 3 says what a component is; Amendment 4 moves a run into a fresh process, so what it reports is the code on disk; Amendment 5 adds the one fact a closure cannot be asked for — which Messages a play dispatches — so a surface can name the Showcases nobody has written.
 status: accepted
 created: 2026-07-31
 updated: 2026-08-04
@@ -49,6 +49,7 @@ export interface Showcase {
   readonly play: () => void | Promise<void> // throws on assertion failure
   readonly message?: Schema.Top // the Message-union Effect Schema
   readonly model?: Schema.Top // the Model Effect Schema
+  readonly dispatches?: ReadonlyArray<string> // the Message tags this play sends (Amendment 5)
 }
 ```
 
@@ -348,3 +349,48 @@ honest split is: runs, always; metadata, until the file was first imported.
 The cost is a process per run. That is the right trade for an agent loop, where the
 alternative is a wrong answer that costs a turn to discover and often is not discovered
 at all.
+
+## Amendment 5 — 2026-08-04: a Showcase declares which Messages it dispatches
+
+Every surface so far answers a question about the Showcases that exist. The question an
+agent asks before it writes one is the opposite: **which Messages of this component's
+union does no Showcase ever send?** Each answer is a Showcase somebody still has to
+write, which makes it the most useful thing this catalog can say to an agent — and
+nothing here could say it.
+
+Observing it is not available. `play` is an opaque closure, which is the seam the whole
+ADR rests on: the runner never learns what a play did, only whether it threw. Watching a
+dispatch would mean either a Foldkit dependency in the core or a source parse of the
+play, and the second is exactly what the Enforcement section forbids.
+
+**Decision: `Showcase` gains an optional `dispatches?: ReadonlyArray<string>` — the
+Message tags this play sends, declared by the author and validated against `message`.**
+
+- **Declared, not observed.** The author says what the play dispatches. That is a claim,
+  and this ADR does not take claims on trust, so:
+- **Validated against the union.** A declared tag the component's Message Schema does not
+  carry is reported as `unknown` wherever a gap is shown, and `foldcase docs` exits
+  non-zero for it — the same class of failure as a Schema that will not introspect,
+  because both mean the declaration disagrees with the definition. A *gap* is not a
+  failure: a Message nobody showcases yet is information, and the run stays green.
+- **Unknown is never coverage.** A component whose Showcases declare nothing is reported
+  nowhere at all, rather than as a component with an empty gap. An empty gap means "every
+  Message is showcased" and must keep meaning only that; a single array could not tell
+  the two apart, so absence carries one of them.
+- **An empty declaration is a declaration.** `dispatches: []` says the play sends nothing,
+  which is a fact about it; an absent field says nobody has looked.
+
+The derivation is one function, `componentGaps` in `src/docs/generate.ts`, and both
+surfaces import it: `foldcase docs` prints `Not showcased:` and `Unknown dispatches:`
+under a component's Messages table and carries the same lists in its `--json` document,
+and `foldcase_list_showcases` answers with a `gaps` entry per component. It lives beside
+the docs surface because a gap is keyed on a *component*, and Amendment 3 put the
+definition of a component — the id namespace — there. It reads its tags out of
+`messageVariants`, the extraction that renders the Messages table's first column, so a
+table and a gap can never disagree about which Messages exist.
+
+The field is optional, so every catalog written before this amendment stays valid and
+reports no gap, which is the honest answer for it. The loader holds it to its shape — a
+`dispatches` that is not a list of strings makes the file malformed, exactly as a
+`message` that is not an Effect Schema does — so a surface reading it can never be handed
+something else.
