@@ -464,7 +464,7 @@ const STYLESHEET = `
   box-shadow: 1px 0 0 rgba(15, 23, 42, 0.08); }
 #foldcase-lab-sidebar-head { flex: none; padding: 18px 16px 12px;
   border-bottom: 1px solid #e2e8f0; }
-#foldcase-lab-sidebar h1 { display: flex; align-items: baseline; gap: 8px;
+#foldcase-lab-sidebar h2 { display: flex; align-items: baseline; gap: 8px;
   margin: 0 0 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
   text-transform: uppercase; color: #475569; }
 #foldcase-lab-count { margin-left: auto; font-size: 12px; font-weight: 500;
@@ -479,7 +479,7 @@ const STYLESHEET = `
 #foldcase-lab-tree { flex: 1; min-height: 0; overflow-y: auto;
   overscroll-behavior: contain; padding: 8px 10px 24px; }
 #foldcase-lab-tree section + section { margin-top: 2px; }
-#foldcase-lab-tree h2 { position: sticky; top: 0; z-index: 1; margin: 0;
+#foldcase-lab-tree h3 { position: sticky; top: 0; z-index: 1; margin: 0;
   background: #fff; }
 #foldcase-lab-tree ul { list-style: none; margin: 0 0 6px; padding: 0 0 0 10px;
   border-left: 1px solid #e2e8f0; }
@@ -489,7 +489,8 @@ const STYLESHEET = `
 #foldcase-lab-tree button { position: relative; display: flex; align-items: center;
   gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border: 0;
   border-radius: 6px; background: none; font: inherit; font-size: 13px;
-  color: #334155; cursor: pointer; }
+  color: #334155; cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out; }
 /* The marker the reveal Mount is handed. Stretched over the row so that
    scrolling *it* into view scrolls the whole row in, margins and all — a
    zero-size span at the text baseline leaves the row half under the fold. */
@@ -520,9 +521,9 @@ const STYLESHEET = `
    #64748b reads 4.76:1 here and only 4.34:1 over the ground. */
 #foldcase-lab-head { position: sticky; top: 0; z-index: 1; padding: 20px 28px 16px;
   background: #fff; border-bottom: 1px solid #e2e8f0; }
-#foldcase-lab-head h2 { margin: 0; font-size: 20px; font-weight: 400;
+#foldcase-lab-head h1 { margin: 0; font-size: 20px; font-weight: 400;
   letter-spacing: -0.01em; color: #64748b; overflow-wrap: anywhere; }
-#foldcase-lab-head h2 b { font-weight: 600; color: #0f172a; }
+#foldcase-lab-head h1 b { font-weight: 600; color: #0f172a; }
 #foldcase-lab-seams { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0;
   padding: 0; list-style: none; }
 #foldcase-lab-seams li { padding: 2px 8px; border-radius: 999px;
@@ -551,7 +552,7 @@ const STYLESHEET = `
 
 #foldcase-lab-failures { margin: 12px 0 0; border: 1px solid #fecaca;
   border-radius: 8px; background: #fef2f2; padding: 10px 12px; font-size: 12px; }
-#foldcase-lab-failures h2 { margin: 0 0 6px; font-size: 12px; font-weight: 600;
+#foldcase-lab-failures h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600;
   color: #b91c1c; }
 #foldcase-lab-failures ul { list-style: none; margin: 0; padding: 0;
   display: grid; gap: 6px; color: #7f1d1d; }
@@ -723,7 +724,7 @@ const componentSection = (
       h.DataAttribute("expanded", String(expanded)),
     ],
     [
-      h.h2(
+      h.h3(
         [],
         [
           h.button(
@@ -734,7 +735,10 @@ const componentSection = (
               h.DataAttribute("group", component.component),
               h.DataAttribute("expanded", String(expanded)),
               h.AriaExpanded(expanded),
-              h.AriaControls(listId),
+              // Only while there is a list to point at: `aria-controls` naming
+              // an element that is not in the document is a dangling reference,
+              // and a folded group renders none.
+              ...(expanded ? [h.AriaControls(listId)] : []),
             ],
             [
               foldMark(h),
@@ -771,7 +775,7 @@ const failureSection = (
         h.section(
           [h.Id("foldcase-lab-failures")],
           [
-            h.h2(
+            h.h3(
               [],
               [
                 failures.length === 1
@@ -844,7 +848,7 @@ const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
       h.div(
         [h.Id("foldcase-lab-sidebar-head")],
         [
-          h.h1(
+          h.h2(
             [],
             ["Showcases", h.span([h.Id("foldcase-lab-count")], [catalogCount(model)])],
           ),
@@ -868,8 +872,15 @@ const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
               h.p(
                 [h.Id("foldcase-lab-empty-tree")],
                 [
-                  h.b([], ["No id holds that"]),
-                  h.span([], ["Clear the filter to see the whole catalog again."]),
+                  h.b([], ["Nothing matched"]),
+                  h.span(
+                    [],
+                    [
+                      "No id holds “",
+                      model.query.trim(),
+                      `”. Clear the filter to see all ${model.catalog.total} again.`,
+                    ],
+                  ),
                 ],
               ),
             ]
@@ -940,7 +951,7 @@ const details = (entry: LabEntry, h: HtmlBuilder<Message>): Html =>
   h.header(
     [h.Id("foldcase-lab-head")],
     [
-      h.h2(
+      h.h1(
         [h.DataAttribute("field", "id")],
         [`${entry.component}/`, h.b([], [leafOf(entry.id)])],
       ),
