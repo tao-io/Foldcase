@@ -26,13 +26,16 @@ import {
   docsFromFiles,
   loadShowcasesFromFiles,
   runCatalog,
-  ShowcaseModuleError,
+  type ShowcaseModuleError,
 } from "./cli.js"
 import { collectCoverage } from "./coverage/collect.js"
-import { CoverageReport, formatCoverage } from "./coverage/report.js"
-import { writeComponentDocs, WrittenDoc } from "./docs/generate.js"
+import { type CoverageReport, formatCoverage } from "./coverage/report.js"
+import { writeComponentDocs, type WrittenDoc } from "./docs/generate.js"
 import { FoldcaseMcpServer } from "./mcp/server.js"
-import { formatSuite, type Showcase, SuiteReport, suiteExitCode } from "./runner.js"
+// The `--json` documents are a published contract, so they are declared on the
+// entry point a consumer imports and used here — not the other way round.
+import { DocsDocument, TestDocument } from "./reports.js"
+import { formatSuite, type Showcase, type SuiteReport, suiteExitCode } from "./runner.js"
 
 /** The one-line usage banner, printed to stderr for an unknown subcommand. */
 export const usage =
@@ -187,16 +190,6 @@ const coverageOf = Effect.fn("foldcase.test.coverage")(
   ),
 )
 
-/**
- * What `foldcase test --json` prints: the suite report, and the coverage report
- * beside it when `--coverage` collected one. One document, so a reader parses
- * stdout once instead of splitting a summary from a report printed after it.
- */
-export class TestDocument extends Schema.Class<TestDocument>("foldcase/TestDocument")({
-  suite: SuiteReport,
-  coverage: Schema.optional(CoverageReport),
-}) {}
-
 const encodeTestDocument = Schema.encodeEffect(Schema.fromJsonString(TestDocument))
 
 // The document is the encoded Schema value, so what an agent parses is the same
@@ -243,16 +236,6 @@ const test = Effect.fn("foldcase.test")(function* (
   yield* json ? printTestDocument(suite, collected) : printSuite(suite, collected)
   return suiteExitCode(suite)
 })
-
-/**
- * What `foldcase docs --json` prints: the documents written, by component and
- * path, and the files that would not load, with the reason each was skipped.
- * The same two facts the human output says, in the order a reader needs them.
- */
-export class DocsDocument extends Schema.Class<DocsDocument>("foldcase/DocsDocument")({
-  docs: Schema.Array(WrittenDoc),
-  failures: Schema.Array(ShowcaseModuleError),
-}) {}
 
 const encodeDocsDocument = Schema.encodeEffect(Schema.fromJsonString(DocsDocument))
 

@@ -563,6 +563,10 @@ describe("ADR-0001 — every surface derives from the definition", () => {
       "src/mcp/catalog.ts",
       "src/mcp/tools.ts",
       "src/program.ts",
+      // The `--json` documents: `TestDocument` wraps the runner's `SuiteReport`,
+      // so the entry point a consumer decodes with derives from the definition
+      // like every other surface.
+      "src/reports.ts",
     ])
   })
 })

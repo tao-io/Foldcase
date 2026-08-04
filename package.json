@@ -51,6 +51,10 @@
       "types": "./dist/mcp/tools.d.ts",
       "import": "./dist/mcp/tools.js"
     },
+    "./reports": {
+      "types": "./dist/reports.d.ts",
+      "import": "./dist/reports.js"
+    },
     "./package.json": "./package.json"
   },
   "sideEffects": false,
