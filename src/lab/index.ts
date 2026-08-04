@@ -21,14 +21,18 @@ export { ADDRESS_PARAMETER, addressedId, addressOf } from "./address.js"
 export {
   ChangedAddress,
   initialModel,
+  isComponentExpanded,
+  isSelected,
   LeftForPage,
   makeLabApplication,
   Message,
   Model,
   MountedShowcase,
   RequestedAddress,
+  RevealedSelection,
   SelectedShowcase,
   selectedEntry,
+  ToggledComponent,
   update,
   WroteAddress,
 } from "./app.js"

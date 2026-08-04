@@ -63,6 +63,14 @@ this tool, and each of these is something it hit on the first run.
   for it: the entry module it ships with is built by the consumer's own Vite, the one a
   Foldkit app already runs for `@foldkit/vite-plugin`
   ([ADR-0004](docs/adr/0004-the-lab-is-a-foldkit-app-the-consumer-builds.md)).
+- **The lab holds a real catalog on one screen.** Run over the gallery's 146 Showcases the
+  first shell scrolled the whole page: the sidebar stood 6766 pixels tall, so selecting
+  anything past the second component pushed the details panel off screen, and reading what
+  you had just clicked meant scrolling back up six thousand pixels. Each column now scrolls
+  itself, the selected row scrolls into view — through Foldkit's Mount, which hands the lab
+  the element, rather than a query the surface gate rightly forbids — and a component folds
+  to one row, though never the one holding the selection. The whole sidebar folds from 7021
+  pixels to 1438.
 - **`mount`, the one seam the lab needed on `Showcase`.**
   `(container: HTMLElement) => Teardown | Promise<Teardown>`, optional, so every catalog
   written before it stays valid. A Showcase without it is listed, run and tabled exactly as
