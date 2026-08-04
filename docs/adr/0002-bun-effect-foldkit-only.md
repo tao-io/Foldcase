@@ -316,3 +316,25 @@ same change made the fence stricter elsewhere — every manifest in the reposito
 read for banned packages and bundlers, where before only the root one was. Nothing about
 the *tool* changes: `mise run build` is still `tsc -b`, the tarball still withholds
 `docs/`, and no bundler touches `src/`.
+
+## Amendment 4 — 2026-08-04: the dogfood is a consumer we did not write
+
+The *Enforcement* list above reads every file in the repository, on the premise that every
+file in it is ours. [ADR-0005](0005-the-dogfood-is-a-vendored-consumer.md) adds one that is
+not: the Foldkit component gallery, a real application with 24 components and 146
+Showcases, vendored as a git submodule under `dogfood/` and pinned to a commit, so the tool
+is driven over a codebase written by someone testing their own application rather than
+this one.
+
+`examples/counter` is eight Showcases we wrote, and it can only find what we already
+thought to look for. The gallery found five defects in this tool on its first pass. Keeping
+that reach means the dogfood has to keep being a real consumer, which a copy stops being
+the day it is taken.
+
+The gallery carries `vite`, `vitest` and configs for both, so the gate declares `dogfood/`
+**out of scope** rather than allowing pieces of it: nothing there is built, linted,
+typechecked or shipped, and nothing there is edited. The scope is one directory, one
+submodule, nothing read, and one task — `dogfood:gallery` — each pinned by name in
+`test/stack.test.ts`. It opens no bundler allowance: that task runs the built `dist/` and
+calls none, so it asks for no place in the site's list and is given none. Every manifest
+this repository owns is still read in full.
