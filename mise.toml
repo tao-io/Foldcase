@@ -32,7 +32,14 @@ description = "The bun test suite (co-located *.test.ts, every module tested thr
 # `--isolate` gives each file a fresh global object, so results are
 # deterministic and order-independent. Not `--parallel`: subprocess/fs tests
 # race each other for no real gain.
-run = "bun test --isolate"
+#
+# The two directories are the suite's whole scope, the same pair `lint` lints
+# and `tsconfig.json` includes. Named rather than left to a bare scan because
+# `dogfood/gallery` is somebody else's repository (ADR-0005) and carries its own
+# tests, written for its own runner; running them here would report a consumer's
+# failures as ours. The leading `./` matters — a bare `src` is a substring
+# filter and matches theirs too.
+run = "bun test --isolate ./src ./test"
 
 [tasks.lint]
 description = "Syntactic gate: oxlint over src (Effect-4 idioms, import hygiene, TS cleanup)"
@@ -201,6 +208,68 @@ diff -r examples/counter/docs "$tmp/docs"
 echo 'foldcase: dogfood passed — 8 Showcases, 2 documents, both runtimes'
 """
 
+[tasks."dogfood:gallery"]
+description = "Run the built CLI over the vendored @foldkit/ui gallery — 146 Showcases, 24 components, both runtimes (ADR-0005; in none of the seven checks, so it can never redden a release)"
+# `dogfood` drives `examples/counter`: eight Showcases we wrote, which can only
+# find what we already thought to look for. This drives an application we did
+# not write — 24 components, one page each, 146 Showcases over one shared Model
+# and one shared update — and it is where five defects in this tool were found.
+# The gallery is a git submodule pinned to a commit and declared out of the
+# stack gate's scope (ADR-0005). Nothing here builds it, lints it, typechecks
+# it, ships it, or writes to it: we read it and run our own CLI against it.
+run = """
+set -e
+if [ ! -f dogfood/gallery/package.json ]; then
+  echo 'foldcase dogfood:gallery: dogfood/gallery is not checked out — run `git submodule update --init dogfood/gallery`' >&2
+  exit 1
+fi
+if [ ! -f dist/main.js ] || [ ! -f dist/main.bun.js ]; then
+  echo 'foldcase dogfood:gallery: no dist/ — run `mise run build` first' >&2
+  exit 1
+fi
+if [ ! -d dogfood/gallery/node_modules ]; then
+  echo '── installing dogfood/gallery'
+  # The runtime half only, and deliberately. The gallery pins `foldcase` itself
+  # at an absolute path to a tarball on the machine it was authored on, so a
+  # full install succeeds only there; its Showcases import the type and nothing
+  # else, so nothing under `src/ui` needs that package to run. `--omit=dev`
+  # steps around the pin instead of editing somebody else's manifest, and
+  # `--frozen-lockfile` keeps this from writing to their lockfile.
+  if ! (cd dogfood/gallery && bun install --frozen-lockfile --omit=dev); then
+    echo 'foldcase dogfood:gallery: could not install dogfood/gallery — see the error above' >&2
+    exit 1
+  fi
+fi
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+echo '── node dist/main.js'
+node dist/main.js test dogfood/gallery/src/ui > "$tmp/out"
+grep -q '146 total · 146 passed · 0 failed' "$tmp/out"
+echo '── bun dist/main.bun.js'
+bun dist/main.bun.js test dogfood/gallery/src/ui > "$tmp/out"
+grep -q '146 total · 146 passed · 0 failed' "$tmp/out"
+
+# The same catalog through the lab's projection. An agent decodes this document,
+# so what it counts has to be what the run produced, grouped the way a component
+# is defined — an id namespace, one per @foldkit/ui component. The entry module
+# is written into the temp directory and goes with it.
+echo '── lab --json'
+node dist/main.js lab --json dogfood/gallery/src/ui "$tmp/lab/entry.ts" > "$tmp/document" 2> "$tmp/err"
+grep -q 'foldcase lab: wrote' "$tmp/err"
+node --input-type=module -e '
+  import { readFileSync } from "node:fs"
+  const { catalog } = JSON.parse(readFileSync(process.argv[1], "utf8"))
+  const seen = `${catalog.total} Showcases in ${catalog.components.length} components, ${catalog.failures.length} unreadable`
+  const wanted = "146 Showcases in 24 components, 0 unreadable"
+  if (seen !== wanted) {
+    console.error(`foldcase dogfood:gallery: the lab document reports ${seen}, wanted ${wanted}`)
+    process.exit(1)
+  }
+' "$tmp/document"
+echo 'foldcase: dogfood:gallery passed — 146 Showcases, 24 components, both runtimes'
+"""
+
 [tasks."docs:build"]
 description = "Build the documentation site in docs/site — derive its pages from this repository, then Vite (ADR-0003)"
 # The one place in this repository where a bundler runs, and the stack gate
@@ -290,12 +359,14 @@ ships README.md
 ships CHANGELOG.md
 ships LICENSE
 ships NOTICE
-# What ships is the build output. The sources, the suites, the example and the
-# ADRs are read on GitHub, not downloaded on every install.
+# What ships is the build output. The sources, the suites, the examples, the
+# vendored consumer and the ADRs are read on GitHub, not downloaded on every
+# install.
 withholds src/
 withholds test/
 withholds examples/
 withholds docs/
+withholds dogfood/
 
 # A directory that holds nothing of this repository but the tarball. The peer
 # versions come out of devDependencies, so it installs what the repository

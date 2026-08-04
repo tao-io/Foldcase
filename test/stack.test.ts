@@ -9,7 +9,7 @@
 // no project code — so it keeps working when the project itself does not.
 
 import { describe, expect, test } from "bun:test"
-import { readdirSync, readFileSync, statSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
 
 const REPO_ROOT = new URL("..", import.meta.url).pathname.replace(/\/$/, "")
 
@@ -30,11 +30,23 @@ const IGNORED_ANYWHERE = new Set([
 ])
 
 /**
+ * The vendored dogfood consumer (ADR-0005): a real Foldkit application, held as
+ * a git submodule at a pinned commit, that this repository's own CLI is run
+ * against. It is not our source — we do not build it, lint it, typecheck it or
+ * ship it, and we never edit it — so the fence has nothing to say about what it
+ * carries. Its manifest names `vite` and `vitest` and it keeps configs for both,
+ * which is exactly why the scope has to be declared rather than assumed.
+ */
+const DECLARED_DOGFOOD = "dogfood"
+
+/**
  * Generated directories whose names are also legitimate source directory names
  * — `src/coverage/` is the `--coverage` implementation, not a coverage report —
- * so they are ignored only at the repository root.
+ * so they are ignored only at the repository root. The vendored consumer joins
+ * them on the same terms: `dogfood/` out of scope at the root, and a `dogfood/`
+ * anywhere under `src/` or `test/` still read like any other directory.
  */
-const IGNORED_AT_ROOT = new Set(["coverage", "foldcase-docs"])
+const IGNORED_AT_ROOT = new Set(["coverage", "foldcase-docs", DECLARED_DOGFOOD])
 
 /** Every file in the repository, as a path relative to the repository root. */
 const repositoryFiles = (root: string = REPO_ROOT, prefix = ""): ReadonlyArray<string> =>
@@ -80,6 +92,28 @@ const DECLARED_SITE_DEPENDENCIES: Readonly<Record<string, ReadonlyArray<string>>
  * no permission and is not given any.
  */
 const DECLARED_SITE_TASKS: ReadonlyArray<string> = ["docs:build", "docs:dev"]
+
+// ── The second declared exception: the vendored dogfood consumer (ADR-0005) ──
+//
+// ADR-0005 vendors a real Foldkit application — the `@foldkit/ui` gallery — as
+// a git submodule under `dogfood/`, pinned to a commit, so the tool is driven
+// over a consumer it did not write. `examples/counter` is eight Showcases of
+// our own and cannot find what a real application finds; the gallery already
+// found five defects in this tool.
+//
+// The gate declares it **out of scope** rather than allowing pieces of it. It
+// is somebody else's repository: we do not build it, lint it, typecheck it or
+// ship it, and we never edit it. The scope is exactly this wide, and each
+// constant below is pinned by its own assertion, so widening it is a deliberate
+// edit to this file. Nothing here lets a bundler run in this repository — the
+// task that drives the gallery invokes none and asks for no allowance in
+// `DECLARED_SITE_TASKS`.
+
+const DECLARED_GALLERY = `${DECLARED_DOGFOOD}/gallery`
+const DECLARED_GALLERY_REMOTE = "https://github.com/tao-io/foldkit-gallery"
+
+/** The one mise task that may drive the vendored consumer. */
+const DECLARED_DOGFOOD_TASK = "dogfood:gallery"
 
 // ── 1. A rival lockfile ──────────────────────────────────────────────────────
 
@@ -751,5 +785,98 @@ describe("ADR-0003 — the documentation site", () => {
     // the pack task asserts that from the other side.
     expect((PACKAGE_JSON as PublishedManifest).files).not.toContain("docs")
     expect(MISE_TOML).toContain("withholds docs/")
+  })
+})
+
+// ── 12. The vendored dogfood consumer, and the width of its scope ────────────
+//
+// Everything above skips `dogfood/` because `IGNORED_AT_ROOT` names it. This
+// section is the other half, in the shape §11 already uses for the
+// documentation site: it pins each part of the declaration to its exact value,
+// proves the vendored consumer really is there, and proves the scope is not
+// vacuous — that what sits under `dogfood/` really would trip the fence, so
+// declaring it out of scope is doing work rather than decorating a directory
+// nobody uses.
+//
+// The non-vacuity assertions read the submodule from disk directly rather than
+// through `repositoryFiles`, which now skips it. A shallow clone, or a CI job
+// without `--recurse-submodules`, has no checkout to read; those assertions
+// skip cleanly there rather than failing, the same way the build half of
+// `test/surface-derivation.test.ts` does.
+
+const GITMODULES = existsSync(`${REPO_ROOT}/.gitmodules`)
+  ? readFileSync(`${REPO_ROOT}/.gitmodules`, "utf8")
+  : ""
+
+/** Is the submodule checked out here, rather than an empty pinned directory? */
+const galleryIsCheckedOut = existsSync(`${REPO_ROOT}/${DECLARED_GALLERY}/package.json`)
+
+describe("ADR-0005 — the vendored dogfood consumer", () => {
+  test("the declaration is exactly this, and widening it is an edit to this file", () => {
+    expect(DECLARED_DOGFOOD).toBe("dogfood")
+    expect(DECLARED_GALLERY).toBe("dogfood/gallery")
+    expect(DECLARED_GALLERY_REMOTE).toBe("https://github.com/tao-io/foldkit-gallery")
+    expect(DECLARED_DOGFOOD_TASK).toBe("dogfood:gallery")
+    // Out of scope at the root only, like every other entry in that set. A
+    // `dogfood/` directory under `src/` or `test/` is read like any other.
+    expect(IGNORED_AT_ROOT.has(DECLARED_DOGFOOD)).toBe(true)
+    expect(IGNORED_ANYWHERE.has(DECLARED_DOGFOOD)).toBe(false)
+    expect(FILES.filter((file) => file.startsWith(`${DECLARED_DOGFOOD}/`))).toEqual([])
+  })
+
+  test("the vendored consumer is really there, at the one path named", () => {
+    expect(FILES).toContain(".gitmodules")
+    expect(GITMODULES).toContain(`[submodule "${DECLARED_GALLERY}"]`)
+    expect(GITMODULES).toContain(`path = ${DECLARED_GALLERY}`)
+    expect(GITMODULES).toContain(`url = ${DECLARED_GALLERY_REMOTE}`)
+  })
+
+  test("and it really would trip the fence — the scope is not vacuous", () => {
+    // Conditional on purpose: a shallow clone, or CI without
+    // `--recurse-submodules`, has the pin but not the files.
+    if (!galleryIsCheckedOut) {
+      return
+    }
+    const manifest: unknown = JSON.parse(
+      readFileSync(`${REPO_ROOT}/${DECLARED_GALLERY}/package.json`, "utf8"),
+    )
+    // Both a banned package and a bundler, in the manifest of a directory the
+    // fence would otherwise read.
+    expect(bannedDependencies(manifest)).toContain("vite")
+    expect(bundlerDependencies(manifest)).toContain("vitest")
+    // And the rival toolchain configs §2 exists to name.
+    expect(existsSync(`${REPO_ROOT}/${DECLARED_GALLERY}/vite.config.ts`)).toBe(true)
+    expect(rivalToolchainFiles([`${DECLARED_GALLERY}/vite.config.ts`])).toEqual([
+      `${DECLARED_GALLERY}/vite.config.ts`,
+    ])
+  })
+
+  test("the one task that drives it is really in mise.toml, and names the consumer", () => {
+    const command = miseTasks(MISE_TOML).find(([name]) => name === DECLARED_DOGFOOD_TASK)?.[1]
+    expect(command).toBeString()
+    expect(command).toContain(DECLARED_GALLERY)
+  })
+
+  test("driving it needs no bundler allowance, and is given none", () => {
+    // ADR-0005 opens no hole in ADR-0003's: the task runs the built CLI and
+    // invokes no bundler, so it is deliberately absent from the site's list —
+    // the same way `docs:deploy` is. §8 already fails on any task that calls
+    // one; this says the exemption was never asked for.
+    expect(DECLARED_SITE_TASKS).not.toContain(DECLARED_DOGFOOD_TASK)
+    expect(bundlerTasks(miseTasks(MISE_TOML))).toEqual([])
+  })
+
+  test("the suite does not run the vendored consumer's own tests", () => {
+    // The gallery carries `*.test.ts` files written for its own runner. A bare
+    // `bun test` scans the whole tree and would report a consumer's failures as
+    // ours, so the suite names its scope — and names it with a leading `./`,
+    // because a bare `src` is a substring filter that matches theirs too.
+    const suite = miseTasks(MISE_TOML).find(([name]) => name === "test")?.[1] ?? ""
+    expect(suite).toContain("./src ./test")
+  })
+
+  test("nothing vendored reaches the tarball", () => {
+    expect((PACKAGE_JSON as PublishedManifest).files).not.toContain(DECLARED_DOGFOOD)
+    expect(MISE_TOML).toContain(`withholds ${DECLARED_DOGFOOD}/`)
   })
 })
