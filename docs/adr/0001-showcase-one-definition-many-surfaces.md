@@ -1,7 +1,7 @@
 ---
 type: adr
 title: A Showcase is defined once; every surface is derived from that definition
-description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase; Amendment 3 says what a component is.
+description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase; Amendment 3 says what a component is; Amendment 4 gives the lab its one seam, a mount rather than the view this ADR predicted.
 status: accepted
 created: 2026-07-31
 updated: 2026-08-04
@@ -303,3 +303,71 @@ the namespace. Two rules follow from a group no longer sharing one declaration:
   above say such a Showcase is "documented with a note"; since this amendment it is `none`.
   A page whose only content is a note that there is nothing to say costs a reader more than
   no page. The Showcase stays valid and still runs, which is what that clause protected.
+
+## Amendment 4 — 2026-08-04: the lab's seam is a mount, not a view
+
+Building the browser lab ([ADR-0004](0004-the-lab-is-a-foldkit-app-the-consumer-builds.md))
+reached the row this ADR left marked *not built yet*, and with it the seam the Consequences
+above reserved. The decision above is unchanged; this section adds the one optional field
+the lab needs, and says why it is not the field this ADR expected.
+
+**Decision: `Showcase` gains one optional field, `mount`.**
+
+```ts
+readonly mount?: (container: HTMLElement) => Teardown | Promise<Teardown>
+// type Teardown = () => void
+```
+
+### Why a mount and not a `view`
+
+The Consequences say the lab "will want a `view`; it must get one as a declared optional
+seam". It cannot have one. Foldkit makes a `view` alone unrenderable, and this is where
+that is written down:
+
+- **A Foldkit `view` is `(model, h: HtmlBuilder<Message>) => Html`.** The builder is
+  invariant in `Message`, and application code cannot construct one — it arrives as the
+  view's own argument. So a lab holding a view has nothing to call it with.
+- **There is no `Html.map`.** A lab cannot lift a view typed in an unknown app's Message
+  union into its own view, so even a callable view could not join the lab's tree. Embedding
+  is the only route Foldkit offers.
+- **`story()` returns `void`.** A play yields no model, so even given a callable view there
+  would be nothing to feed it.
+
+The seam that renders is therefore the one Foldkit already offers a host:
+`Runtime.embed(Runtime.makeElement({ … }))` returns an `EmbedHandle` whose `dispose` is the
+teardown. `mount` is that shape. It is also the direct analogue of `play` — an opaque thunk
+whose content lives in the app's own closure — which is what keeps the record
+framework-agnostic while the value inside it is Foldkit's.
+
+### Backward compatible, as the rule requires
+
+The field is optional and every catalog written before it stays valid. A Showcase without
+`mount` is listed, run, tabled and measured exactly as before, and gets no canvas in the
+lab. That is the record's answer, not a defect: the lab may not guess a view from an id,
+parse the source, or crawl the DOM (Enforcement, clause 3). A Showcase with nothing to draw
+draws nothing.
+
+`mount` present but not a function is a **malformed module** — the same rule `message` and
+`model` already carry. The one loader refuses the file and reports it as a load failure
+(Amendment 2), so a bad `mount` costs its own file and no other.
+
+### Two facts the contract carries
+
+Both measured against a live Foldkit runtime, and both are why `mount` takes a container
+rather than returning a node:
+
+- **`Runtime.embed` replaces the element it is handed.** A caller passes a fresh child slot
+  it created inside `container`, never a node its own virtual DOM diffs, or the host's next
+  patch and the embedded runtime fight over the same node.
+- **A Foldkit runtime dies if its container has no `id`, silently, because `embed` forks.**
+  The failure lands in a forked fiber, so nothing throws where the caller can see it. The
+  slot the lab creates carries an id.
+
+### How the lab reaches the DOM
+
+Enforcement clause 3 bans a DOM query in a surface, and `mount` needs a live `HTMLElement`.
+The lab does not query the document. Foldkit's `Mount.define`, with the `OnMount` and
+`OnUnmount` attributes, hands application code the element itself, and the Mount's scope is
+that element's lifetime — so the teardown is an `Effect.acquireRelease` finaliser rather
+than a listener somebody must remember to remove. The gate is satisfied by construction,
+not by evasion.
