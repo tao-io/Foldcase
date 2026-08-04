@@ -1,39 +1,192 @@
 # Foldcase
 
-**The typed test loop for [Foldkit](https://github.com/binarytide/foldkit) components.**
+**One typed record per component state — read by your coding agent, your CI, your docs,
+and your coverage.**
 
-A **Showcase** is one component in one state, with a `play` that drives it and asserts on
-the result. Foldcase runs Showcases headlessly in CI, serves them to a coding agent over
-MCP, and turns their schemas into Markdown tables.
+Foldcase exists so a coding agent can work on a [Foldkit](https://github.com/foldkit/foldkit)
+codebase without guessing. Foldkit ships two ways to test a component — a Story over
+`update`, a Scene over the rendered markup — but both are functions: they run, they pass,
+and afterwards nothing can ask them which components exist, which states are covered, or
+what a Message payload must contain. A **Showcase** writes those facts down. It is a
+record, not a function, so one declaration can be enumerated, introspected into JSON
+Schema, run by id, and reported as typed data.
 
-> The name: **fold** (Foldkit) + (show)**case**. Foldkit's testing family is Story and
-> Scene; a Showcase is the isolation layer between them — the component performing outside
-> the app.
+Point an agent at `foldcase mcp` and it stops reading your source to learn what a
+component does: it lists the catalog, reads the Message Schema, builds a valid payload by
+construction, runs the Showcase, and gets back a structured pass/fail that names the file
+to open. The same loop runs from the shell as `foldcase test --json`. And the same
+declaration produces your CI exit code, your Markdown schema tables, and your per-state
+coverage — so what the agent reads and what CI enforces cannot drift apart.
 
-## Why it exists
+- **`foldcase test`** — every Showcase headless, one exit code for CI, `--json` for
+  machines, `--coverage` attributed per component state.
+- **`foldcase mcp`** — six read-only tools that serve the catalog to an agent over stdio.
+- **`foldcase docs`** — one Markdown file per component, tabling its Model and Message
+  Schemas.
 
-Most component-test loops mount a browser, poke the DOM and read untyped callbacks. They
-test a rendering rather than a state machine, so they guess at what happened and they
-flake. Foldkit hands over three facts that remove the guessing:
+```
+  ✓ counter/starts-at-zero
+  ✓ counter/step-of-ten
+  ✗ tasks/adds-in-order — expected 2, got 1
 
-- the **Model** is one serializable value, so a test reads the whole state instead of
-  scraping rendered text;
-- the **Message** union is an Effect `Schema`, so it can be introspected into JSON Schema
-  and a valid payload can be built by construction;
-- **`update` is pure**, so the same Messages always give the same Model.
+3 total · 2 passed · 1 failed
+```
 
-Nothing was reading those facts. You can already assert on `update` in a plain `bun test`
-file — but a test is a function that runs, not a description of anything. It cannot say
-which components exist, which states they are shown in, or what Messages they take. So the
-same knowledge gets written down again for the docs, and again for whatever a coding agent
-is told, and the three copies drift.
+## Quickstart
 
-Foldcase removes the copies. A **Showcase** declares the component, the state and the play
+From nothing to a green run:
+
+```bash
+mkdir hello && cd hello && bun init -y
+bun add -d foldcase@alpha effect@4.0.0-beta.102 @effect/platform-bun@4.0.0-beta.102
+```
+
+Under Node 22.18+ swap the tooling:
+`npm install -D foldcase@alpha effect@4.0.0-beta.102 @effect/platform-node@4.0.0-beta.102`,
+then `npx foldcase` wherever this page says `bunx foldcase-bun`. Pin the platform package
+to the same Effect beta your app pins — `latest` is still the v3 major and will not load;
+see [Peer dependencies](#peer-dependencies).
+
+`hello.showcase.ts` — self-contained, so the pipeline shows without Foldkit:
+
+```ts
+import assert from "node:assert/strict"
+
+import type { Showcase } from "foldcase"
+
+type Model = { count: number }
+const update = (model: Model, step: number): Model => ({ count: model.count + step })
+
+export const showcases: ReadonlyArray<Showcase> = [
+  {
+    id: "counter/counts-two-clicks",
+    play: () => {
+      const model = update(update({ count: 0 }, 1), 1)
+      assert.equal(model.count, 2)
+    },
+  },
+]
+```
+
+```bash
+bunx foldcase-bun test
+```
+
+```
+  ✓ counter/counts-two-clicks
+
+1 total · 1 passed · 0 failed
+```
+
+Exit code 0. In a Foldkit app, `play` holds a Story and the record carries the real
+Message and Model Schemas — see [Writing a Showcase](#writing-a-showcase).
+
+## Wire it into your agent
+
+Add the server to `.mcp.json` (Claude Code and most MCP hosts):
+
+```json
+{
+  "mcpServers": {
+    "foldcase": {
+      "command": "npx",
+      "args": ["foldcase", "mcp"],
+      "env": { "FOLDCASE_SHOWCASE_DIR": "src" }
+    }
+  }
+}
+```
+
+Or in one line: `claude mcp add foldcase -e FOLDCASE_SHOWCASE_DIR=src -- npx foldcase mcp`.
+Under Bun the command is `bunx` with args `["foldcase-bun", "mcp"]`.
+
+`FOLDCASE_SHOWCASE_DIR` (default `.`) is read by `mcp` only. A relative value resolves
+against the directory the host launches the server in — for Claude Code, the project
+root — and becomes the server's root: `foldcase_load_catalog` resolves relative
+directories against that root, never against the currently served one, so no sequence of
+loads can walk away from it.
+
+The six tools, all annotated `readOnlyHint: true`, `destructiveHint: false`,
+`openWorldHint: false` — a host does not prompt for confirmation to list a catalog:
+
+| Tool | What it does |
+|---|---|
+| `foldcase_list_showcases` | Enumerate every Showcase, each flagged with which Schemas it carries, and name the directory they were read from. |
+| `foldcase_get_showcase_schema` | Introspect a Showcase's Message union into a JSON Schema document, so the agent builds a valid payload by construction. |
+| `foldcase_get_showcase_model_schema` | The same for the Model — the shape a `play` asserts on, which an agent has to know before it writes one. |
+| `foldcase_run_showcase` | Run one Showcase's `play` and return the typed pass/fail report, naming the file it came from. |
+| `foldcase_run_catalog` | Run the whole catalog into one suite report, or the part of it under an id prefix: `counter/` runs one component. |
+| `foldcase_load_catalog` | Re-read the catalog from disk after files appear or vanish, or point the server at another directory under the root. Reports how many Showcases came back and which files would not load. |
+
+The loop an agent runs:
+
+1. `foldcase_list_showcases` — which components exist, in which states; the
+   `hasMessageSchema` / `hasModelSchema` flags say which introspection call is worth
+   making.
+2. `foldcase_get_showcase_schema` — the Message union as a draft-2020-12 JSON Schema
+   document: a valid payload by construction, not by reading the source.
+3. `foldcase_get_showcase_model_schema` — the shape a `play` asserts on; read it before
+   writing one.
+4. Edit the code, or add a Showcase.
+5. `foldcase_run_showcase` for one state, or `foldcase_run_catalog` with
+   `id_prefix: "counter/"` for one component. A failing `play` is `status: "failed"` with
+   a full `SerializedError` — data, never a tool error — and a mistyped id returns every
+   available id, so it corrects itself in one round trip.
+6. `foldcase_load_catalog` after files appear or vanish. It cannot see an edit **inside**
+   a file that already loaded — both runtimes cache modules by URL — so after such an
+   edit, verify with `foldcase test` from the shell or restart the server.
+
+No MCP host? The same loop is the CLI: `foldcase test --json` prints one typed JSON
+document on stdout, diagnostics on stderr, and every report names its file.
+
+Foldcase is the static half of a two-server loop.
+[`@foldkit/devtools-mcp`](https://github.com/foldkit/foldkit/tree/main/packages/devtools-mcp)
+drives the live runtime — it needs a Vite dev server and an open browser tab; Foldcase
+needs only a directory of files, so it also runs in CI. The verbs pair up:
+
+| question | live — `@foldkit/devtools-mcp` | declared — `foldcase mcp` |
+|---|---|---|
+| what exists | `foldkit_list_runtimes` (open tabs) | `foldcase_list_showcases` |
+| Message shape | `foldkit_get_message_schema` | `foldcase_get_showcase_schema` |
+| the Model | `foldkit_get_model` (the value now) | `foldcase_get_showcase_model_schema` (the type) |
+| act | `foldkit_dispatch_message` | `foldcase_run_showcase` |
+
+devtools-mcp answers *what the app is doing right now*; Foldcase answers *what the app is
+supposed to do*.
+
+### Paste into your `AGENTS.md`
+
+```markdown
+## Showcases (Foldcase)
+
+- Components are described by Showcases: `export const showcases: ReadonlyArray<Showcase>`
+  in `*.showcase.ts` files. The record is `{ id, play, message?, model? }`; an id is
+  `component/state`.
+- To learn a component, use the `foldcase_*` MCP tools or `npx foldcase test --json` —
+  do not parse `*.showcase.ts` files or crawl the source for the same facts.
+- When you add a component state, add a Showcase for it. When you change a Message or
+  Model Schema, regenerate the tables: `npx foldcase docs src docs/schemas`.
+- `foldcase_load_catalog` sees files that appeared or vanished, not edits inside a file
+  that already loaded. After such an edit, verify with `npx foldcase test` instead.
+- Exit 1 means a failed Showcase, an unloadable file, or an empty catalog. All three are
+  reported as data; one bad file never hides the rest.
+```
+
+## Why a Showcase
+
+Most component-test loops mount a browser, poke the DOM and read untyped callbacks.
+Foldkit removes the need: the **Model** is one serializable value, the **Message** union
+is an Effect `Schema`, and **`update` is pure** — the same Messages always give the same
+Model. A test over those facts asserts on the whole state instead of scraped text, and it
+cannot flake.
+
+But a test is a function that runs, not a description of anything. It cannot say which
+components exist, which states they are shown in, or what Messages they take — so the same
+knowledge gets written down again for the docs, and again for whatever a coding agent is
+told, and the copies drift. A Showcase declares the component, the state and the play
 **once**; the CI run, the Markdown docs, the coverage report and the agent's catalog are
 all read off that single record — never parsed back out of your source
 ([ADR-0001](docs/adr/0001-showcase-one-definition-many-surfaces.md)).
-
-### What it adds over a plain test file
 
 | | `bun test` alone | with Foldcase |
 |---|---|---|
@@ -42,19 +195,17 @@ all read off that single record — never parsed back out of your source
 | Answer what a Message payload looks like | no | the Message `Schema` as a JSON Schema document |
 | Document the Model | no | `foldcase docs` — one Markdown table per component |
 | Attribute coverage to a component state | no | `--coverage` — per Showcase and in aggregate |
-| Hand any of it to a coding agent | no | three read-only MCP tools over stdio |
-
-A Showcase dispatches a typed Message and asserts on a deterministic Model — no DOM, no
-selectors, no waiting.
+| Hand any of it to a coding agent | no | six read-only MCP tools over stdio |
 
 ## Story, Scene, Showcase
 
 Foldkit already ships two ways to test a component. Foldcase adds a third that is not a
 way of testing at all.
 
-**Story** — `foldkit/story` — drives `update` and nothing else. Hand it a starting
-Model, send Messages, assert on the Model that comes out. It also accounts for every
-Command the reducer returned, so a story cannot pass on one you forgot to think about.
+**Story** — `foldkit/story` — drives `update` and everything it returns: send Messages,
+resolve the Commands they produce (`Command.resolveAll` cascades through a whole async
+flow), assert on the Model and on OutMessages. It accounts for every Command the reducer
+returned, so a story cannot pass on one you forgot to think about.
 
 ```ts
 story(
@@ -67,8 +218,10 @@ story(
 ```
 
 **Scene** — `foldkit/scene` — mounts `{ update, view }` and reads the rendered markup
-the way a user does: `getByRole`, `getByLabel`, `click`, `type`, `dropFiles`. It needs a
-DOM, so it runs under a test runner with one wired up.
+the way a user does: `getByRole`, `getByLabel`, `click`, `type`, `dropFiles`. It renders
+to Foldkit's virtual tree and queries that, so it needs no browser and no DOM — the
+vitest-plus-happy-dom setup in Foldkit's examples is convention, not a requirement. What
+it deliberately cannot see is the Model: a Scene asserts through the view.
 
 ```ts
 scene(
@@ -78,13 +231,14 @@ scene(
 )
 ```
 
-The two answer different questions, and neither catches the other's bugs. A Story asks
-whether the state machine is right. A Scene asks whether the markup reaches it. Building
-the Foldkit component gallery showed the gap: a Story proved `DragAndDrop` moves a card
-between columns and lands it in the right place, and it was right — but the browser
-showed that the card's element is rebuilt when it changes column, so focus drops to `<body>`
-halfway through a keyboard drag. The Model was correct and the person driving it was lost.
-No assertion on a Model can see that; only something that reads the rendered page can.
+The two answer different questions, and neither catches the other's bugs — and some bugs
+escape both. Building the Foldkit component gallery showed the ceiling: a Story proved
+`DragAndDrop` moves a card between columns and lands it in the right place, and it was
+right — but a real browser showed that the card's element is rebuilt when it changes
+column, so focus drops to `<body>` halfway through a keyboard drag. Element identity
+across a re-render is invisible to a Model assertion and to a virtual render alike; only a
+browser sees it. Test the machine with a Story, the markup with a Scene, and keep a
+browser in the loop for what only it can show.
 
 **A Showcase is neither.** It is a record, not a function:
 
@@ -92,87 +246,21 @@ No assertion on a Model can see that; only something that reads the rendered pag
 { id, play, message?, model? }
 ```
 
-`play` usually holds a Story — that is the cheap, deterministic half — but the runner
-never looks inside it. What Foldcase reads is everything around it: the `id` names one
-component in one state, and `message`/`model` are the Schemas that state is built from.
+`play` usually holds a Story — the cheap, deterministic half — but the runner never looks
+inside it. What Foldcase reads is everything around it: the `id` names one component in
+one state, and `message`/`model` are the Schemas that state is built from. A Story and a
+Scene are functions a runner calls; they run, they pass, and they are gone. A Showcase is
+a **description that stays readable**, so one declaration feeds the CI run, the Markdown
+tables, the coverage attribution and the agent's catalog at once.
 
-That difference is the whole point. A Story and a Scene are functions a runner calls; they
-run, they pass, and they are gone. Nothing can ask them which components exist or what a
-Message payload looks like. A Showcase is a **description that stays readable**, so one
-declaration feeds the CI run, the Markdown tables, the coverage attribution and the
-agent's catalog at once.
-
-| | drives | needs a DOM | answers |
+| | drives | answers | cannot see |
 |---|---|---|---|
-| **Story** | `update` | no | is the state machine right |
-| **Scene** | `update` + `view` | yes | does the markup reach it |
-| **Showcase** | whatever `play` holds — usually a Story | no | which components exist, in which states, built from which Schemas |
+| **Story** | `update` + Commands + OutMessages | is the state machine right | the markup |
+| **Scene** | `update` + `view`, virtually rendered | does the markup reach the machine | the Model — opaque by design |
+| **Showcase** | whatever `play` holds — usually a Story | which components exist, in which states, built from which Schemas | — |
 
-So the three stack rather than compete. A Scene mounts the whole app. A Story tests a
-reducer and has no notion of a component at all. A Showcase sits between them: one
-component, one state, outside the app — and it is the only one of the three that writes
-that fact down.
-
-Foldcase does not depend on Foldkit, and `play` is an opaque thunk, so a Showcase can hold
-a Scene, another assertion library, or plain code. Hold a Scene and you trade the DOM-free
-determinism for what a Scene sees; that is a real trade, not a mistake.
-
-## Install
-
-```bash
-npm  install -D foldcase@alpha    # or pnpm add -D / yarn add -D
-bun  add     -d foldcase@alpha
-```
-
-Releases go out under the **`alpha`** dist-tag while the API can still break, so ask for
-it by name.
-
-Foldcase ships as a compiled `dist/` — one `.js` and one `.d.ts` per source file, built by
-plain `tsc`, no bundler — so npm, pnpm, Vite and Bun all consume it as ordinary ESM.
-
-**Two bins, one per runtime:**
-
-| Bin | Runtime | Needs |
-|---|---|---|
-| `foldcase` | Node | Node **22.18** or newer, because it loads your `*.showcase.ts` through Node's own type stripping |
-| `foldcase-bun` | Bun | Bun **1.3.14** or newer |
-
-Both run the same program; only the shell around it differs. `engines` states both, and
-`@effect/platform-node` / `@effect/platform-bun` are **optional** peer dependencies — you
-need only the one your bin uses.
-
-There is **no single-file binary.** `bun build --compile` was dropped as a release
-artifact: a compiled binary resolves `import(path)` inside its own embedded filesystem, so
-it could never load a `*.showcase.ts` from your project — which is the tool's whole job.
-
-### Peer dependencies
-
-- **`effect` v4** — a peer dependency, so your app and Foldcase share one Effect instance.
-  The range is `>=4.0.0-beta.90`, and both ends of it are run: the suite passes on the
-  floor and on `4.0.0-beta.102`, the version Foldkit pins. Effect is in beta, and its JSON
-  Schema output moves between betas, so the docs generator reads a Model's types from the
-  shape of the encoding rather than from names that come and go.
-- **Node on `PATH`** — only for `foldcase test --coverage`, explained below. Under the Node
-  bin you already have it.
-- **One `@effect/platform-*`, pinned to the v4 beta line.** Ask for the version by name:
-
-  ```bash
-  bun add -d @effect/platform-node@4.0.0-beta.102   # or @effect/platform-bun@…
-  ```
-
-  `latest` on both packages is still the **v3** major, and installing it pulls in a
-  `@effect/cluster` built against Effect v3. The bin then dies inside a dependency you
-  never asked for — `Cannot find module 'effect/dist/FiberRef.js' imported from
-  @effect/cluster` — long before it reads a showcase. Match the `effect` your app pins.
-
-  Install only the one your bin runs. Without it, the bin now names the package and the
-  install command instead of printing a resolver stack trace.
-
-Foldcase does *not* depend on Foldkit. The `play` thunk is opaque to the runner, so
-Foldkit Showcases run in your app's own closure while Foldcase stays framework-blind.
-
-> Foldcase is alpha. Any patch may break the public API. The package name and import path
-> stay lowercase (`foldcase`) because npm forbids capitals; the tool is **Foldcase**.
+Foldcase does not depend on Foldkit, and `play` is an opaque thunk: it can hold a Story, a
+Scene, another assertion library, or plain code, and stays headless either way.
 
 ## Writing a Showcase
 
@@ -208,14 +296,14 @@ Assertions come from `node:assert` rather than `bun:test`, because a catalog is 
 whichever bin you run — `foldcase` under Node, `foldcase-bun` under Bun — and an import
 only one runtime has would tie the catalog to that runtime.
 
-The seam is deliberately small:
+The seam is small on purpose:
 
 ```ts
 export interface Showcase {
   readonly id: string
   readonly play: () => void | Promise<void> // throws on assertion failure
   readonly message?: Schema.Top // Message-union Schema — read by `mcp` and `docs`
-  readonly model?: Schema.Top // Model Schema — read by `docs`
+  readonly model?: Schema.Top // Model Schema — read by `docs` and `mcp`
 }
 ```
 
@@ -229,8 +317,8 @@ Everything Foldcase does is derived from this one record. See
 
 A working app is in [`examples/counter`](examples/counter) — two Foldkit components, eight
 Showcases, and the [Markdown](examples/counter/docs/tasks.md) `foldcase docs` writes from
-them. `mise run dogfood` runs it under both bins on every change, so the example is a check
-as well as a demo.
+them. `mise run dogfood` drives it under both bins in CI, so the example is a check as
+well as a demo.
 
 ### A type-only import must say `import type`
 
@@ -263,13 +351,6 @@ foldcase test src/ui       # a directory
 foldcase test button.showcase.ts   # a single file
 ```
 
-```
-  ✓ counter/click-twice
-  ✗ button/disabled — expected true, got false
-
-2 total · 1 passed · 1 failed
-```
-
 A `*.showcase.ts` that will not import — a bad path, a missing dependency, a
 [type imported as a value](#a-type-only-import-must-say-import-type) — is reported as a
 failed entry for that **file**, and the rest of the run continues:
@@ -280,6 +361,10 @@ failed entry for that **file**, and the rest of the run continues:
 
 2 total · 1 passed · 1 failed
 ```
+
+Extra positionals are refused, not ignored: `foldcase test a.ts b.ts` names what it did
+not understand and exits 1, because running half of what you asked for behind a green exit
+would be a lie.
 
 #### `--coverage`
 
@@ -309,7 +394,9 @@ Read the limitations before you rely on it:
 
 - It needs **Node on `PATH`** and runs the measurement in a **spawned Node subprocess**,
   because Bun exposes no programmatic V8 precise coverage.
-- That subprocess resolves modules the way **Node** does, which is stricter than Bun. A
+- The collector runs every `play` twice more — an aggregate pass and a per-Showcase
+  pass — on top of the suite run. Keep plays pure and fast.
+- The subprocess resolves modules the way **Node** does, which is stricter than Bun. A
   file Bun imports happily can fail there — a directory import is the common one. Such a
   file is listed under **`not measured:`** with the reason, and counted on the summary
   line, so a truncated measurement never reads as a whole one.
@@ -341,11 +428,11 @@ foldcase test src/ui --json --coverage    # coverage rides in the same document
 }
 ```
 
-Three things it guarantees:
-
 - **Every report names its file.** An id alone does not say what to open, and the loader —
   not the author — holds that fact, so it is carried in the report rather than declared on
   the `Showcase`.
+- **A failure is a full `SerializedError`** — `name`, `message`, the `stack`, and `code`
+  when the runtime set one — not the two-field sketch above.
 - **stdout is the document and nothing else.** Logs and warnings go to stderr.
 - **The exit codes do not move**: 1 on any failure, 1 when nothing was discovered — and a
   run that discovered nothing prints no document at all, because `"failed": 0` would read
@@ -362,29 +449,35 @@ foldcase docs                 # output goes to FOLDCASE_DOCS_DIR, default ./fold
 ```
 
 A **component** is the set of Showcases sharing an id namespace — everything before the
-last `/`. Five Showcases under `ui/picker/*` produce one `ui-picker.md` listing the ids
-behind it, `button/starts-unclicked` and `button/counts-one-click` are the `button`
-component, and an id with no `/` is its own. This is the same notion of a component
-`foldcase_run_catalog` filters on with an `id_prefix`.
+last `/`. Five Showcases under `ui/picker/*` produce one `ui-picker.md`,
+`button/starts-unclicked` and `button/counts-one-click` are the `button` component, and an
+id with no `/` is its own. This is the same notion of a component `foldcase_run_catalog`
+filters on with an `id_prefix`.
 
 Each table is read from the first Showcase, in id order, that declares that Schema, so a
 namespace holding both plain logic Showcases and schema-carrying ones still documents. A
 component whose Showcases declare neither Schema has nothing to table and gets no file.
-Your app is free to keep one Model and one Message union for the whole app, the way a
-Foldkit app does — every document will carry the same two tables, under its own heading,
-with its own list of asserted behaviours.
 
 The Message table is `Message | Field | Type | Optional`, one row per tag and payload
-field. The Model table is `Field | Type | Optional`. Types describe the value your Model
-**holds**, not the JSON it serializes to: a `Schema.DurationFromMillis` field reads
-`Duration`, not `number`, and a `Schema.Option(T)` field reads `Option<T>` with Optional
-`yes`. Beyond that the `number | "NaN" | "Infinity"` encoding collapses to `number`,
-`Array<T>` reads `T[]`, a named class field resolves to its definition name, and a `|`
-inside a type is escaped so the table survives it. Output is sorted, so regenerating gives
-a clean diff.
+field; the Model table is `Field | Type | Optional`. Types describe the value your Model
+**holds**, not the JSON it serializes to — from
+[`examples/counter`](examples/counter/docs/tasks.md):
+
+| Field | Type | Optional |
+| --- | --- | --- |
+| `autosaveAfter` | Duration | no |
+| `filter` | "all" \| "open" \| "done" | no |
+| `selected` | Option&lt;string&gt; | yes |
+| `tasks` | Task[] | no |
+
+A `Schema.DurationFromMillis` field reads `Duration`, not `number`; `Schema.Option(T)`
+reads `Option<T>` with Optional `yes`; a named class resolves to its definition name; a
+`|` inside a type is escaped so the table survives it. Output is sorted, so regenerating
+gives a clean diff.
 
 A file that will not load is named on stderr and the command exits non-zero; the documents
-it could write are still written.
+it could write are still written. With every file loaded, the exit is 0 — including when
+nothing was written because no Showcase declares a Schema.
 
 `--json` works here too, and says what was written and what would not load:
 
@@ -397,55 +490,119 @@ it could write are still written.
 }
 ```
 
-### `foldcase mcp` — the catalog for an agent
+### `foldcase mcp` — the catalog server
 
-Serves the catalog to a coding agent over stdio MCP. Six tools:
+The wiring and the six tools are [above](#wire-it-into-your-agent). Server semantics worth
+knowing:
 
-| Tool | What it does |
-|---|---|
-| `foldcase_list_showcases` | Enumerate every Showcase, each flagged with which Schemas it carries, and name the directory they were read from. |
-| `foldcase_get_showcase_schema` | Introspect a Showcase's Message union into a JSON Schema document, so the agent builds a valid payload by construction. |
-| `foldcase_get_showcase_model_schema` | The same for the Model — the shape a `play` asserts on, which an agent has to know before it writes one. |
-| `foldcase_run_showcase` | Run one Showcase's `play` and return the typed pass/fail report, naming the file it came from. |
-| `foldcase_run_catalog` | Run the whole catalog into one suite report, or the part of it under an id prefix: `counter/` runs one component. |
-| `foldcase_load_catalog` | Re-read the catalog from disk after an edit, or point the server at another directory. Reports how many Showcases came back and which files would not load. |
-
-All six are annotated `readOnlyHint: true`, `destructiveHint: false` and
-`openWorldHint: false`, because all six only read the declared catalog and run a pure
-`play` in this process — so a host does not prompt for confirmation to list a catalog.
-
-The whole toolkit is registered before the server reads a byte of stdin, so a host that
-discovers its tools once at startup gets all six from its **first** `tools/list`.
-
-The server serves one catalog at a time, and `foldcase_load_catalog` is the only thing that
-moves it. A directory parameter on every verb would make an id mean nothing on its own —
-the same id would name different Showcases from call to call — so the directory is state,
-and every listing and load report says which one is being served. A load that fails leaves
-the last good catalog in place. One limit worth knowing: a reload sees files that appeared
-or vanished, but not an edit **inside** a file that already loaded, because both runtimes
-cache a module by URL.
+- The whole toolkit is registered before the server reads a byte of stdin, so a host that
+  discovers its tools once at startup gets all six from its **first** `tools/list`.
+- The server serves one catalog at a time, and `foldcase_load_catalog` is the only thing
+  that moves it. A directory parameter on every verb would make an id mean nothing on its
+  own, so the directory is state, and every listing and load report says which one is
+  being served. A load that fails leaves the last good catalog in place.
+- A showcase file that will not load is logged to stderr and the rest of the catalog is
+  served anyway. Only a `FOLDCASE_SHOWCASE_DIR` that cannot be read at launch fails the
+  server itself.
 
 ```bash
 foldcase mcp                                    # point your MCP host's stdio command here
-FOLDCASE_SHOWCASE_DIR=src/ui foldcase mcp       # scan a specific directory
+FOLDCASE_SHOWCASE_DIR=src/ui foldcase mcp       # serve a specific directory
 ```
 
-A showcase file that will not load is logged to stderr and the rest of the catalog is
-served anyway.
+## Reference
 
-This is the **static** half of the loop: which Showcases exist, what their Messages look
-like, and what happens when one runs. It composes with Foldkit's own devtools MCP, which
-drives the **live** runtime. Together an agent can enumerate, read the schema, dispatch a
-valid typed Message, assert the resulting Model, re-run the Showcase, and read a structured
-result — with no DOM in the path.
+Exit codes:
+
+| Command | 0 | 1 |
+|---|---|---|
+| `test` | every Showcase passed | a failed Showcase, an unloadable file, or no `*.showcase.ts` found |
+| `docs` | every file loaded — even if nothing was written | a load failure, a Schema that will not introspect, or no `*.showcase.ts` found |
+| `mcp` | — (serves until the host closes stdio) | the server would not launch |
+| any | | unknown or missing verb, or extra positionals — refused with the usage banner |
+
+`--coverage` never changes an exit code.
+
+Environment:
+
+| Variable | Read by | Default | Meaning |
+|---|---|---|---|
+| `FOLDCASE_SHOWCASE_DIR` | `mcp` only | `.` | the served catalog root |
+| `FOLDCASE_DOCS_DIR` | `docs` only | `foldcase-docs` | the out-dir when no second positional names one |
+
+Discovery is a recursive walk for files ending in `.showcase.ts`, sorted so the report is
+deterministic run to run. It does not skip `node_modules`, so point the commands at your
+source directory — `foldcase test src` — rather than a directory that contains installed
+packages.
+
+CI is the exit code:
+
+```yaml
+- uses: oven-sh/setup-bun@v2
+- run: bun install --frozen-lockfile
+- run: bunx foldcase-bun test src
+```
+
+Add `--json` and redirect stdout when a later step consumes the report.
+
+## Install, runtimes, peers
+
+```bash
+npm  install -D foldcase@alpha    # or pnpm add -D / yarn add -D
+bun  add     -d foldcase@alpha
+```
+
+Releases go out under the **`alpha`** dist-tag while the API can still break, so ask for
+it by name. Foldcase ships as a compiled `dist/` — one `.js` and one `.d.ts` per source
+file, built by plain `tsc`, no bundler — so npm, pnpm, Vite and Bun all consume it as
+ordinary ESM. There is no single-file binary, and deliberately so: a compiled binary
+could never load a `*.showcase.ts` from your project, which is the tool's whole job
+([ADR-0002 › Amendment 1](docs/adr/0002-bun-effect-foldkit-only.md)).
+
+**Two bins, one per runtime:**
+
+| Bin | Runtime | Needs |
+|---|---|---|
+| `foldcase` | Node | Node **22.18** or newer, because it loads your `*.showcase.ts` through Node's own type stripping |
+| `foldcase-bun` | Bun | Bun **1.3.14** or newer |
+
+Both run the same program; only the shell around it differs.
+
+### Peer dependencies
+
+- **`effect` v4** — a peer dependency, so your app and Foldcase share one Effect instance.
+  The range is `>=4.0.0-beta.90`, and both ends of it are run: the suite passes on the
+  floor and on `4.0.0-beta.102`, the version Foldkit pins today.
+- **One `@effect/platform-*`, matched to the Effect beta your app pins.** Ask for the
+  version by name:
+
+  ```bash
+  bun add -d @effect/platform-node@4.0.0-beta.102   # or @effect/platform-bun@…
+  ```
+
+  `latest` on both packages is still the **v3** major, and installing it pulls in a
+  `@effect/cluster` built against Effect v3. The bin then dies inside a dependency you
+  never asked for — `Cannot find module 'effect/dist/FiberRef.js' imported from
+  @effect/cluster` — long before it reads a showcase. Both platform packages are
+  **optional** peers: install only the one your bin runs. Without it, the bin names the
+  package and the install command instead of printing a resolver stack trace.
+- **Node on `PATH`** — only for `foldcase test --coverage`. Under the Node bin you already
+  have it.
+
+Foldcase does *not* depend on Foldkit. The `play` thunk is opaque to the runner, so
+Foldkit Showcases run in your app's own closure while Foldcase stays framework-blind.
+
+> Foldcase is alpha. Any patch may break the public API.
 
 ## Programmatic use
 
 | Import | What you get |
 |---|---|
-| `foldcase` | `Showcase`, `runShowcase`, `runShowcases`, `suiteOf`, the `ShowcaseReport` / `SuiteReport` Schemas, `formatSuite`, `suiteExitCode` |
-| `foldcase/cli` | `discoverShowcaseFiles`, `loadShowcasesFromFiles`, `runCatalog`, `runSuiteFromFiles`, `docsFromFiles` |
-| `foldcase/mcp` | the launchable stdio server Layer, and `makeFoldcaseMcpServer` over your own catalog Layer |
+| `foldcase` | the `Showcase` type; `runShowcase`, `runShowcases`, `suiteOf`, `suiteExitCode`, `formatSuite`; the `ShowcaseReport` / `SuiteReport` Schemas; `SerializedError` and `serializeError` |
+| `foldcase/cli` | `discoverShowcaseFiles`, `loadShowcasesFromFiles`, `runCatalog`, `runSuiteFromFiles`, `docsFromFiles`; `ShowcaseModuleError` and `loadFailureReason`; the `LoadedShowcase` / `CatalogLoad` types |
+| `foldcase/mcp` | `FoldcaseMcpServer`, the launchable stdio server Layer, and `makeFoldcaseMcpServer` over your own catalog Layer |
+| `foldcase/mcp/catalog` | the `FoldcaseCatalog` service (`.layer`, `.layerFromShowcases`), `makeCatalog`, `loadCatalogFromDir`, and the listing / load-report / error Schemas |
+| `foldcase/mcp/tools` | `FoldcaseToolkit`, `FoldcaseHandlers`, `makeHandlers` |
 
 Every report is a decoded `Schema` value, not a loose object, so a failure is structured
 data you can act on rather than a string you have to parse. `loadShowcasesFromFiles`
@@ -453,37 +610,20 @@ returns `{ loaded, showcases, failures }` and never fails — `loaded` pairs eac
 with its file, `showcases` drops the file for surfaces that only run records — so you
 decide what an unloadable file means for your surface.
 
-## Where it came from, and what changed
+## Provenance
 
-Foldcase grew out of a fork of [Openstory](https://github.com/millionco/openstory), a
-framework-agnostic component explorer: CSF-3 story files, a prebuilt React shell, a Vite
-dev server, adapters for React, Solid, Vue and Svelte, all on pnpm and turbo. The part that
-carried the value was the headless runner — so that part became the whole tool, and the
-shell stayed behind.
+Foldcase grew out of a fork of [Openstory](https://github.com/millionco/openstory) —
+CSF-3 story files, a React shell, a Vite dev server. The headless runner carried the
+value, so it became the whole tool: one `Showcase` record instead of `Meta` plus
+`StoryObj`, Effect Schemas end to end, an MCP catalog, coverage per component state, no
+browser and no bundler. The `play` contract and the `SerializedError` shape are kept and
+credited — [`NOTICE`](NOTICE) records exactly what — and the old line lives on the
+`foldkit` branch as history, not as a dependency. The decisions are
+[ADR-0001](docs/adr/0001-showcase-one-definition-many-surfaces.md) (one definition, many
+surfaces) and [ADR-0002](docs/adr/0002-bun-effect-foldkit-only.md) (the Bun + Effect +
+Foldkit stack).
 
-What this line adds:
-
-- **one definition of a component**, not two — the `Showcase` record replaces CSF-3's
-  `Meta` plus `StoryObj`, and there is no story-file parser to keep in step with it;
-- **typed contracts end to end** — Effect `Schema` for every report, tagged errors with
-  real payloads, so a failure is data you can act on rather than a string to parse;
-- **an MCP catalog**, which is what makes the loop usable by a coding agent;
-- **coverage attributed to a component state**, per Showcase, not per file;
-- **headless everywhere** — no browser, no bundler, no dev server, and one bin each for
-  Node and Bun.
-
-What it drops: the React shell, CSF-3, the four framework adapters, pnpm/turbo/Vite, and
-the Vitest/Playwright visual gate. Two things are kept and credited — the `play` contract
-and the `SerializedError` shape; [`NOTICE`](NOTICE) records exactly what. The old line
-still lives on the `foldkit` branch as history, not as a dependency. The reasoning is
-[ADR-0002](docs/adr/0002-bun-effect-foldkit-only.md).
-
-## Status
-
-`main` is the live line. The runner, the MCP server, the docs generator, and the coverage
-collector are here with their history, and the two gates the decisions promised — the
-toolchain fence and the derivation spine — run with the rest of the suite. The Openstory
-fork line is on the `foldkit` branch, which `main` no longer descends from.
+> The name: **fold**(kit) + (show)**case** — the component performing outside the app.
 
 ## Contributing
 
@@ -492,19 +632,12 @@ alike. Then:
 
 ```bash
 mise run setup      # once, after installing
-mise run test
-mise run lint
-mise run typecheck
-mise run build      # tsc -b → dist/; the published shape
-mise run smoke      # drive the built dist/ under Node and Bun (after build)
+mise run lint && mise run typecheck && mise run test
+mise run build && mise run smoke
 ```
 
-CI runs exactly these on every push. `mise` pins Bun, oxlint **and Node 22.18.0** — the
-floor `engines` claims — so nothing is tested against whatever Node a machine happened to
-have.
+CI runs exactly these on every push, against the same pinned Bun and Node.
 
 ## License
 
-MIT. Foldcase began as a fork of [Openstory](https://github.com/millionco/openstory) and
-keeps its copyright notice; [`NOTICE`](NOTICE) records exactly what is still derived from
-it.
+MIT. [`NOTICE`](NOTICE) records what is still derived from Openstory.
