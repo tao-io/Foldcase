@@ -9,10 +9,16 @@ import {
   initialModel,
   isComponentExpanded,
   isSelected,
+  matchingTotal,
+  type Model,
   MountedShowcase,
+  MovedSelection,
+  neighbourId,
   SelectedShowcase,
   selectedEntry,
+  sidebarComponents,
   ToggledComponent,
+  TypedQuery,
   update,
 } from "./app.js"
 import { labCatalogOf } from "./catalog.js"
@@ -202,7 +208,7 @@ describe("folding a component", () => {
     expect(two.collapsedComponents).toEqual(["button", "card"])
   })
 
-  test("keeps the component holding the selection open, so a deep link is never folded out of sight", () => {
+  test("folds the component holding the selection, so the click the reader made is the one they see", () => {
     const before = initialModel(
       catalogOf("alpha/one", "button/one"),
       urlOf("http://localhost:5198/?showcase=button%2Fone"),
@@ -210,18 +216,38 @@ describe("folding a component", () => {
     const [folded] = update(before, ToggledComponent({ component: "button" }))
 
     expect(folded.collapsedComponents).toEqual(["button"])
-    expect(isComponentExpanded(folded, "button")).toBe(true)
+    expect(isComponentExpanded(folded, "button")).toBe(false)
   })
 
-  test("folds the component again once the selection has left it", () => {
-    const before = initialModel(
-      catalogOf("alpha/one", "button/one"),
-      urlOf("http://localhost:5198/?showcase=button%2Fone"),
-    )
+  test("unfolds the component a chosen Showcase belongs to, so a selection is never hidden", () => {
+    const before = initialModel(catalogOf("alpha/one", "button/one"), bare)
     const [folded] = update(before, ToggledComponent({ component: "button" }))
-    const [moved] = update(folded, SelectedShowcase({ id: "alpha/one" }))
+    const [chosen] = update(folded, SelectedShowcase({ id: "button/one" }))
 
-    expect(isComponentExpanded(moved, "button")).toBe(false)
+    expect(chosen.collapsedComponents).toEqual([])
+    expect(isComponentExpanded(chosen, "button")).toBe(true)
+  })
+
+  test("unfolds the component a new address names, so back and forward never land out of sight", () => {
+    const before = initialModel(catalogOf("alpha/one", "button/one"), bare)
+    const [folded] = update(before, ToggledComponent({ component: "button" }))
+    const [arrived] = update(
+      folded,
+      ChangedAddress({ url: urlOf("http://localhost:5198/?showcase=button%2Fone") }),
+    )
+
+    expect(isComponentExpanded(arrived, "button")).toBe(true)
+  })
+
+  test("leaves a fold alone when the address names an id the catalog never declared", () => {
+    const before = initialModel(catalogOf("alpha/one", "button/one"), bare)
+    const [folded] = update(before, ToggledComponent({ component: "button" }))
+    const [arrived] = update(
+      folded,
+      ChangedAddress({ url: urlOf("http://localhost:5198/?showcase=button%2Fnope") }),
+    )
+
+    expect(arrived.collapsedComponents).toEqual(["button"])
   })
 
   test("moves nothing and writes no address, because folding is not a navigation", () => {
@@ -229,6 +255,139 @@ describe("folding a component", () => {
     const [folded, commands] = update(before, ToggledComponent({ component: "button" }))
 
     expect(folded.maybeSelectedId).toEqual(before.maybeSelectedId)
+    expect(commands).toEqual([])
+  })
+})
+
+describe("filtering the catalog", () => {
+  const wide = () =>
+    initialModel(
+      catalogOf("alpha/opens-clean", "button/counts-one-click", "button/starts-unclicked"),
+      bare,
+    )
+
+  const drawn = (model: Model) =>
+    sidebarComponents(model).map((component) => [
+      component.component,
+      component.entries.map((entry) => entry.id),
+    ])
+
+  test("opens on no filter, so a fresh lab shows the whole catalog", () => {
+    expect(wide().query).toBe("")
+    expect(drawn(wide())).toEqual([
+      ["alpha", ["alpha/opens-clean"]],
+      ["button", ["button/counts-one-click", "button/starts-unclicked"]],
+    ])
+  })
+
+  test("records what the reader typed, and writes no address, because a filter is not a navigation", () => {
+    const [model, commands] = update(wide(), TypedQuery({ query: "counts" }))
+
+    expect(model.query).toBe("counts")
+    expect(commands).toEqual([])
+  })
+
+  test("keeps only the entries whose id holds what was typed, and drops the components left empty", () => {
+    const [model] = update(wide(), TypedQuery({ query: "counts" }))
+
+    expect(drawn(model)).toEqual([["button", ["button/counts-one-click"]]])
+  })
+
+  test("matches whatever the reader's shift key did, because nobody types a catalog id exactly", () => {
+    const [model] = update(wide(), TypedQuery({ query: "  BUTTON/Starts  " }))
+
+    expect(drawn(model)).toEqual([["button", ["button/starts-unclicked"]]])
+  })
+
+  test("counts what a filter left, so the sidebar can say how much of the catalog it is showing", () => {
+    const [model] = update(wide(), TypedQuery({ query: "button/" }))
+
+    expect(matchingTotal(model)).toBe(2)
+    expect(matchingTotal(wide())).toBe(3)
+  })
+
+  test("keeps a component that matched but drew nothing, because a fold hides its entries", () => {
+    const [folded] = update(wide(), ToggledComponent({ component: "button" }))
+
+    expect(drawn(folded)).toEqual([["alpha", ["alpha/opens-clean"]], ["button", []]])
+  })
+
+  test("shows a match inside a folded component, because a filter that hides its own hits is a lie", () => {
+    const [folded] = update(wide(), ToggledComponent({ component: "button" }))
+    const [filtered] = update(folded, TypedQuery({ query: "counts" }))
+
+    expect(isComponentExpanded(filtered, "button")).toBe(true)
+    expect(drawn(filtered)).toEqual([["button", ["button/counts-one-click"]]])
+  })
+
+  test("draws nothing at all when what was typed matches no id, so the sidebar can say so", () => {
+    const [model] = update(wide(), TypedQuery({ query: "nothing-is-called-this" }))
+
+    expect(drawn(model)).toEqual([])
+    expect(matchingTotal(model)).toBe(0)
+  })
+})
+
+describe("walking the sidebar by keyboard", () => {
+  const three = () => initialModel(catalogOf("alpha/one", "button/one", "button/two"), bare)
+
+  test("names the row below the selection, which is what an arrow key moves to", () => {
+    expect(neighbourId(three(), 1)).toEqual(Option.some("button/one"))
+  })
+
+  test("names the row above the selection, crossing out of a component the way the eye does", () => {
+    const [model] = update(three(), SelectedShowcase({ id: "button/one" }))
+
+    expect(neighbourId(model, -1)).toEqual(Option.some("alpha/one"))
+  })
+
+  test("stops at the ends rather than wrapping, so holding a key cannot loop the catalog", () => {
+    const [last] = update(three(), SelectedShowcase({ id: "button/two" }))
+
+    expect(neighbourId(three(), -1)).toEqual(Option.none())
+    expect(neighbourId(last, 1)).toEqual(Option.none())
+  })
+
+  test("walks what the sidebar draws, not what the catalog holds, so a filter narrows the walk", () => {
+    const [chosen] = update(three(), SelectedShowcase({ id: "button/one" }))
+    const [filtered] = update(chosen, TypedQuery({ query: "button" }))
+
+    // `alpha/one` is still in the catalog, and a step up no longer reaches it.
+    expect(neighbourId(filtered, -1)).toEqual(Option.none())
+    expect(neighbourId(filtered, 1)).toEqual(Option.some("button/two"))
+  })
+
+  test("skips the rows a fold hid, because a row nobody can see is not the next one", () => {
+    const [folded] = update(three(), ToggledComponent({ component: "button" }))
+
+    expect(neighbourId(folded, 1)).toEqual(Option.none())
+  })
+
+  test("enters the list from the end it came from when nothing drawn is selected", () => {
+    // The selection is `alpha/one`, which this filter took off the screen — so
+    // there is no row to step from, and the step has to land somewhere sane.
+    const [filtered] = update(three(), TypedQuery({ query: "button" }))
+
+    expect(neighbourId(filtered, 1)).toEqual(Option.some("button/one"))
+    expect(neighbourId(filtered, -1)).toEqual(Option.some("button/two"))
+    expect(neighbourId({ ...filtered, maybeSelectedId: Option.none() }, 1)).toEqual(
+      Option.some("button/one"),
+    )
+  })
+
+  test("moves the selection and writes the address, so an arrow key is a navigation like a click", () => {
+    const [model, commands] = update(three(), MovedSelection({ delta: 1 }))
+
+    expect(model.maybeSelectedId).toEqual(Option.some("button/one"))
+    expect(commands.map((command) => command.args)).toEqual([
+      { address: "/?showcase=button%2Fone" },
+    ])
+  })
+
+  test("moves nothing at the end of the list, and writes no address for a move that did not happen", () => {
+    const [model, commands] = update(three(), MovedSelection({ delta: -1 }))
+
+    expect(model.maybeSelectedId).toEqual(Option.some("alpha/one"))
     expect(commands).toEqual([])
   })
 })

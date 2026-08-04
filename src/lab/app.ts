@@ -13,8 +13,8 @@ import { Url, toString as urlToString } from "foldkit/url"
 
 import type { CatalogLoad } from "../cli.js"
 import { addressedId, addressOf } from "./address.js"
-import type { LabComponent, LabEntry } from "./catalog.js"
-import { LabCatalog, labCatalogOf } from "./catalog.js"
+import type { LabEntry } from "./catalog.js"
+import { LabCatalog, labCatalogOf, LabComponent } from "./catalog.js"
 
 // MESSAGE
 
@@ -42,6 +42,23 @@ export const MountedShowcase = m("MountedShowcase", { id: Schema.String })
  * dispatch, keyed by the component names `foldcase_list_showcases` serves.
  */
 export const ToggledComponent = m("ToggledComponent", { component: Schema.String })
+
+/**
+ * A reader narrowed the catalog to the ids holding what they typed. A few
+ * hundred entries is more than a fold can rescue — folding costs a click per
+ * component and answers "which component", where a filter answers "which
+ * Showcase" in one gesture. An agent has the same affordance by the same
+ * dispatch, which is how it reaches an id it only half remembers.
+ */
+export const TypedQuery = m("TypedQuery", { query: Schema.String })
+
+/**
+ * A reader walked the sidebar with an arrow key. It carries a step and not an
+ * id because the reader is naming a direction, not a Showcase — what lies one
+ * step away depends on the filter and the folds, and `update` is the one place
+ * that knows both.
+ */
+export const MovedSelection = m("MovedSelection", { delta: Schema.Number })
 
 /**
  * The sidebar scrolled the chosen row into view. A Mount has to name a result
@@ -75,6 +92,8 @@ export const Message = Schema.Union([
   SelectedShowcase,
   MountedShowcase,
   ToggledComponent,
+  TypedQuery,
+  MovedSelection,
   RevealedSelection,
   ChangedAddress,
   RequestedAddress,
@@ -123,6 +142,11 @@ const LeavePage = Command.define("LeavePage", {
  * is a statement about the namespace; and it is an array and not a `Set`
  * because a Model is a Schema and has to encode.
  *
+ * `query` is what the reader typed to narrow the catalog. It is held raw —
+ * neither trimmed nor lowered — because it is also what the input draws, and a
+ * field that rewrites what is being typed into it is a field nobody can type a
+ * space into. `sidebarComponents` normalises it at the point of comparison.
+ *
  * The `mount` thunks are deliberately **not** here. A Model is a Schema, and a
  * closure has no encoding — so the factory closes over them, keyed by id,
  * exactly as the document is keyed. The Model carries the id, and the id is
@@ -134,6 +158,7 @@ export const Model = Schema.Struct({
   maybeSelectedId: Schema.Option(Schema.String),
   maybeUnknownId: Schema.Option(Schema.String),
   collapsedComponents: Schema.Array(Schema.String),
+  query: Schema.String,
 })
 export type Model = typeof Model.Type
 
@@ -170,6 +195,32 @@ const selectionAt = (model: Model, maybeId: Option.Option<string>): Selection =>
   )
 
 /**
+ * The folds a selection leaves behind: the same ones, less the component the
+ * selection just arrived in.
+ *
+ * This is the other half of dropping the old "the group holding the selection
+ * is open whatever the reader folded" rule. Arriving opens the group, once, and
+ * then the fold is the reader's again — so a deep link, a back button and an
+ * agent's dispatch all land on a row that is on screen, and the fold button
+ * never has a click to decline. A selection that did not move, or an id the
+ * catalog does not declare, unfolds nothing.
+ */
+const unfoldedAt = (model: Model, selection: Selection): Pick<Model, "collapsedComponents"> =>
+  pipe(
+    selection.maybeSelectedId,
+    Option.flatMap((id) => Arr.findFirst(entriesOf(model.catalog), (entry) => entry.id === id)),
+    Option.match({
+      onNone: () => ({ collapsedComponents: model.collapsedComponents }),
+      onSome: (entry) => ({
+        collapsedComponents: Arr.filter(
+          model.collapsedComponents,
+          (name) => name !== entry.component,
+        ),
+      }),
+    }),
+  )
+
+/**
  * The Model a lab opens on: the whole document, showing the entry the address
  * names, or its first entry in id order when the address names none. An empty
  * catalog opens on nothing, which is the honest answer rather than a selection
@@ -184,6 +235,8 @@ export const initialModel = (catalog: LabCatalog, url: Url): Model => {
     // Every group open: a lab that opened folded would hide the catalog it
     // exists to show, and folding is the reader's move to make.
     collapsedComponents: [],
+    // And nothing filtered, for the same reason.
+    query: "",
   }
   return { ...opened, ...selectionAt(opened, addressedId(url)) }
 }
@@ -214,19 +267,107 @@ export const isSelected = (model: Model, id: string): boolean =>
 /**
  * Whether a component's group shows its entries.
  *
- * Folded is the reader's word, with one rule over it: the group holding the
- * selection is open whatever the reader folded. Otherwise an address that names
- * an id inside a folded group would draw a canvas with nothing in the sidebar
- * to show where it came from, and a deep link would land on a hidden row.
+ * Folded is the reader's word, with one rule over it: a live filter opens
+ * everything it matched. A filter that hid its own hits behind a fold the
+ * reader set ten minutes ago would be a filter that lies about the catalog.
+ *
+ * The group holding the selection has no such privilege. It used to, so that a
+ * deep link could never land on a hidden row — but the cost was a fold button
+ * that swallowed the click and then applied it later, when the reader had moved
+ * on and the sidebar reshuffled under them. The rule that replaces it lives in
+ * `update`: arriving at a Showcase opens the component it belongs to. Feedback
+ * is immediate either way, and no click is ever silently declined.
  */
 export const isComponentExpanded = (model: Model, component: string): boolean =>
-  !Arr.contains(model.collapsedComponents, component) ||
-  Option.contains(
-    Option.map(selectedEntry(model), (entry) => entry.component),
-    component,
+  normalisedQuery(model) !== "" || !Arr.contains(model.collapsedComponents, component)
+
+/** What the reader typed, as it is actually compared: trimmed and lowered. */
+const normalisedQuery = (model: Model): string => model.query.trim().toLowerCase()
+
+/** Whether an entry survives the filter. An empty filter is not a filter. */
+const matchesQuery = (entry: LabEntry, query: string): boolean =>
+  query === "" || entry.id.toLowerCase().includes(query)
+
+/**
+ * The catalog as the sidebar draws it: the components that still hold a match,
+ * each carrying the rows to render under its heading.
+ *
+ * One function answers both questions the sidebar has — what to list and what
+ * to list under it — because they are the same question asked at two depths,
+ * and two functions would be two chances to disagree about a fold. A component
+ * whose entries are all folded away stays in the list with none of them: the
+ * heading is what unfolds it again, so dropping the heading would be a trap.
+ * A component the filter emptied is dropped outright, heading and all, because
+ * there is nothing under it to unfold.
+ */
+export const sidebarComponents = (model: Model): ReadonlyArray<LabComponent> => {
+  const query = normalisedQuery(model)
+  return Arr.flatMap(model.catalog.components, (component) => {
+    const matched = Arr.filter(component.entries, (entry) => matchesQuery(entry, query))
+    return matched.length === 0
+      ? []
+      : [
+          new LabComponent({
+            component: component.component,
+            entries: isComponentExpanded(model, component.component) ? matched : [],
+          }),
+        ]
+  })
+}
+
+/**
+ * How many Showcases the filter left. The header says this against the catalog
+ * total, so a reader who typed something that matched three of a hundred and
+ * forty-six reads that it matched three — rather than reading a short list and
+ * assuming the catalog is short.
+ */
+export const matchingTotal = (model: Model): number => {
+  const query = normalisedQuery(model)
+  return Arr.filter(entriesOf(model.catalog), (entry) => matchesQuery(entry, query)).length
+}
+
+/**
+ * The id one step from the selection, in the order the sidebar draws.
+ *
+ * It walks {@link sidebarComponents} and not the catalog, so an arrow key moves
+ * between the rows on screen: a filter narrows the walk to what it matched, and
+ * a fold takes its rows out of it. A step past either end is `none` rather than
+ * the other end, because a keyboard held down should stop at the edge of the
+ * list instead of quietly starting it again. When nothing drawn is selected the
+ * step enters the list from the end it came from.
+ */
+export const neighbourId = (model: Model, delta: number): Option.Option<string> => {
+  const drawn = sidebarComponents(model).flatMap((component) =>
+    component.entries.map((entry) => entry.id),
   )
+  const at = pipe(
+    model.maybeSelectedId,
+    Option.flatMap((id) => Arr.findFirstIndex(drawn, (drawnId) => drawnId === id)),
+    Option.getOrElse(() => (delta > 0 ? -1 : drawn.length)),
+  )
+  return Arr.get(drawn, at + delta)
+}
 
 // UPDATE
+
+/**
+ * Arriving at a Showcase, however the reader got there: a click, an arrow key,
+ * or an agent's dispatch. All three take the same route so all three answer the
+ * same way — the selection moves, the group it landed in opens, and the address
+ * is written unless the id was one the catalog never declared.
+ */
+const chose = (
+  model: Model,
+  id: string,
+): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
+  const selection = selectionAt(model, Option.some(id))
+  return [
+    { ...model, ...selection, ...unfoldedAt(model, selection) },
+    Option.isNone(selection.maybeUnknownId)
+      ? [WriteAddress({ address: addressOf(model.url, id) })]
+      : [],
+  ]
+}
 
 /**
  * Pure, and the whole of the lab's behaviour: the sidebar moves the selection,
@@ -248,16 +389,19 @@ export const update = (
     M.value(message),
     M.withReturnType<readonly [Model, ReadonlyArray<Command.Command<Message>>]>(),
     M.tagsExhaustive({
-      SelectedShowcase: ({ id }) => {
-        const selection = selectionAt(model, Option.some(id))
-        return [
-          { ...model, ...selection },
-          Option.isNone(selection.maybeUnknownId)
-            ? [WriteAddress({ address: addressOf(model.url, id) })]
-            : [],
-        ]
+      SelectedShowcase: ({ id }) => chose(model, id),
+      MovedSelection: ({ delta }) =>
+        pipe(
+          neighbourId(model, delta),
+          Option.match({
+            onNone: (): readonly [Model, ReadonlyArray<Command.Command<Message>>] => [model, []],
+            onSome: (id) => chose(model, id),
+          }),
+        ),
+      ChangedAddress: ({ url }) => {
+        const selection = selectionAt(model, addressedId(url))
+        return [{ ...model, url, ...selection, ...unfoldedAt(model, selection) }, []]
       },
-      ChangedAddress: ({ url }) => [{ ...model, url, ...selectionAt(model, addressedId(url)) }, []],
       RequestedAddress: ({ request }) =>
         pipe(
           M.value(request),
@@ -276,6 +420,7 @@ export const update = (
         },
         [],
       ],
+      TypedQuery: ({ query }) => [{ ...model, query }, []],
       MountedShowcase: () => [model, []],
       RevealedSelection: () => [model, []],
       WroteAddress: () => [model, []],

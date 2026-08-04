@@ -29,3 +29,4 @@ dist/
 /docs/site/content/
 # alchemy deployment state — may hold credentials.
 .alchemy/
+.impeccable/
