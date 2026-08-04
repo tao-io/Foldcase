@@ -352,7 +352,7 @@ const unknownIdNotice = (
       onSome: (id) => [
         h.p(
           [h.Id("foldcase-lab-unknown-id"), h.DataAttribute("unknown-id", id)],
-          [`The id “${id}” is not one this catalog declares. Showing what was open instead.`],
+          [`The id “${id}” is not one this catalog declares. What is drawn below is a fallback.`],
         ),
       ],
     }),
