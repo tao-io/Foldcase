@@ -36,6 +36,21 @@ export const SelectedShowcase = m("SelectedShowcase", { id: Schema.String })
 export const MountedShowcase = m("MountedShowcase", { id: Schema.String })
 
 /**
+ * A reader folded a component's group shut, or opened it again. A catalog of a
+ * few hundred entries is a column no screen holds, and this is how it becomes
+ * one screen of component names — an affordance an agent has too, by the same
+ * dispatch, keyed by the component names `foldcase_list_showcases` serves.
+ */
+export const ToggledComponent = m("ToggledComponent", { component: Schema.String })
+
+/**
+ * The sidebar scrolled the chosen row into view. A Mount has to name a result
+ * Message, so this is the acknowledgement `update` records and does nothing
+ * with — the scroll is the whole of the work.
+ */
+export const RevealedSelection = m("RevealedSelection", { id: Schema.String })
+
+/**
  * The address changed under the lab — a reader edited the bar, went back, or
  * followed a link — and the lab reads the selection back out of it. Every
  * address the lab itself writes arrives here too, because `pushUrl` announces
@@ -59,6 +74,8 @@ export const LeftForPage = m("LeftForPage")
 export const Message = Schema.Union([
   SelectedShowcase,
   MountedShowcase,
+  ToggledComponent,
+  RevealedSelection,
   ChangedAddress,
   RequestedAddress,
   WroteAddress,
@@ -101,6 +118,11 @@ const LeavePage = Command.define("LeavePage", {
  * declare. It is held rather than dropped so the lab can say so: an address a
  * reader mistyped or an agent guessed must not read as an empty gallery.
  *
+ * `collapsedComponents` is which groups the reader folded shut. It is the names
+ * and not a flag per entry, because a component is an id namespace and folding
+ * is a statement about the namespace; and it is an array and not a `Set`
+ * because a Model is a Schema and has to encode.
+ *
  * The `mount` thunks are deliberately **not** here. A Model is a Schema, and a
  * closure has no encoding — so the factory closes over them, keyed by id,
  * exactly as the document is keyed. The Model carries the id, and the id is
@@ -111,6 +133,7 @@ export const Model = Schema.Struct({
   url: Url,
   maybeSelectedId: Schema.Option(Schema.String),
   maybeUnknownId: Schema.Option(Schema.String),
+  collapsedComponents: Schema.Array(Schema.String),
 })
 export type Model = typeof Model.Type
 
@@ -158,6 +181,9 @@ export const initialModel = (catalog: LabCatalog, url: Url): Model => {
     url,
     maybeSelectedId: Arr.head(idsOf(catalog)),
     maybeUnknownId: Option.none(),
+    // Every group open: a lab that opened folded would hide the catalog it
+    // exists to show, and folding is the reader's move to make.
+    collapsedComponents: [],
   }
   return { ...opened, ...selectionAt(opened, addressedId(url)) }
 }
@@ -175,6 +201,29 @@ export const selectedEntry = (model: Model): Option.Option<LabEntry> =>
   pipe(
     model.maybeSelectedId,
     Option.flatMap((id) => Arr.findFirst(entriesOf(model.catalog), (entry) => entry.id === id)),
+  )
+
+/**
+ * Whether the sidebar draws this row as the chosen one. The row's look, its
+ * `data-selected` and the scroll that brings it into view all ask this, so
+ * there is one answer and three readings of it cannot drift apart.
+ */
+export const isSelected = (model: Model, id: string): boolean =>
+  Option.contains(model.maybeSelectedId, id)
+
+/**
+ * Whether a component's group shows its entries.
+ *
+ * Folded is the reader's word, with one rule over it: the group holding the
+ * selection is open whatever the reader folded. Otherwise an address that names
+ * an id inside a folded group would draw a canvas with nothing in the sidebar
+ * to show where it came from, and a deep link would land on a hidden row.
+ */
+export const isComponentExpanded = (model: Model, component: string): boolean =>
+  !Arr.contains(model.collapsedComponents, component) ||
+  Option.contains(
+    Option.map(selectedEntry(model), (entry) => entry.component),
+    component,
   )
 
 // UPDATE
@@ -218,7 +267,17 @@ export const update = (
             External: ({ href }) => [model, [LeavePage({ href })]],
           }),
         ),
+      ToggledComponent: ({ component }) => [
+        {
+          ...model,
+          collapsedComponents: Arr.contains(model.collapsedComponents, component)
+            ? Arr.filter(model.collapsedComponents, (name) => name !== component)
+            : Arr.append(model.collapsedComponents, component),
+        },
+        [],
+      ],
       MountedShowcase: () => [model, []],
+      RevealedSelection: () => [model, []],
       WroteAddress: () => [model, []],
       LeftForPage: () => [model, []],
     }),
@@ -231,21 +290,35 @@ export const update = (
  * styles nothing. It is deliberately small — a two-column frame and enough
  * separation to read — and every rule is scoped to a `foldcase-lab-` name, so a
  * consumer's own CSS overrides it rather than fights it.
+ *
+ * The frame is one viewport tall and each column scrolls itself. A catalog of a
+ * few hundred Showcases is a sidebar several thousand pixels long, and a page
+ * that scrolls as one carries the details panel off the top the moment a reader
+ * reaches for anything past the first few components — so the reader scrolls
+ * down to click, then back up to read what they clicked. Two scroll containers
+ * are what stop that, and they are the reason the frame is `fixed`: `100vh`
+ * would still ride on whatever margin the consumer's `body` carries, and a
+ * margin is exactly what the lab may not reach out and change.
  */
 const STYLESHEET = `
-#foldcase-lab { display: flex; gap: 24px; align-items: flex-start;
+#foldcase-lab { position: fixed; inset: 0; display: flex; gap: 24px;
+  box-sizing: border-box; background: #fff;
   font-family: system-ui, sans-serif; padding: 24px; }
-#foldcase-lab-sidebar { flex: 0 0 260px; }
+#foldcase-lab-sidebar { flex: 0 0 260px; overflow-y: auto;
+  overscroll-behavior: contain; padding-right: 8px; }
 #foldcase-lab-sidebar h1 { font-size: 14px; text-transform: uppercase;
   letter-spacing: 0.08em; color: #64748b; margin: 0 0 16px; }
-#foldcase-lab-sidebar h2 { font-size: 13px; margin: 16px 0 6px; color: #0f172a; }
+#foldcase-lab-sidebar h2 { margin: 12px 0 4px; }
 #foldcase-lab-sidebar ul { list-style: none; margin: 0; padding: 0; }
 #foldcase-lab-sidebar button { display: block; width: 100%; text-align: left;
   padding: 6px 10px; border: 1px solid transparent; border-radius: 6px;
-  background: none; font: inherit; font-size: 13px; cursor: pointer; }
+  background: none; font: inherit; font-size: 13px; cursor: pointer;
+  scroll-margin: 12px 0; }
 #foldcase-lab-sidebar button:hover { background: #f1f5f9; }
 #foldcase-lab-sidebar button[data-selected='true'] { background: #2563eb; color: #fff; }
-#foldcase-lab-main { flex: 1; min-width: 0; }
+#foldcase-lab-sidebar button[data-group] { font-weight: 600; color: #0f172a; }
+#foldcase-lab-sidebar button[data-group] span { color: #94a3b8; font-weight: 400; }
+#foldcase-lab-main { flex: 1; min-width: 0; overflow-y: auto; }
 #foldcase-lab-details { display: grid; grid-template-columns: max-content 1fr;
   gap: 4px 16px; margin: 0 0 20px; font-size: 13px; }
 #foldcase-lab-details dt { color: #64748b; }
@@ -263,8 +336,36 @@ const STYLESHEET = `
 /** The part of an id that is not its component namespace. */
 const leafOf = (id: string): string => id.slice(id.lastIndexOf("/") + 1)
 
-const entryButton = (entry: LabEntry, model: Model, h: HtmlBuilder<Message>): Html =>
-  h.li(
+/**
+ * Bring the chosen row into view, and nothing else.
+ *
+ * A cold load of `?showcase=<id>` selects a row that can be thousands of pixels
+ * down a sidebar that now scrolls itself, and a selection nobody can see is a
+ * details panel with no answer to "where did this come from". The lab may not
+ * go looking for that row in the document — a surface that queries the DOM is
+ * the move ADR-0001 exists to stop — and it does not have to: `OnMount` hands
+ * the factory the live element. The row is keyed on whether it is the chosen
+ * one, so every new selection is a new element and this runs once for it.
+ * `block: "nearest"` is what keeps it quiet: a row already in view is left
+ * exactly where it is, so clicking about the sidebar never jerks it around.
+ */
+const RevealSelection = Mount.define(
+  "RevealSelection",
+  { id: Schema.String },
+  RevealedSelection,
+)(({ id }) => (element) =>
+  Effect.sync(() => {
+    element.scrollIntoView({ block: "nearest" })
+    return RevealedSelection({ id })
+  }),
+)
+
+const entryButton = (entry: LabEntry, model: Model, h: HtmlBuilder<Message>): Html => {
+  const selected = isSelected(model, entry.id)
+  return h.keyed("li")(
+    // The key carries the selection, so choosing a row destroys the old element
+    // and builds a new one — which is what fires the Mount above.
+    `${entry.id}:${String(selected)}`,
     [],
     [
       h.button(
@@ -273,29 +374,57 @@ const entryButton = (entry: LabEntry, model: Model, h: HtmlBuilder<Message>): Ht
           h.Id(`foldcase-lab-select-${entry.id}`),
           h.OnClick(SelectedShowcase({ id: entry.id })),
           h.DataAttribute("id", entry.id),
-          h.DataAttribute(
-            "selected",
-            String(Option.contains(model.maybeSelectedId, entry.id)),
-          ),
+          h.DataAttribute("selected", String(selected)),
           h.DataAttribute("has-mount", String(entry.hasMount)),
+          ...(selected ? [h.OnMount(RevealSelection({ id: entry.id }))] : []),
         ],
         [leafOf(entry.id)],
       ),
     ],
   )
+}
 
+/**
+ * One component's group: a heading that folds it, and its entries when it is
+ * open. Folded, the group costs one row instead of however many Showcases it
+ * declares — which is how twenty-four components fit on a screen.
+ */
 const componentSection = (
   component: LabComponent,
   model: Model,
   h: HtmlBuilder<Message>,
-): Html =>
-  h.section(
-    [h.DataAttribute("component", component.component)],
+): Html => {
+  const expanded = isComponentExpanded(model, component.component)
+  return h.section(
     [
-      h.h2([], [component.component]),
-      h.ul([], Arr.map(component.entries, (entry) => entryButton(entry, model, h))),
+      h.DataAttribute("component", component.component),
+      h.DataAttribute("expanded", String(expanded)),
+    ],
+    [
+      h.h2(
+        [],
+        [
+          h.button(
+            [
+              h.Type("button"),
+              h.Id(`foldcase-lab-fold-${component.component}`),
+              h.OnClick(ToggledComponent({ component: component.component })),
+              h.DataAttribute("group", component.component),
+              h.DataAttribute("expanded", String(expanded)),
+            ],
+            [
+              `${expanded ? "▾" : "▸"} ${component.component} `,
+              h.span([], [String(component.entries.length)]),
+            ],
+          ),
+        ],
+      ),
+      ...(expanded
+        ? [h.ul([], Arr.map(component.entries, (entry) => entryButton(entry, model, h)))]
+        : []),
     ],
   )
+}
 
 /**
  * The files the loader could not read, shown rather than swallowed (ADR-0001 ›

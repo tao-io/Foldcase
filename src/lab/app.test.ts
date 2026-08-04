@@ -7,9 +7,12 @@ import type { Showcase } from "../runner.js"
 import {
   ChangedAddress,
   initialModel,
+  isComponentExpanded,
+  isSelected,
   MountedShowcase,
   SelectedShowcase,
   selectedEntry,
+  ToggledComponent,
   update,
 } from "./app.js"
 import { labCatalogOf } from "./catalog.js"
@@ -156,6 +159,76 @@ describe("update", () => {
     const [model, commands] = update(before, MountedShowcase({ id: "button/one" }))
 
     expect(model).toBe(before)
+    expect(commands).toEqual([])
+  })
+})
+
+describe("isSelected", () => {
+  test("says which row the sidebar draws as chosen, so the view asks once and cannot disagree", () => {
+    const model = initialModel(catalogOf("button/one", "button/two"), bare)
+
+    expect(isSelected(model, "button/one")).toBe(true)
+    expect(isSelected(model, "button/two")).toBe(false)
+  })
+
+  test("says no row is chosen when the catalog is empty", () => {
+    expect(isSelected(initialModel(catalogOf(), bare), "button/one")).toBe(false)
+  })
+})
+
+describe("folding a component", () => {
+  test("opens with every component unfolded, so a fresh lab shows the whole catalog", () => {
+    const model = initialModel(catalogOf("alpha/one", "button/one"), bare)
+
+    expect(model.collapsedComponents).toEqual([])
+    expect(isComponentExpanded(model, "button")).toBe(true)
+  })
+
+  test("folds the component that was toggled, and unfolds it when it is toggled again", () => {
+    const before = initialModel(catalogOf("alpha/one", "button/one"), bare)
+    const [folded] = update(before, ToggledComponent({ component: "button" }))
+    const [unfolded] = update(folded, ToggledComponent({ component: "button" }))
+
+    expect(isComponentExpanded(folded, "button")).toBe(false)
+    expect(isComponentExpanded(folded, "alpha")).toBe(true)
+    expect(isComponentExpanded(unfolded, "button")).toBe(true)
+  })
+
+  test("folds nothing but the component named, however many are folded already", () => {
+    const before = initialModel(catalogOf("alpha/one", "button/one", "card/one"), bare)
+    const [one] = update(before, ToggledComponent({ component: "button" }))
+    const [two] = update(one, ToggledComponent({ component: "card" }))
+
+    expect(two.collapsedComponents).toEqual(["button", "card"])
+  })
+
+  test("keeps the component holding the selection open, so a deep link is never folded out of sight", () => {
+    const before = initialModel(
+      catalogOf("alpha/one", "button/one"),
+      urlOf("http://localhost:5198/?showcase=button%2Fone"),
+    )
+    const [folded] = update(before, ToggledComponent({ component: "button" }))
+
+    expect(folded.collapsedComponents).toEqual(["button"])
+    expect(isComponentExpanded(folded, "button")).toBe(true)
+  })
+
+  test("folds the component again once the selection has left it", () => {
+    const before = initialModel(
+      catalogOf("alpha/one", "button/one"),
+      urlOf("http://localhost:5198/?showcase=button%2Fone"),
+    )
+    const [folded] = update(before, ToggledComponent({ component: "button" }))
+    const [moved] = update(folded, SelectedShowcase({ id: "alpha/one" }))
+
+    expect(isComponentExpanded(moved, "button")).toBe(false)
+  })
+
+  test("moves nothing and writes no address, because folding is not a navigation", () => {
+    const before = initialModel(catalogOf("alpha/one", "button/one"), bare)
+    const [folded, commands] = update(before, ToggledComponent({ component: "button" }))
+
+    expect(folded.maybeSelectedId).toEqual(before.maybeSelectedId)
     expect(commands).toEqual([])
   })
 })
