@@ -350,6 +350,34 @@ describe("run", () => {
     await Bun.$`rm -rf ${dir}`.quiet()
   })
 
+  test("init --json prints one document naming each file, and only that on stdout", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-init-json`
+    await Bun.$`rm -rf ${dir}`.quiet()
+    await Bun.$`mkdir -p ${dir}`.quiet()
+
+    const result = await runCapturing(["init", "--json", dir])
+
+    expect(result.code).toBe(0)
+    expect(documentOf(result)).toEqual({
+      artifacts: [
+        {
+          file: ".mcp.json",
+          path: `${new URL("../runtime-test-init-json", import.meta.url).pathname}/.mcp.json`,
+          action: "created",
+        },
+        {
+          file: "AGENTS.md",
+          path: `${new URL("../runtime-test-init-json", import.meta.url).pathname}/AGENTS.md`,
+          action: "created",
+        },
+      ],
+    })
+    // The human lines are the summary the document replaces, so none of them
+    // may appear beside it.
+    expect(result.err).toEqual([])
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
   test("init on a directory that is not there fails instead of creating one", async () => {
     const absent = `${import.meta.dir}/../runtime-test-init-absent`
     await Bun.$`rm -rf ${absent}`.quiet()

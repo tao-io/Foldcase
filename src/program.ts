@@ -40,7 +40,7 @@ import { type InitArtifact, initialize } from "./init.js"
 import { FoldcaseMcpServer } from "./mcp/server.js"
 // The `--json` documents are a published contract, so they are declared on the
 // entry point a consumer imports and used here — not the other way round.
-import { DocsDocument, TestDocument } from "./reports.js"
+import { DocsDocument, InitDocument, TestDocument } from "./reports.js"
 import { formatSuite, type Showcase, type SuiteReport, suiteExitCode } from "./runner.js"
 
 /** The one-line usage banner, printed to stderr for an unknown subcommand. */
@@ -374,8 +374,18 @@ const printInit = (artifacts: ReadonlyArray<InitArtifact>) =>
     { concurrency: 1, discard: true },
   )
 
-const init = Effect.fn("foldcase.init")(function* (target: string) {
-  yield* printInit(yield* initialize(target))
+const encodeInitDocument = Schema.encodeEffect(Schema.fromJsonString(InitDocument))
+
+// Same contract as the other two documents: the encoded Schema value, so what
+// an agent parses is what `init` reported. An encode failure would mean the
+// Schema disagrees with the artifacts just written — a defect, not a caller's
+// problem.
+const printInitDocument = (artifacts: ReadonlyArray<InitArtifact>) =>
+  encodeInitDocument(new InitDocument({ artifacts })).pipe(Effect.orDie, Effect.flatMap(Console.log))
+
+const init = Effect.fn("foldcase.init")(function* (target: string, json: boolean) {
+  const artifacts = yield* initialize(target)
+  yield* json ? printInitDocument(artifacts) : printInit(artifacts)
   // Wiring either happened or failed: there is no partial verdict to report,
   // so a run that returns at all returns clean.
   return 0
@@ -396,7 +406,7 @@ export const runCommand = Command.$match({
   Test: ({ coverage, json, target }) => reserveStdout(json, test(target, coverage, json)),
   Docs: ({ check, json, outDir, target }) =>
     reserveStdout(json, docs(target, outDir, json, check)),
-  Init: ({ json, target }) => reserveStdout(json, init(target)),
+  Init: ({ json, target }) => reserveStdout(json, init(target, json)),
   Mcp: () => Layer.launch(FoldcaseMcpServer),
   // The reason goes above the banner, so a reader meets the word that was
   // wrong before the form that is right — both on stderr, both in one write.

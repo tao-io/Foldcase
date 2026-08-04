@@ -16,6 +16,7 @@ import * as Schema from "effect/Schema"
 import { ShowcaseModuleError } from "./cli.js"
 import { CoverageReport } from "./coverage/report.js"
 import { StaleDoc, WrittenDoc } from "./docs/generate.js"
+import { InitArtifact } from "./init.js"
 import { SuiteReport } from "./runner.js"
 
 /**
@@ -45,6 +46,16 @@ export class DocsDocument extends Schema.Class<DocsDocument>("foldcase/DocsDocum
   stale: Schema.optional(Schema.Array(StaleDoc)),
 }) {}
 
+/**
+ * What `foldcase init --json` prints: one entry per file the run wired, in the
+ * order it wired them, each saying what happened to it. The same lines the
+ * human output prints, in the shape an agent reads — so a caller checking
+ * whether anything changed looks at `action`, not at text.
+ */
+export class InitDocument extends Schema.Class<InitDocument>("foldcase/InitDocument")({
+  artifacts: Schema.Array(InitArtifact),
+}) {}
+
 // The parts, re-exported from where they are declared. A consumer decoding half
 // a document — the coverage, one written page — names the same Schema the tool
 // encoded it with.
@@ -52,4 +63,5 @@ export { ShowcaseModuleError } from "./cli.js"
 export { SkippedFile } from "./coverage/coverage.js"
 export { CoverageReport, FileCoverage, ShowcaseCoverage } from "./coverage/report.js"
 export { StaleDoc, WrittenDoc } from "./docs/generate.js"
+export { InitArtifact, InitFileError } from "./init.js"
 export { SerializedError, ShowcaseReport, SuiteReport } from "./runner.js"

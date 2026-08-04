@@ -8,7 +8,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 import { run } from "./program.js"
-import { CoverageReport, DocsDocument, TestDocument } from "./reports.js"
+import { CoverageReport, DocsDocument, InitDocument, TestDocument } from "./reports.js"
 
 const fixtures = `${import.meta.dir}/../test/fixtures`
 
@@ -32,6 +32,7 @@ const stdoutOf = async (argv: ReadonlyArray<string>): Promise<string> => {
 
 const decodeTestDocument = Schema.decodeEffect(Schema.fromJsonString(TestDocument))
 const decodeDocsDocument = Schema.decodeEffect(Schema.fromJsonString(DocsDocument))
+const decodeInitDocument = Schema.decodeEffect(Schema.fromJsonString(InitDocument))
 
 describe("the --json documents are a contract a consumer can decode", () => {
   test("TestDocument decodes what `test --json` printed", async () => {
@@ -78,6 +79,22 @@ describe("the --json documents are a contract a consumer can decode", () => {
     expect(document.docs[0]?.path.endsWith("/counter.md")).toBe(true)
     expect(document.failures).toEqual([])
     await Bun.$`rm -rf ${out}`.quiet()
+  })
+
+  test("InitDocument decodes what `init --json` printed", async () => {
+    const dir = `${import.meta.dir}/../runtime-reports-init`
+    await Bun.$`rm -rf ${dir}`.quiet()
+    await Bun.$`mkdir -p ${dir}`.quiet()
+
+    const document = await Effect.runPromise(
+      decodeInitDocument(await stdoutOf(["init", "--json", dir])),
+    )
+
+    expect(document.artifacts.map((artifact) => [artifact.file, artifact.action])).toEqual([
+      [".mcp.json", "created"],
+      ["AGENTS.md", "created"],
+    ])
+    await Bun.$`rm -rf ${dir}`.quiet()
   })
 
   test("and they are published, so a consumer can import them at all", () => {
