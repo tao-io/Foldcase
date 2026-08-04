@@ -286,6 +286,7 @@ describe("run", () => {
     }
     expect(document.suite.reports.map((report) => report.file)).toEqual([
       `${malformed}/bad-message.showcase.ts`,
+      `${malformed}/bad-mount.showcase.ts`,
       `${malformed}/broken-import.showcase.ts`,
     ])
   })
@@ -335,6 +336,7 @@ describe("run", () => {
     expect(document.docs).toEqual([])
     expect(document.failures.map((failure) => failure.path)).toEqual([
       `${malformed}/bad-message.showcase.ts`,
+      `${malformed}/bad-mount.showcase.ts`,
       `${malformed}/broken-import.showcase.ts`,
     ])
     expect(document.failures[0]?.reason.length).toBeGreaterThan(0)

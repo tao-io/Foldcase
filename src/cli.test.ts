@@ -189,6 +189,34 @@ describe("loadShowcasesFromFiles", () => {
     expect(load.failures[0]?.reason).toContain("showcases")
     expect(load.showcases).toHaveLength(2)
   })
+
+  test("a module whose `mount` is not a function is a failure for that file only", async () => {
+    // `mount` is the lab's render seam: the lab calls it and keeps what it
+    // returns, so a non-callable from an untrusted catalog would defect there
+    // rather than be reported here.
+    const load = await Effect.runPromise(
+      loadShowcasesFromFiles([malformed("bad-mount.showcase.ts"), fixture("sample.showcase.ts")]),
+    )
+
+    expect(load.failures.map((failure) => failure.path)).toEqual([
+      malformed("bad-mount.showcase.ts"),
+    ])
+    expect(load.showcases.map((showcase) => showcase.id)).toEqual([
+      "sample/passes",
+      "sample/fails",
+    ])
+  })
+
+  test("loads a Showcase that declares a mount, and hands the seam back as it is", async () => {
+    const load = await Effect.runPromise(
+      loadShowcasesFromFiles([fixture("sample.showcase.ts")]),
+    )
+
+    // The loader never calls `mount` — it only refuses a catalog that cannot be
+    // drawn. What it read is the author's own closure, unwrapped.
+    expect(load.failures).toEqual([])
+    expect(typeof load.showcases[0]?.mount).toBe("function")
+  })
 })
 
 describe("runSuiteFromFiles", () => {

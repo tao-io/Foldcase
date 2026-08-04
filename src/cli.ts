@@ -85,7 +85,15 @@ const isShowcase = (value: unknown): value is Showcase => {
     const candidate = Reflect.get(value, key)
     return candidate === undefined || Schema.isSchema(candidate)
   }
-  return isSchemaOrAbsent("message") && isSchemaOrAbsent("model")
+  // `mount` is optional on the same terms: when a module declares it, the lab
+  // calls it to draw the component and keeps what it returns, so a non-callable
+  // value would defect there. Reject the module as malformed instead.
+  const mount = Reflect.get(value, "mount")
+  return (
+    (mount === undefined || P.isFunction(mount)) &&
+    isSchemaOrAbsent("message") &&
+    isSchemaOrAbsent("model")
+  )
 }
 
 const readShowcases = (

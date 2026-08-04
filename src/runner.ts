@@ -12,9 +12,32 @@ import * as Schema from "effect/Schema"
  * `play` an opaque `() => void` is the seam that lets the runner core stay
  * framework-agnostic and `bun test`-able without a DOM.
  */
+/** Removes what {@link Showcase.mount} rendered, and releases it. */
+export type Teardown = () => void
+
 export interface Showcase {
   readonly id: string
   readonly play: () => void | Promise<void>
+  /**
+   * Optional render seam for the browser lab — the one ADR-0001 reserved for a
+   * surface that has to *draw* the component rather than reason about it.
+   *
+   * Opaque on purpose, exactly like `play`: the author closes over their own
+   * Foldkit runtime, so the record stays framework-agnostic and foldcase
+   * declares no dependency on Foldkit. In a Foldkit app that closure is
+   * `Runtime.embed(Runtime.makeElement({ … }))`, whose `EmbedHandle` carries the
+   * `dispose` that is the Teardown.
+   *
+   * The container is the lab's to give and the caller's to own. `Runtime.embed`
+   * *replaces* the element it is handed, so a caller passes a fresh child slot
+   * it created for this Showcase, never a node its own virtual DOM diffs. The
+   * container must also carry an `id`: a Foldkit runtime dies without one, and
+   * because `embed` forks, it dies silently.
+   *
+   * Absent for a Showcase with nothing to draw; such a Showcase is still
+   * listed, run and tabled like any other.
+   */
+  readonly mount?: (container: HTMLElement) => Teardown | Promise<Teardown>
   /**
    * Optional Message-union Schema for the component under showcase. When
    * present, the `foldcase mcp` catalog server introspects it into a JSON
