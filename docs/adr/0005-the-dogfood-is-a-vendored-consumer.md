@@ -70,7 +70,7 @@ deliberate edit to that file:
 | What the gate reads there | nothing |
 | One task that may drive it | `dogfood:gallery` |
 
-Say plainly what this exception is **not**:
+Three things this exception is **not**:
 
 - **It does not let a bundler run here.** `dogfood:gallery` runs the built `dist/` over the
   gallery's `src/ui` and asks for nothing else, so it needs no place in
