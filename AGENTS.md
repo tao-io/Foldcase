@@ -34,10 +34,17 @@ Binding for humans and agents. Short on purpose. The reasoning lives in
   gitignored, so the prose has exactly one home. Nothing there touches `src/`, `dist/` or
   the tarball. See [ADR-0003](docs/adr/0003-the-documentation-site-lives-here.md).
 
+- **`dogfood/gallery` is a consumer, not our source.** It is Foldkit's component gallery,
+  vendored as a git submodule pinned to a commit: 24 components, 146 Showcases, an
+  application we did not write. We read it and run our own CLI over it
+  (`mise run dogfood:gallery`) and nothing else — never build it, lint it, typecheck it,
+  ship it, or **edit** it. See [ADR-0005](docs/adr/0005-the-dogfood-is-a-vendored-consumer.md).
+
 All of this is gated by `test/stack.test.ts` and by `eslint/no-restricted-imports` in
-`.oxlintrc.json`. The gate reads **every** manifest in the repository, not just the root
-one, and grants `docs/site/package.json` exactly one banned package: `vite`. If you think
-you need an exception, change the ADR first.
+`.oxlintrc.json`. The gate reads **every** manifest this repository owns, not just the root
+one, and grants `docs/site/package.json` exactly one banned package: `vite`. The one
+directory it does not read is `dogfood/`, which is declared out of scope by name. If you
+think you need an exception, change the ADR first.
 
 ## TDD is mandatory
 
@@ -110,6 +117,8 @@ there — the only check that sees what a consumer downloads. The release workfl
 The documentation site has its own three tasks and is in none of the seven, so it can
 never redden a release: `mise run docs:dev` serves it, `mise run docs:build` writes
 `docs/site/dist/`, and `mise run docs:deploy` puts that on Cloudflare through alchemy.
+`mise run dogfood:gallery` is outside the seven for the same reason — it drives the built
+CLI over the vendored gallery, and a moved pin must not fail a release.
 
 Commit in small, logical steps with a message that says what changed and why.
 
@@ -136,6 +145,7 @@ test/             the repo-wide gates (stack, surface derivation)
 docs/adr/         the decisions, in numbered order
 docs/site/        the documentation site (foldocs + Vite, ADR-0003); its own bun.lock
 docs/site/content/ generated from the prose above on every build, gitignored
+dogfood/gallery/  the vendored consumer (a submodule, ADR-0005); read, never edited
 dist/             build output, gitignored
 ```
 

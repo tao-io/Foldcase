@@ -119,6 +119,19 @@ this tool, and each of these is something it hit on the first run.
   records why the site is here rather than in a second repository — a second one would
   either copy the prose or derive it across a pin that lags, and this tool exists to say
   that one definition should have many surfaces, not many copies.
+- **The dogfood is a real consumer now, vendored at `dogfood/gallery`.** `examples/counter`
+  is eight Showcases we wrote, so it can only find what we already thought to look for; the
+  five defects above came from Foldkit's own component gallery, an application we did not
+  write. It is here as a git submodule pinned to a commit — 24 `@foldkit/ui` components,
+  one page each, 146 Showcases over one shared Model, one Message union and one `update` —
+  and `mise run dogfood:gallery` drives the built CLI over it under both bins and checks
+  the lab document counts what the run produced. What the exception costs is written down:
+  the gallery carries `vite`, `vitest` and configs for both, so
+  [ADR-0005](docs/adr/0005-the-dogfood-is-a-vendored-consumer.md) declares `dogfood/` out
+  of the stack gate's scope rather than allowing pieces of it. Nothing there is built,
+  linted, typechecked, shipped or edited, no bundler runs here for it, no manifest of ours
+  gains a package, and the task is in none of the seven checks, so a moved pin cannot
+  redden a release. A clone without submodules passes everything regardless.
 
 ## [0.1.0] — 2026-08-04
 
