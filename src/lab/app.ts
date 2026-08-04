@@ -321,6 +321,44 @@ export const matchingTotal = (model: Model): number => {
 }
 
 /**
+ * How many of those the canvas can actually draw — the ones declaring a mount.
+ *
+ * Most catalogs declare it for a minority of their entries, and until now the
+ * lab said so one entry at a time: you clicked a row to find out there was
+ * nothing behind it. Counting it beside the total answers the question once, for
+ * the whole list, and it is the reading of the record the lab already had —
+ * `hasMount` is on every entry, and the row tag draws from the same fact.
+ *
+ * It counts what the filter left rather than the whole catalog, because the
+ * strip sits over the list the reader is looking at and a number describing some
+ * other list is worse than no number.
+ */
+export const drawableTotal = (model: Model): number => {
+  const query = normalisedQuery(model)
+  return Arr.filter(entriesOf(model.catalog), (entry) => matchesQuery(entry, query) && entry.hasMount)
+    .length
+}
+
+/**
+ * That count as the strip says it out loud.
+ *
+ * It never repeats the number standing next to it. A strip reading "146 146
+ * drawable" is two facts that look like one typo, and the case where every
+ * entry is drawable is the common one in a component gallery — so that case
+ * gets a word instead. Zero gets a word too, because a catalog with nothing to
+ * put on the canvas is a thing a reader should be told rather than a count they
+ * have to notice is zero.
+ */
+export const drawableLabel = (model: Model): string => {
+  const drawable = drawableTotal(model)
+  const matching = matchingTotal(model)
+  if (drawable === 0) {
+    return "none drawable"
+  }
+  return drawable === matching ? "all drawable" : `${drawable} drawable`
+}
+
+/**
  * The id one step from the selection, in the order the sidebar draws.
  *
  * It walks {@link sidebarComponents} and not the catalog, so an arrow key moves
@@ -426,9 +464,10 @@ export const update = (
 
 /**
  * The one stylesheet the lab carries, so it draws as a lab in a page that
- * styles nothing. It is deliberately small — a two-column frame and enough
- * separation to read — and every rule is scoped to a `foldcase-lab-` name, so a
- * consumer's own CSS overrides it rather than fights it.
+ * styles nothing. Every rule is scoped to a `foldcase-lab-` name, and every
+ * colour and both font stacks are custom properties declared on the root, so a
+ * consumer restyles the whole surface by setting six values rather than by
+ * out-specifying a hundred rules.
  *
  * The frame is one viewport tall and each column scrolls itself. A catalog of a
  * few hundred Showcases is a sidebar several thousand pixels long, and a page
@@ -439,139 +478,228 @@ export const update = (
  * would still ride on whatever margin the consumer's `body` carries, and a
  * margin is exactly what the lab may not reach out and change.
  *
- * Within that frame the one decision worth naming is the ground. The lab draws
- * on `#f1f5f9` and puts the sidebar and the canvas on white, so the boundary
- * around a live component is a change of surface rather than a line drawn over
- * one. The canvas used to be a dashed rectangle, which is the mark every other
- * interface uses for a placeholder — and which read at 1.48:1 besides. The
- * component under test is the loudest thing on the screen now, and the lab's own
- * chrome is a stage it stands on.
+ * Three decisions inside that frame are worth naming.
+ *
+ * **The ground is warm, not blue.** `--bg`, `--panel` and `--sunken` are a
+ * violet-tinted neutral ramp rather than the slate this started on, and the
+ * accent is violet rather than the framework blue every dashboard defaults to.
+ * The component under test is still the loudest thing on screen; the chrome
+ * around it now reads as one family instead of as browser defaults.
+ *
+ * **Both schemes ship.** The same names are redeclared under
+ * `prefers-color-scheme: dark`, and nothing else in the sheet knows which
+ * scheme it is drawing. Dark costs one block because every colour was named
+ * first, which is the whole argument for naming them.
+ *
+ * **Two type families, split by what the text is.** `--ui` sets prose, labels
+ * and the names in the tree; `--mono` sets everything that is a value a reader
+ * might retype — ids in the heading, file paths, counts and the row tags. That
+ * division does more for the hierarchy than a third font size would.
+ *
+ * The contrast floor is 4.5:1 for every piece of text, measured, which is one
+ * departure from where these colours came from: the muted `--ink-3` is darker
+ * in light and lighter in dark than the palette it is drawn from, whose value
+ * read at 3.48:1 on the panel. `--line` is a hairline between regions, so it
+ * sits below that floor by design; where a line is the boundary of a control a
+ * reader has to find — the filter field — the sheet uses `--line-strong`.
  */
 const STYLESHEET = `
-#foldcase-lab { position: fixed; inset: 0; display: flex;
-  box-sizing: border-box; background: #f1f5f9; color: #0f172a;
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+#foldcase-lab {
+  --ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bg: #f8f7fb; --panel: #ffffff; --sunken: #f2f1f6;
+  --ink: #0b0c0e; --ink-2: #5c5a63; --ink-3: #67646f;
+  --line: #e4e2ea; --line-strong: #c6c2d0;
+  --sel: #ecebf3; --sel-hover: #f4f3f8;
+  --accent: oklch(0.52 0.14 285);
+  --fail: oklch(0.53 0.17 25); --fail-bg: oklch(0.96 0.03 25);
+  --fail-line: oklch(0.88 0.06 25);
+  --warn: #92400e; --warn-bg: #fffbeb; --warn-line: #fcd34d;
+}
+@media (prefers-color-scheme: dark) {
+  #foldcase-lab {
+    --bg: #1e1c21; --panel: #26242b; --sunken: #1a181d;
+    --ink: #fafafa; --ink-2: #a7a3ae; --ink-3: #9e9aa7;
+    --line: #34313a; --line-strong: #514c5c;
+    --sel: #332f3d; --sel-hover: #2c2a33;
+    --accent: oklch(0.76 0.11 285);
+    --fail: oklch(0.71 0.16 25); --fail-bg: oklch(0.29 0.05 25);
+    --fail-line: oklch(0.40 0.08 25);
+    --warn: #f5c563; --warn-bg: #3a2a12; --warn-line: #6b5220;
+  }
+}
+
+#foldcase-lab { position: fixed; inset: 0; display: flex; flex-direction: column;
+  box-sizing: border-box; background: var(--bg); color: var(--ink);
+  font-family: var(--ui); font-size: 13px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased; }
 #foldcase-lab *, #foldcase-lab *::before, #foldcase-lab *::after { box-sizing: border-box; }
-#foldcase-lab :focus-visible { outline: 2px solid #1d4ed8; outline-offset: 2px;
+#foldcase-lab :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px;
   border-radius: 6px; }
 
-/* The sidebar is a column of two parts: a head that stays put and a tree that
-   scrolls under it. Taking the head out of the scroller is what lets a group
-   heading stick at top: 0 without guessing how tall the head above it is. */
-#foldcase-lab-sidebar { flex: 0 0 288px; min-height: 0; display: flex;
-  flex-direction: column; background: #fff;
-  box-shadow: 1px 0 0 rgba(15, 23, 42, 0.08); }
-#foldcase-lab-sidebar-head { flex: none; padding: 18px 16px 12px;
-  border-bottom: 1px solid #e2e8f0; }
-#foldcase-lab-sidebar h2 { display: flex; align-items: baseline; gap: 8px;
-  margin: 0 0 12px; font-size: 12px; font-weight: 600; letter-spacing: 0.06em;
-  text-transform: uppercase; color: #475569; }
-#foldcase-lab-count { margin-left: auto; font-size: 12px; font-weight: 500;
-  letter-spacing: 0; text-transform: none; color: #64748b;
-  font-variant-numeric: tabular-nums; }
-#foldcase-lab-search { display: block; width: 100%; padding: 7px 10px;
-  border: 1px solid #cbd5e1; border-radius: 7px; background: #fff;
-  font: inherit; font-size: 13px; color: #0f172a; }
-#foldcase-lab-search::placeholder { color: #64748b; }
-#foldcase-lab-search:focus-visible { border-color: #1d4ed8; outline-offset: 0; }
+/* The one piece of chrome that says whose lab this is. It is a bar and not a
+   heading because it spans both columns: the catalog and the stage are two
+   halves of one instrument, and a rule across the top is what says so. */
+#foldcase-lab-bar { flex: none; height: 52px; display: flex; align-items: center;
+  gap: 9px; padding: 0 14px; background: var(--panel);
+  border-bottom: 1px solid var(--line); }
+#foldcase-lab-bar svg { flex: none; color: var(--ink); }
+#foldcase-lab-bar b { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+#foldcase-lab-bar em { font-style: normal; font-family: var(--mono);
+  font-size: 11px; color: var(--ink-3); }
+
+#foldcase-lab-frame { flex: 1; min-height: 0; display: flex; }
+
+/* The sidebar is a column of three parts: a head that stays put, a strip that
+   counts what is under it, and a tree that scrolls. Taking the head out of the
+   scroller is what lets a group heading stick at top: 0 without guessing how
+   tall the head above it is. */
+#foldcase-lab-sidebar { flex: 0 0 292px; min-height: 0; display: flex;
+  flex-direction: column; background: var(--panel);
+  border-right: 1px solid var(--line); }
+#foldcase-lab-sidebar-head { flex: none; padding: 10px; }
+#foldcase-lab-search { display: block; width: 100%; height: 30px; padding: 0 10px;
+  border: 1px solid var(--line-strong); border-radius: 6px; background: var(--sunken);
+  font: inherit; font-size: 12.5px; color: var(--ink); }
+#foldcase-lab-search::placeholder { color: var(--ink-3); }
+#foldcase-lab-search:focus-visible { border-color: var(--accent); outline-offset: 0; }
+
+/* What the catalog is, in one line of values: how many entries the filter left,
+   how many of those the canvas can draw, and how many components hold them.
+   Mono, because all three are numbers a reader compares rather than reads. */
+#foldcase-lab-summary { flex: none; display: flex; align-items: center; gap: 8px;
+  margin: 0; padding: 9px 12px; border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 11px;
+  color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#foldcase-lab-summary b { flex: none; font-weight: 400; color: var(--ink); }
+#foldcase-lab-summary span { min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; }
+#foldcase-lab-summary span[data-field='drawable']::before { content: '· '; }
+#foldcase-lab-summary span:last-child { flex: none; margin-left: auto;
+  color: var(--ink-3); }
 
 #foldcase-lab-tree { flex: 1; min-height: 0; overflow-y: auto;
-  overscroll-behavior: contain; padding: 8px 10px 24px; }
-#foldcase-lab-tree section + section { margin-top: 2px; }
+  overscroll-behavior: contain; padding: 6px 0 24px; }
 #foldcase-lab-tree h3 { position: sticky; top: 0; z-index: 1; margin: 0;
-  background: #fff; }
-#foldcase-lab-tree ul { list-style: none; margin: 0 0 6px; padding: 0 0 0 10px;
-  border-left: 1px solid #e2e8f0; }
-/* Rows used to touch edge to edge, so a leaf long enough to wrap and the row
-   under it read as one four-line block. Two pixels is the whole fix. */
-#foldcase-lab-tree li + li { margin-top: 2px; }
+  background: var(--panel); }
+#foldcase-lab-tree ul { list-style: none; margin: 0 0 6px; padding: 0; }
 #foldcase-lab-tree button { position: relative; display: flex; align-items: center;
-  gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border: 0;
-  border-radius: 6px; background: none; font: inherit; font-size: 13px;
-  color: #334155; cursor: pointer;
+  gap: 9px; width: 100%; text-align: left; padding: 5px 12px 5px 27px; border: 0;
+  border-left: 2px solid transparent; background: none; font: inherit;
+  font-size: 12.5px; color: var(--ink-2); cursor: pointer;
   transition: background-color 120ms ease-out, color 120ms ease-out; }
 /* The marker the reveal Mount is handed. Stretched over the row so that
    scrolling *it* into view scrolls the whole row in, margins and all — a
    zero-size span at the text baseline leaves the row half under the fold. */
 .foldcase-lab-reveal { position: absolute; inset: 0; pointer-events: none;
   scroll-margin: 20px 0; }
-#foldcase-lab-tree button:hover { background: #e2e8f0; color: #0f172a; }
+#foldcase-lab-tree button:hover { background: var(--sel-hover); color: var(--ink); }
+/* Selection is a wash and a rule, not a fill. A saturated bar was legible and
+   loud enough to be the first thing the eye landed on — louder than the
+   component it was pointing at. The wash alone is 1.05:1, which is a selection
+   nobody can see, so the accent rule carries it and the wash confirms it. */
 #foldcase-lab-tree button[data-selected='true'],
-#foldcase-lab-tree button[data-selected='true']:hover { background: #2563eb;
-  color: #fff; font-weight: 500; }
-/* White reads at 5.17:1 on the selected fill; the default ring's blue does not. */
-#foldcase-lab-tree button[data-selected='true']:focus-visible { outline-color: #fff; }
-#foldcase-lab-tree button[data-group] { font-weight: 600; color: #0f172a;
-  padding-right: 4px; }
-#foldcase-lab-tree button[data-group] svg { flex: none; color: #94a3b8;
+#foldcase-lab-tree button[data-selected='true']:hover { background: var(--sel);
+  border-left-color: var(--accent); color: var(--ink); font-weight: 500; }
+#foldcase-lab-tree button[data-group] { padding-left: 12px; gap: 7px;
+  font-weight: 600; color: var(--ink); }
+#foldcase-lab-tree button[data-group] svg { flex: none; color: var(--ink-3);
   transform: rotate(-90deg); transition: transform 140ms ease-out; }
 #foldcase-lab-tree button[data-group][data-expanded='true'] svg { transform: none; }
 #foldcase-lab-tree button[data-group] em { flex: 1; min-width: 0; font-style: normal;
   overflow: hidden; text-overflow: ellipsis; }
-#foldcase-lab-tree button[data-group] span { color: #64748b; font-weight: 400;
+#foldcase-lab-tree button[data-group] span,
+#foldcase-lab-tree button[data-id] i { flex: none; font-family: var(--mono);
+  font-style: normal; font-weight: 400; color: var(--ink-3);
   font-variant-numeric: tabular-nums; }
-#foldcase-lab-empty-tree { margin: 12px 8px; color: #64748b; }
-#foldcase-lab-empty-tree b { display: block; color: #0f172a; }
+#foldcase-lab-tree button[data-group] span { font-size: 10px; }
+/* The one fact a row carries beyond its name: whether there is anything behind
+   it to look at. Most entries in most catalogs have nothing, and finding that
+   out used to cost a click each. */
+#foldcase-lab-tree button[data-id] i { font-size: 9.5px; letter-spacing: 0.04em; }
+#foldcase-lab-tree button[data-id] em { flex: 1; min-width: 0; font-style: normal;
+  overflow: hidden; text-overflow: ellipsis; }
+#foldcase-lab-empty-tree { margin: 12px 12px; color: var(--ink-2); }
+#foldcase-lab-empty-tree b { display: block; color: var(--ink); }
 
 #foldcase-lab-main { flex: 1; min-width: 0; overflow: auto;
-  overscroll-behavior: contain; }
-/* White, like the sidebar: the chrome is one surface and the ground is what the
-   stage stands on. It is also what keeps the muted slate legible — the same
-   #64748b reads 4.76:1 here and only 4.34:1 over the ground. */
-#foldcase-lab-head { position: sticky; top: 0; z-index: 1; padding: 20px 28px 16px;
-  background: #fff; border-bottom: 1px solid #e2e8f0; }
-#foldcase-lab-head h1 { margin: 0; font-size: 20px; font-weight: 400;
-  letter-spacing: -0.01em; color: #64748b; overflow-wrap: anywhere; }
-#foldcase-lab-head h1 b { font-weight: 600; color: #0f172a; }
-#foldcase-lab-seams { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0;
-  padding: 0; list-style: none; }
-#foldcase-lab-seams li { padding: 2px 8px; border-radius: 999px;
-  font-size: 11px; font-weight: 500; letter-spacing: 0.01em;
-  background: #e2e8f0; color: #1e293b; }
-#foldcase-lab-seams li[data-present='false'] { background: none;
-  box-shadow: inset 0 0 0 1px #cbd5e1; color: #64748b; }
-#foldcase-lab-file { margin: 10px 0 0; font-family: ui-monospace, SFMono-Regular,
-  Menlo, monospace; font-size: 12px; color: #64748b; overflow-wrap: anywhere; }
+  overscroll-behavior: contain; background: var(--sunken); }
+/* Panel, like the sidebar and the bar: the chrome is one surface, and the well
+   below is what the stage stands in. */
+#foldcase-lab-head { position: sticky; top: 0; z-index: 1; padding: 18px 24px 14px;
+  background: var(--panel); border-bottom: 1px solid var(--line); }
+#foldcase-lab-head h1 { margin: 0; font-family: var(--mono); font-size: 22px;
+  font-weight: 400; letter-spacing: -0.015em; color: var(--ink-3);
+  overflow-wrap: anywhere; }
+#foldcase-lab-head h1 b { font-weight: 500; color: var(--ink); }
+#foldcase-lab-seams { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 12px 0 0; padding: 0; list-style: none; font-family: var(--mono);
+  font-size: 11px; }
+#foldcase-lab-seams li { padding: 3px 8px; border: 1px solid var(--line);
+  border-radius: 5px; background: var(--sunken); color: var(--ink-2); }
+#foldcase-lab-seams li[data-present='false'] { border-style: dashed;
+  background: none; color: var(--ink-3); }
+/* The path is in the chip row but is not a chip: it is where the record was
+   declared, not a fact the record asserts. */
+#foldcase-lab-seams li#foldcase-lab-file { margin-left: auto; padding: 0 0 0 12px;
+  border: 0; background: none; color: var(--ink-3); overflow-wrap: anywhere; }
 
-#foldcase-lab-stage { padding: 24px 28px 32px; }
-#foldcase-lab-canvas { border-radius: 10px; background: #fff; padding: 28px;
-  min-height: 260px;
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.1), 0 1px 3px rgba(15, 23, 42, 0.06); }
+/* Read aloud, never drawn. The clip-rect idiom rather than display:none, which
+   takes the element out of the accessibility tree along with the pixels. */
+.foldcase-lab-sr { position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; border: 0; overflow: hidden; white-space: nowrap;
+  clip-path: inset(50%); }
+
+#foldcase-lab-stage { padding: 24px; }
+/* The component sits in a card on a well, with a strip naming what is mounted.
+   Centred and capped, because a component asked to fill a 2560px monitor is not
+   the component anybody ships. */
+#foldcase-lab-canvas { max-width: 960px; margin: 0 auto; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--panel); overflow: hidden; }
+#foldcase-lab-canvas-head { display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-bottom: 1px solid var(--line);
+  font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+#foldcase-lab-canvas-head::before { content: ''; width: 6px; height: 6px; flex: none;
+  border-radius: 50%; background: var(--accent); }
+#foldcase-lab-slot { padding: 28px; min-height: 260px; }
 /* The slot is appended on mount, so :empty stops matching the moment the
    component draws. Until then this is the only sign the lab is working. */
-#foldcase-lab-canvas:empty::after { content: 'Drawing…'; color: #94a3b8; }
+#foldcase-lab-slot:empty::after { content: 'Drawing…'; color: var(--ink-3); }
 #foldcase-lab-no-mount, #foldcase-lab-empty { display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 6px; margin: 0;
-  border-radius: 10px; background: #fff; padding: 28px; min-height: 260px;
-  box-shadow: inset 0 0 0 1px #e2e8f0; text-align: center; color: #64748b; }
-#foldcase-lab-no-mount b, #foldcase-lab-empty b { font-size: 15px; color: #334155; }
+  align-items: center; justify-content: center; gap: 6px; max-width: 960px;
+  margin: 0 auto; border: 1px dashed var(--line-strong); border-radius: 10px;
+  background: none; padding: 28px; min-height: 300px; text-align: center;
+  color: var(--ink-2); }
+#foldcase-lab-no-mount b, #foldcase-lab-empty b { font-size: 15px; color: var(--ink); }
 #foldcase-lab-no-mount span, #foldcase-lab-empty span { max-width: 46ch; }
-#foldcase-lab-no-mount code { font-family: ui-monospace, SFMono-Regular, Menlo,
-  monospace; font-size: 12px; color: #475569; }
+#foldcase-lab-no-mount code, #foldcase-lab-empty code { font-family: var(--mono);
+  font-size: 12px; color: var(--ink-2); }
 
-#foldcase-lab-failures { margin: 12px 0 0; border: 1px solid #fecaca;
-  border-radius: 8px; background: #fef2f2; padding: 10px 12px; font-size: 12px; }
+#foldcase-lab-failures { margin: 0 10px 10px; border: 1px solid var(--fail-line);
+  border-radius: 8px; background: var(--fail-bg); padding: 10px 12px;
+  font-size: 12px; }
 #foldcase-lab-failures h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600;
-  color: #b91c1c; }
+  color: var(--fail); }
 #foldcase-lab-failures ul { list-style: none; margin: 0; padding: 0;
-  display: grid; gap: 6px; color: #7f1d1d; }
-#foldcase-lab-failures code { display: block; font-family: ui-monospace,
-  SFMono-Regular, Menlo, monospace; color: #b91c1c; overflow-wrap: anywhere; }
-#foldcase-lab-unknown-id { margin: 12px 28px 0; border: 1px solid #fcd34d;
-  border-radius: 8px; background: #fffbeb; color: #92400e;
+  display: grid; gap: 6px; color: var(--ink-2); }
+#foldcase-lab-failures code { display: block; font-family: var(--mono);
+  color: var(--fail); overflow-wrap: anywhere; }
+#foldcase-lab-unknown-id { margin: 12px 24px 0; border: 1px solid var(--warn-line);
+  border-radius: 8px; background: var(--warn-bg); color: var(--warn);
   padding: 10px 12px; }
-#foldcase-lab-unknown-id code { font-family: ui-monospace, SFMono-Regular, Menlo,
-  monospace; }
+#foldcase-lab-unknown-id code { font-family: var(--mono); }
 
 /* One column below the width where two of them stop being two columns: the
    catalog takes the top third and the stage takes the rest. Both halves are
    still their own scroll container, and the frame is still one viewport tall. */
 @media (max-width: 880px) {
-  #foldcase-lab { flex-direction: column; }
-  #foldcase-lab-sidebar { flex: 0 0 38%; box-shadow: 0 1px 0 rgba(15, 23, 42, 0.08); }
-  #foldcase-lab-head, #foldcase-lab-stage { padding-left: 16px; padding-right: 16px; }
+  #foldcase-lab-frame { flex-direction: column; }
+  #foldcase-lab-sidebar { flex: 0 0 38%; border-right: 0;
+    border-bottom: 1px solid var(--line); }
+  #foldcase-lab-head { padding-left: 16px; padding-right: 16px; }
+  #foldcase-lab-stage { padding: 16px; }
   #foldcase-lab-unknown-id { margin-left: 16px; margin-right: 16px; }
+  #foldcase-lab-file { margin-left: 0; padding-left: 0; flex-basis: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   #foldcase-lab * { transition-duration: 1ms !important; }
@@ -649,7 +777,17 @@ const entryButton = (entry: LabEntry, model: Model, h: HtmlBuilder<Message>): Ht
           ...(selected ? [h.AriaCurrent("true")] : []),
         ],
         [
-          leafOf(entry.id),
+          h.em([], [leafOf(entry.id)]),
+          // Whether the canvas has anything to draw for this row, said on the
+          // row rather than found by clicking it.
+          //
+          // It marks the rows with *no* mount, not the rows with one. A
+          // component gallery declares a mount for nearly everything, so a tag
+          // on the drawable rows is a word repeated a hundred and forty-six
+          // times and read none. The dead row is the exception, and it is also
+          // the one that costs a click to discover — so it is the one that
+          // says so up front.
+          ...(entry.hasMount ? [] : [h.i([], ["NO MOUNT"])]),
           // The marker that carries the reveal. It exists only while this row
           // is the chosen one, so it is built the moment the row is chosen and
           // that is what fires the Mount — without rebuilding the row itself.
@@ -794,7 +932,7 @@ const failureSection = (
       ]
 
 /**
- * What the sidebar head says the catalog is: how many Showcases it holds, or —
+ * What the sidebar strip says the catalog is: how many entries it holds, or —
  * once a filter is live — how many of them are left. A reader who narrowed a
  * hundred and forty-six down to three has to read that it was three of a
  * hundred and forty-six, or a short list is indistinguishable from a short
@@ -806,6 +944,56 @@ const catalogCount = (model: Model): string => {
     ? String(model.catalog.total)
     : `${matching} of ${model.catalog.total}`
 }
+
+/** How many components hold what is drawn, counted rather than pluralised badly. */
+const componentCount = (drawn: number): string =>
+  drawn === 1 ? "1 component" : `${drawn} components`
+
+/**
+ * The mark on the bar, and the only picture the lab draws.
+ *
+ * It is markup rather than a file because the lab ships as compiled TypeScript
+ * and nothing else — there is no asset in the tarball for a stylesheet to point
+ * `url()` at, and a data URI in a template literal would be an image nobody
+ * could read or edit. Two paths at `evenodd`: the shell, and the three faces
+ * folded inside it.
+ */
+const brandMark = (h: HtmlBuilder<Message>): Html =>
+  h.svg(
+    [
+      h.ViewBox("0 0 256 256"),
+      h.Width("22"),
+      h.Height("22"),
+      h.Fill("currentColor"),
+      h.AriaHidden(true),
+    ],
+    [
+      h.path(
+        [
+          h.FillRule("evenodd"),
+          h.D("M128 16 224 72V184L128 240 32 184V72Z M128 44 200 86V170L128 212 56 170V86Z"),
+        ],
+        [],
+      ),
+      h.path([h.D("M136 124 136 68 184 96 184 152Z")], []),
+      h.path([h.D("M128 138 176 166 128 194 80 166Z")], []),
+      h.path([h.D("M120 124 72 152 72 96 120 68Z")], []),
+    ],
+  )
+
+/**
+ * The bar across the top, which is the lab saying whose lab it is.
+ *
+ * It spans both columns on purpose: the catalog and the stage are two halves of
+ * one instrument, and a rule across the top of both is what says so. The
+ * directory beside the wordmark is the one fact the bar carries — a reader with
+ * two labs open has no other way to tell which catalog is which.
+ */
+const titleBar = (h: HtmlBuilder<Message>): Html =>
+  h.header(
+    [h.Id("foldcase-lab-bar")],
+    [brandMark(h), h.b([], ["Foldcase"]), h.em([], ["lab"])],
+  )
 
 /**
  * The catalog, and the one control over it.
@@ -845,26 +1033,36 @@ const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
       ),
     ],
     [
+      // The heading the tree hangs off. It is drawn for a screen reader and not
+      // for the eye: the strip below says the same thing in numbers, and a
+      // second word "Showcases" over a column of them earns no pixels. Dropping
+      // it outright would leave the tree's group headings at h3 under the
+      // details h1, which is the gap this heading exists to close.
+      h.h2([h.Class("foldcase-lab-sr")], ["Showcases"]),
       h.div(
         [h.Id("foldcase-lab-sidebar-head")],
         [
-          h.h2(
-            [],
-            ["Showcases", h.span([h.Id("foldcase-lab-count")], [catalogCount(model)])],
-          ),
           h.input([
             h.Id("foldcase-lab-search"),
             h.Type("search"),
             h.Value(model.query),
-            h.Placeholder("Filter by id"),
+            h.Placeholder("Find a showcase"),
             h.AriaLabel("Filter showcases by id"),
             h.Autocomplete("off"),
             h.Spellcheck(false),
             h.OnInput((query) => TypedQuery({ query })),
           ]),
-          ...failureSection(model.catalog.failures, h),
         ],
       ),
+      h.p(
+        [h.Id("foldcase-lab-summary")],
+        [
+          h.b([], [catalogCount(model)]),
+          h.span([h.DataAttribute("field", "drawable")], [drawableLabel(model)]),
+          h.span([], [componentCount(components.length)]),
+        ],
+      ),
+      ...failureSection(model.catalog.failures, h),
       h.div(
         [h.Id("foldcase-lab-tree")],
         components.length === 0
@@ -961,16 +1159,19 @@ const details = (entry: LabEntry, h: HtmlBuilder<Message>): Html =>
           seam("mount", entry.hasMount, h),
           seam("message schema", entry.hasMessageSchema, h),
           seam("model schema", entry.hasModelSchema, h),
+          // The path rides on the same line as the chips, pushed to the far
+          // end. It used to be a paragraph of its own under them, which gave
+          // the least interesting fact on the panel a row to itself.
+          ...pipe(
+            Option.fromUndefinedOr(entry.file),
+            Option.match({
+              onNone: (): ReadonlyArray<Html> => [],
+              onSome: (file) => [
+                h.li([h.Id("foldcase-lab-file"), h.DataAttribute("field", "file")], [file]),
+              ],
+            }),
+          ),
         ],
-      ),
-      ...pipe(
-        Option.fromUndefinedOr(entry.file),
-        Option.match({
-          onNone: (): ReadonlyArray<Html> => [],
-          onSome: (file) => [
-            h.p([h.Id("foldcase-lab-file"), h.DataAttribute("field", "file")], [file]),
-          ],
-        }),
       ),
     ],
   )
@@ -1063,14 +1264,27 @@ export const makeLabApplication = (config: {
    */
   const stage = (entry: LabEntry, h: HtmlBuilder<Message>): Html =>
     entry.hasMount
-      ? h.keyed("div")(
-          entry.id,
+      ? h.div(
+          [h.Id("foldcase-lab-canvas")],
           [
-            h.Id("foldcase-lab-canvas"),
-            h.AriaLabel(`Canvas: ${entry.id}`),
-            h.OnMount(MountShowcase({ id: entry.id })),
+            // A strip naming what is standing on the stage. Without it the card
+            // is an unlabelled rectangle, and a component that happens to draw
+            // its own border is indistinguishable from the lab's chrome.
+            h.div([h.Id("foldcase-lab-canvas-head")], [`mounted · ${entry.id}`]),
+            // The slot the component is embedded in, and the element the key
+            // belongs to: it is the one that has to be destroyed and rebuilt
+            // when the selection moves. It renders with no children of its own,
+            // so the lab's virtual DOM never diffs what the embed puts inside.
+            h.keyed("div")(
+              entry.id,
+              [
+                h.Id("foldcase-lab-slot"),
+                h.AriaLabel(`Canvas: ${entry.id}`),
+                h.OnMount(MountShowcase({ id: entry.id })),
+              ],
+              [],
+            ),
           ],
-          [],
         )
       : h.p(
           [h.Id("foldcase-lab-no-mount")],
@@ -1106,6 +1320,10 @@ export const makeLabApplication = (config: {
         h.style([], [STYLESHEET]),
         h.div(
           [h.Id("foldcase-lab")],
+          [
+            titleBar(h),
+            h.div(
+          [h.Id("foldcase-lab-frame")],
           [
             sidebar(model, h),
             h.main(
@@ -1143,6 +1361,8 @@ export const makeLabApplication = (config: {
                   }),
                 ),
               ],
+            ),
+          ],
             ),
           ],
         ),

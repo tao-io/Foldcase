@@ -6,6 +6,8 @@ import type { CatalogLoad, LoadedShowcase } from "../cli.js"
 import type { Showcase } from "../runner.js"
 import {
   ChangedAddress,
+  drawableLabel,
+  drawableTotal,
   initialModel,
   isComponentExpanded,
   isSelected,
@@ -31,6 +33,9 @@ const bare = urlOf("http://localhost:5198/")
 
 /** A Showcase with nothing to draw: the pre-`mount` shape, still valid. */
 const plain = (id: string): Showcase => ({ id, play: () => {} })
+
+/** A Showcase the lab can put on the canvas, because it declares the seam. */
+const drawable = (id: string): Showcase => ({ ...plain(id), mount: () => () => {} })
 
 const loadOf = (entries: ReadonlyArray<LoadedShowcase>): CatalogLoad => ({
   loaded: entries,
@@ -328,6 +333,52 @@ describe("filtering the catalog", () => {
 
     expect(drawn(model)).toEqual([])
     expect(matchingTotal(model)).toBe(0)
+  })
+})
+
+describe("counting what the canvas can draw", () => {
+  const mixed = () =>
+    initialModel(
+      labCatalogOf(
+        loadOf([
+          { showcase: drawable("alpha/opens-clean") },
+          { showcase: plain("button/counts-one-click") },
+          { showcase: drawable("button/starts-unclicked") },
+        ]),
+      ),
+      bare,
+    )
+
+  test("counts the entries declaring a mount, which is what the canvas can put on screen", () => {
+    expect(drawableTotal(mixed())).toBe(2)
+  })
+
+  test("says how many of the drawn list can be drawn, without repeating the number beside it", () => {
+    expect(drawableLabel(mixed())).toBe("2 drawable")
+  })
+
+  test("says all of them rather than the total twice, when every entry declares a mount", () => {
+    const every = initialModel(
+      labCatalogOf(loadOf([{ showcase: drawable("alpha/one") }, { showcase: drawable("alpha/two") }])),
+      bare,
+    )
+
+    expect(drawableLabel(every)).toBe("all drawable")
+  })
+
+  test("says none rather than a zero, because a catalog with nothing to draw is a fact not a count", () => {
+    expect(drawableLabel(initialModel(catalogOf("alpha/one"), bare))).toBe("none drawable")
+  })
+
+  test("counts nothing when no entry declares one, so a catalog of assertions says as much", () => {
+    expect(drawableTotal(initialModel(catalogOf("alpha/one", "button/one"), bare))).toBe(0)
+  })
+
+  test("narrows with the filter, so the strip counts the list the reader is looking at", () => {
+    const [model] = update(mixed(), TypedQuery({ query: "button/" }))
+
+    expect(drawableTotal(model)).toBe(1)
+    expect(matchingTotal(model)).toBe(2)
   })
 })
 
