@@ -607,6 +607,10 @@ describe("ADR-0001 — every surface derives from the definition", () => {
       "src/coverage/report.ts",
       "src/docs/generate.ts",
       "src/mcp/catalog.ts",
+      // A fresh run answers with the runner's own report Schemas, in a child
+      // process: the document that crosses the boundary derives from the
+      // definition, so no second shape is invented to carry it.
+      "src/mcp/freshRun.ts",
       "src/mcp/tools.ts",
       "src/program.ts",
       // The `--json` documents: `TestDocument` wraps the runner's `SuiteReport`,
