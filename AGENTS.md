@@ -6,7 +6,8 @@ Binding for humans and agents. Short on purpose. The reasoning lives in
 ## The stack is fixed
 
 - **Bun** is the development toolchain: the package manager, the test runner, and the
-  version `mise` pins. Not npm, not pnpm, not Vite, not turbo.
+  version `mise` pins. Not npm, not pnpm, not turbo. Vite builds one thing and one thing
+  only — the documentation site under `docs/site/`, by declared exception (ADR-0003).
 - **Node and Bun both run the shipped tool.** The core is runtime-agnostic Effect and each
   runtime gets one thin shell — `src/main.ts` (Node) and `src/main.bun.ts` (Bun). A shell
   binds a runtime, hands the program `process.argv`, and writes back the exit code;
@@ -27,9 +28,16 @@ Binding for humans and agents. Short on purpose. The reasoning lives in
   catalog is `export const showcases: ReadonlyArray<Showcase>` in a `*.showcase.ts` file.
 - TypeScript only under `src/`. The single exception is `src/coverage/collector.mjs`, the
   Node V8 coverage instrument, which is allowlisted by name in the stack gate.
+- **`docs/site/` is the documentation site**, a foldocs (Foldkit) application that Vite
+  builds and `mise run docs:build` drives. It is the one place a bundler runs. Its pages
+  are *derived* from `README.md`, `CHANGELOG.md` and `docs/adr/` on every build and are
+  gitignored, so the prose has exactly one home. Nothing there touches `src/`, `dist/` or
+  the tarball. See [ADR-0003](docs/adr/0003-the-documentation-site-lives-here.md).
 
 All of this is gated by `test/stack.test.ts` and by `eslint/no-restricted-imports` in
-`.oxlintrc.json`. If you think you need an exception, change the ADR first.
+`.oxlintrc.json`. The gate reads **every** manifest in the repository, not just the root
+one, and grants `docs/site/package.json` exactly one banned package: `vite`. If you think
+you need an exception, change the ADR first.
 
 ## TDD is mandatory
 
@@ -99,6 +107,10 @@ tarball, checks what it holds, installs it into a temp directory and runs both b
 there — the only check that sees what a consumer downloads. The release workflow, which a
 `v*` tag triggers, runs all seven and then publishes under the `alpha` dist-tag.
 
+The documentation site has its own three tasks and is in none of the seven, so it can
+never redden a release: `mise run docs:dev` serves it, `mise run docs:build` writes
+`docs/site/dist/`, and `mise run docs:deploy` puts that on Cloudflare through alchemy.
+
 Commit in small, logical steps with a message that says what changed and why.
 
 Run `mise run setup` once after installing — it patches `tsc` so the Effect language
@@ -122,13 +134,17 @@ test/uncollectable/ a catalog Bun loads and the Node collector cannot
 test/type-only/   a catalog Bun loads and Node refuses, for want of `import type`
 test/             the repo-wide gates (stack, surface derivation)
 docs/adr/         the decisions, in numbered order
+docs/site/        the documentation site (foldocs + Vite, ADR-0003); its own bun.lock
+docs/site/content/ generated from the prose above on every build, gitignored
 dist/             build output, gitignored
 ```
 
 ## What is not here
 
-The React shell, the CSF-3 catalog, the framework adapters, and the Vite dev server are on
-the **`foldkit`** branch, which tracks the Openstory fork this repository grew out of.
+The React shell, the CSF-3 catalog, the framework adapters, and the Openstory Vite dev
+server are on the **`foldkit`** branch, which tracks the fork this repository grew out of.
 That branch is history, not a dependency. Do not merge it forward, and do not resurrect
 pieces of it without amending
-[ADR-0002](docs/adr/0002-bun-effect-foldkit-only.md).
+[ADR-0002](docs/adr/0002-bun-effect-foldkit-only.md). The Vite under `docs/site/` is a
+different thing entirely — it builds the documentation site and nothing of the tool, and
+it is admitted by [ADR-0003](docs/adr/0003-the-documentation-site-lives-here.md).

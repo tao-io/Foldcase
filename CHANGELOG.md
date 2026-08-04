@@ -48,6 +48,25 @@ this tool, and each of these is something it hit on the first run.
   Both are recognised by shape, not by annotation, so an Effect beta cannot move them. An
   inline struct stops at one level of nesting and five fields, because the cell is one line
   of a table.
+- **The stack gate reads every manifest, not just the root one.** The banned-package and
+  bundler checks looked at `package.json` alone, so a nested manifest could have declared
+  React or Vite unseen. They now walk every manifest in the repository. This tightened the
+  fence in the same change that opened its one hole, below.
+
+### Added
+
+- **A documentation site, in this repository, at `docs/site/`.** It is a
+  [foldocs](https://github.com/tarkaworks/foldocs) application — Foldkit and Effect, the
+  same line this tool is written for — and every page of it is *derived* from `README.md`,
+  `CHANGELOG.md` and `docs/adr/` on each build. The generated pages are gitignored, so the
+  prose has one home and cannot fork. `mise run docs:dev` serves it, `mise run docs:build`
+  writes `docs/site/dist/`, and `mise run docs:deploy` puts it on Cloudflare through
+  alchemy. None of this is in the seven CI checks, and nothing of it reaches the npm
+  tarball. foldocs builds with Vite, which [ADR-0002](docs/adr/0002-bun-effect-foldkit-only.md)
+  had fenced out entirely; [ADR-0003](docs/adr/0003-the-documentation-site-lives-here.md)
+  records why the site is here rather than in a second repository — a second one would
+  either copy the prose or derive it across a pin that lags, and this tool exists to say
+  that one definition should have many surfaces, not many copies.
 
 ## [0.1.0] — 2026-08-04
 

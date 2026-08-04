@@ -1,0 +1,28 @@
+{
+  "name": "foldcase-docs",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The Foldcase documentation site: a foldocs application whose every page is derived from this repository's own prose (ADR-0003).",
+  "type": "module",
+  "scripts": {
+    "sync": "node scripts/sync-content.mjs"
+  },
+  "dependencies": {
+    "@effect/platform-browser": "4.0.0-beta.102",
+    "@foldkit/markdown": "0.2.1",
+    "effect": "4.0.0-beta.102",
+    "foldkit": "0.137.0",
+    "foldocs": "0.1.2"
+  },
+  "devDependencies": {
+    "@foldocs/cli": "0.1.2",
+    "@foldocs/tailwind": "0.1.2",
+    "@foldocs/twoslash": "0.1.1",
+    "@foldocs/vite": "0.1.2",
+    "@foldkit/vite-plugin": "0.11.3",
+    "@types/node": "26.1.2",
+    "alchemy": "0.93.12",
+    "typescript": "6.0.3",
+    "vite": "8.2.0"
+  }
+}

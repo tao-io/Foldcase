@@ -23,3 +23,9 @@ dist/
 # branch); ignored so they never sneak into this line.
 .turbo/
 .next/
+
+# The documentation site (ADR-0003): its pages are derived from this
+# repository on every build, never written by hand or committed.
+/docs/site/content/
+# alchemy deployment state — may hold credentials.
+.alchemy/

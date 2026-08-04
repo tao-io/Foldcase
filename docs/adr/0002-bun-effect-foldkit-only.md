@@ -296,3 +296,23 @@ were open — is pushed alongside as history, and `main` does not descend from i
 `SerializedError` shape come from, `LICENSE` keeps its copyright notice, `NOTICE` records
 what is derived and from whom, and the README says so in prose. Detaching the git
 relationship removes a claim about *branch ancestry*, not a claim about credit.
+
+## Amendment 3 — 2026-08-04: Vite comes back, for the documentation site only
+
+The list above puts **Vite** among the things that stay on the `foldkit` branch, and the
+stack gate enforced that absolutely. [ADR-0003](0003-the-documentation-site-lives-here.md)
+opens one hole in it: the Foldcase documentation site lives in this repository under
+`docs/site/`, it is a foldocs application, and foldocs is built by Vite.
+
+The reasoning is ADR-0001's, not a toolchain preference: the site's content *is* this
+repository's `README.md`, `CHANGELOG.md` and `docs/adr/*`, so a second repository would
+either copy that prose or derive it across a pin that can lag. Keeping the site here
+removes the drift window entirely — its pages are generated from the working tree on every
+build and are not committed.
+
+The exception is declared, not inherited: one directory, one `vite.config.ts`, one manifest
+that may name `vite`, and two mise tasks, each pinned by name in `test/stack.test.ts`. The
+same change made the fence stricter elsewhere — every manifest in the repository is now
+read for banned packages and bundlers, where before only the root one was. Nothing about
+the *tool* changes: `mise run build` is still `tsc -b`, the tarball still withholds
+`docs/`, and no bundler touches `src/`.

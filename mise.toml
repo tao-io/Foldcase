@@ -178,6 +178,49 @@ diff -r examples/counter/docs "$tmp/docs"
 echo 'foldcase: dogfood passed — 8 Showcases, 2 documents, both runtimes'
 """
 
+[tasks."docs:build"]
+description = "Build the documentation site in docs/site — derive its pages from this repository, then Vite (ADR-0003)"
+# The one place in this repository where a bundler runs, and the stack gate
+# names this task by hand for it (test/stack.test.ts › DECLARED_SITE_TASKS).
+# The site installs with Bun into its own node_modules, the way
+# `examples/counter` does, so it shares no dependency tree with the tool.
+run = """
+set -e
+cd docs/site
+if [ ! -d node_modules ]; then
+  echo '── installing docs/site'
+  bun install --frozen-lockfile
+fi
+# Every page is derived from README.md, CHANGELOG.md and docs/adr/ in the
+# working tree. Nothing under docs/site/content/ is written by hand, and it is
+# gitignored so nothing there can be committed and drift.
+node scripts/sync-content.mjs
+bunx tsc --noEmit
+bunx vite build
+echo 'foldcase: built docs/site/dist/'
+"""
+
+[tasks."docs:dev"]
+description = "Serve the documentation site with hot reload (ADR-0003)"
+run = """
+set -e
+cd docs/site
+if [ ! -d node_modules ]; then
+  bun install --frozen-lockfile
+fi
+node scripts/sync-content.mjs
+bunx vite
+"""
+
+[tasks."docs:deploy"]
+description = "Deploy docs/site to Cloudflare through alchemy (needs `alchemy login` once)"
+# alchemy runs `mise run docs:build` itself, so the build is not repeated here.
+run = """
+set -e
+cd docs/site
+bunx alchemy deploy
+"""
+
 [tasks.pack]
 description = "Pack the npm tarball, check what is in it, then install and run it the way a consumer does"
 # `smoke` and `dogfood` drive this repository's own `dist/`. This drives the

@@ -49,6 +49,38 @@ const repositoryFiles = (root: string = REPO_ROOT, prefix = ""): ReadonlyArray<s
 
 const FILES = repositoryFiles()
 
+// ── The one declared exception: the documentation site (ADR-0003) ────────────
+//
+// ADR-0003 puts the Foldcase documentation site in this repository, under
+// `docs/site/`, because the prose it publishes is this repository's own and a
+// second repository would fork it — the drift ADR-0001 exists to prevent. The
+// site is a foldocs application, so Vite builds it, and Vite is the one tool
+// ADR-0002 fenced out.
+//
+// The hole is exactly this wide and no wider, and every constant below is
+// pinned by its own assertion, so widening it is a deliberate edit to this
+// file rather than a quiet extra line: one directory, one Vite config, one
+// manifest that may name `vite`, and the mise tasks that drive it. The rest of
+// the fence still applies to the site — no rival lockfile (it installs with
+// Bun, the way `examples/counter` does), no rival toolchain, no framework but
+// Foldkit, and nothing of it under `src/` or in the published tarball.
+
+const DECLARED_SITE = "docs/site"
+const DECLARED_SITE_CONFIG = `${DECLARED_SITE}/vite.config.ts`
+const DECLARED_SITE_MANIFEST = `${DECLARED_SITE}/package.json`
+
+/** The packages the site's manifest — and only it — may declare. */
+const DECLARED_SITE_DEPENDENCIES: Readonly<Record<string, ReadonlyArray<string>>> = {
+  [DECLARED_SITE_MANIFEST]: ["vite"],
+}
+
+/**
+ * The mise tasks that may invoke a bundler. `docs:deploy` is deliberately not
+ * here: it hands the build to alchemy and names no bundler itself, so it needs
+ * no permission and is not given any.
+ */
+const DECLARED_SITE_TASKS: ReadonlyArray<string> = ["docs:build", "docs:dev"]
+
 // ── 1. A rival lockfile ──────────────────────────────────────────────────────
 
 const RIVAL_LOCKFILES = new Set(["package-lock.json", "yarn.lock", "pnpm-lock.yaml"])
@@ -79,11 +111,17 @@ describe("ADR-0002 — a rival lockfile", () => {
 const RIVAL_TOOLING = new Set(["pnpm-workspace.yaml", "turbo.json"])
 const RIVAL_CONFIG = /^(vite|vitest)\.config\.[cm]?[jt]s$/
 
-/** Config files belonging to the pnpm/turbo/Vite line that stayed behind. */
-export const rivalToolchainFiles = (files: ReadonlyArray<string>): ReadonlyArray<string> =>
+/**
+ * Config files belonging to the pnpm/turbo/Vite line that stayed behind. The
+ * documentation site's own Vite config is spared by name (ADR-0003).
+ */
+export const rivalToolchainFiles = (
+  files: ReadonlyArray<string>,
+  allowlist: ReadonlyArray<string> = [DECLARED_SITE_CONFIG],
+): ReadonlyArray<string> =>
   files.filter((file) => {
     const name = basename(file)
-    return RIVAL_TOOLING.has(name) || RIVAL_CONFIG.test(name)
+    return (RIVAL_TOOLING.has(name) || RIVAL_CONFIG.test(name)) && !allowlist.includes(file)
   })
 
 describe("ADR-0002 — a rival toolchain file", () => {
@@ -97,6 +135,16 @@ describe("ADR-0002 — a rival toolchain file", () => {
         "vitest.config.mts",
       ]),
     ).toEqual(["turbo.json", "pnpm-workspace.yaml", "apps/web/vite.config.ts", "vitest.config.mts"])
+  })
+
+  test("spares the declared site config, and only at that exact path", () => {
+    expect(rivalToolchainFiles([DECLARED_SITE_CONFIG])).toEqual([])
+    // A second site, or the same file name one directory over, is not the
+    // exception — the allowlist holds a path, not a basename.
+    expect(rivalToolchainFiles(["docs/other/vite.config.ts", `${DECLARED_SITE}/vitest.config.ts`])).toEqual([
+      "docs/other/vite.config.ts",
+      `${DECLARED_SITE}/vitest.config.ts`,
+    ])
   })
 
   test("the repository carries none", () => {
@@ -136,6 +184,33 @@ export const bannedDependencies = (manifest: unknown): ReadonlyArray<string> => 
 
 const PACKAGE_JSON: unknown = JSON.parse(readFileSync(`${REPO_ROOT}/package.json`, "utf8"))
 
+/**
+ * Every package manifest in the repository, by path. Until ADR-0003 there was
+ * only one that mattered, so only the root one was read; a site with its own
+ * manifest means the fence has to look at all of them, or the hole would be as
+ * wide as "any directory with a package.json in it".
+ */
+const MANIFESTS: ReadonlyArray<readonly [string, unknown]> = FILES.filter(
+  (file) => basename(file) === "package.json",
+).map((file) => [file, JSON.parse(readFileSync(`${REPO_ROOT}/${file}`, "utf8")) as unknown] as const)
+
+/**
+ * Every forbidden package declared by any manifest in the repository, as
+ * `path: name`, minus what that manifest is declared to be allowed.
+ */
+export const forbiddenAcrossManifests = (
+  manifests: ReadonlyArray<readonly [string, unknown]>,
+  forbidden: (name: string) => boolean,
+  exceptions: Readonly<Record<string, ReadonlyArray<string>>> = DECLARED_SITE_DEPENDENCIES,
+): ReadonlyArray<string> =>
+  manifests.flatMap(([path, manifest]) => {
+    const blocks = manifest as Record<string, Record<string, string> | undefined>
+    return DEPENDENCY_BLOCKS.flatMap((block) => Object.keys(blocks[block] ?? {}))
+      .filter(forbidden)
+      .filter((name) => !(exceptions[path] ?? []).includes(name))
+      .map((name) => `${path}: ${name}`)
+  })
+
 describe("ADR-0002 — a banned dependency", () => {
   test("reads every dependency block, including peers and optionals", () => {
     expect(bannedDependencies({ dependencies: { effect: "4" } })).toEqual([])
@@ -149,8 +224,26 @@ describe("ADR-0002 — a banned dependency", () => {
     ).toEqual(["react", "vitest", "@storybook/react-vite", "vue", "turbo"])
   })
 
-  test("package.json declares none", () => {
+  test("reads every manifest in the repository, and honours only the declared exception", () => {
+    const manifests = [
+      ["package.json", { devDependencies: { effect: "4" } }],
+      [DECLARED_SITE_MANIFEST, { devDependencies: { vite: "8", react: "19" } }],
+      ["examples/counter/package.json", { dependencies: { vue: "3" } }],
+    ] as const
+    expect(forbiddenAcrossManifests(manifests, isBanned)).toEqual([
+      // `vite` is spared in the site's manifest; `react` beside it is not.
+      `${DECLARED_SITE_MANIFEST}: react`,
+      "examples/counter/package.json: vue",
+    ])
+    // And the same allowance in any other manifest is still a failure.
+    expect(
+      forbiddenAcrossManifests([["examples/counter/package.json", { devDependencies: { vite: "8" } }]], isBanned),
+    ).toEqual(["examples/counter/package.json: vite"])
+  })
+
+  test("no manifest in the repository declares one", () => {
     expect(bannedDependencies(PACKAGE_JSON)).toEqual([])
+    expect(forbiddenAcrossManifests(MANIFESTS, isBanned)).toEqual([])
   })
 })
 
@@ -406,11 +499,17 @@ export const miseTasks = (manifest: string): ReadonlyArray<readonly [string, str
   })
 }
 
-/** Tasks whose command line invokes a bundler. */
+/**
+ * Tasks whose command line invokes a bundler, minus the documentation site's
+ * declared two (ADR-0003).
+ */
 export const bundlerTasks = (
   tasks: ReadonlyArray<readonly [string, string]>,
+  allowlist: ReadonlyArray<string> = DECLARED_SITE_TASKS,
 ): ReadonlyArray<string> =>
-  tasks.filter(([, command]) => BUNDLER_INVOCATION.test(command)).map(([name]) => name)
+  tasks
+    .filter(([name, command]) => BUNDLER_INVOCATION.test(command) && !allowlist.includes(name))
+    .map(([name]) => name)
 
 const MISE_TOML = readFileSync(`${REPO_ROOT}/mise.toml`, "utf8")
 
@@ -456,9 +555,21 @@ describe("ADR-0002 — a bundler", () => {
     ).toEqual(["build", "web", "pack"])
   })
 
+  test("spares the declared documentation tasks, and only those", () => {
+    const tasks = [
+      ["docs:build", "cd docs/site && bun x vite build"],
+      ["docs:dev", "cd docs/site && bun x vite"],
+      ["web", "vite build"],
+    ] as const
+    expect(bundlerTasks(tasks)).toEqual(["web"])
+  })
+
   test("the repository declares no bundler and calls none", () => {
     expect(bundlerDependencies(PACKAGE_JSON)).toEqual([])
     expect(bundlerTasks(miseTasks(MISE_TOML))).toEqual([])
+    expect(
+      forbiddenAcrossManifests(MANIFESTS, (name) => BUNDLERS.includes(name)),
+    ).toEqual([])
   })
 
   test("and the build task really is `tsc -b` — the rule is not vacuous", () => {
@@ -588,5 +699,57 @@ describe("ADR-0002 — a stale build in the tarball", () => {
     expect(nonDelegatingScripts(PACKAGE_JSON)).toEqual([])
     // And the task it calls is really there — the rule is not vacuous.
     expect(miseTasks(MISE_TOML).map(([name]) => name)).toContain("build")
+  })
+})
+
+// ── 11. The documentation site, and the width of its hole ────────────────────
+//
+// Everything above spares `docs/site` by name. This section is the other half:
+// it pins each allowance to its exact value and proves the thing it allows is
+// really there, so the exception cannot quietly widen and cannot quietly
+// become vacuous. It is the same shape as the coverage collector's allowlist
+// (§4) — an exception by declaration, not by accident.
+
+const SITE_MANIFEST = MANIFESTS.find(([path]) => path === DECLARED_SITE_MANIFEST)?.[1]
+
+describe("ADR-0003 — the documentation site", () => {
+  test("the allowances are exactly these, and widening one is an edit to this file", () => {
+    expect(DECLARED_SITE).toBe("docs/site")
+    expect(DECLARED_SITE_CONFIG).toBe("docs/site/vite.config.ts")
+    expect(DECLARED_SITE_MANIFEST).toBe("docs/site/package.json")
+    expect(DECLARED_SITE_DEPENDENCIES).toEqual({ "docs/site/package.json": ["vite"] })
+    expect(DECLARED_SITE_TASKS).toEqual(["docs:build", "docs:dev"])
+  })
+
+  test("the site is really there, in the one place named", () => {
+    expect(FILES).toContain(DECLARED_SITE_CONFIG)
+    expect(FILES).toContain(DECLARED_SITE_MANIFEST)
+    // It installs with Bun, the way `examples/counter` does. §1 already fails
+    // on a rival lockfile anywhere; this is the positive half of that.
+    expect(FILES).toContain(`${DECLARED_SITE}/bun.lock`)
+  })
+
+  test("the site really does declare Vite — the allowance is not vacuous", () => {
+    expect(bundlerDependencies(SITE_MANIFEST)).toEqual(["vite"])
+  })
+
+  test("the site is private, so no lapse can publish it", () => {
+    expect((SITE_MANIFEST as { private?: boolean }).private).toBe(true)
+  })
+
+  test("the declared tasks are really in mise.toml, and they drive the site", () => {
+    const tasks = miseTasks(MISE_TOML)
+    for (const declared of DECLARED_SITE_TASKS) {
+      const command = tasks.find(([name]) => name === declared)?.[1]
+      expect(command).toBeString()
+      expect(command).toContain(DECLARED_SITE)
+    }
+  })
+
+  test("nothing of the site reaches the tarball", () => {
+    // `files` ships `dist/` and four documents; `docs/` is not among them, and
+    // the pack task asserts that from the other side.
+    expect((PACKAGE_JSON as PublishedManifest).files).not.toContain("docs")
+    expect(MISE_TOML).toContain("withholds docs/")
   })
 })

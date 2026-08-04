@@ -1,0 +1,69 @@
+import { Runtime } from 'foldkit'
+import { createAiClient, createDocsProgram, preloadDocsPage } from 'foldocs'
+import {
+  ai,
+  banner,
+  basePath,
+  feedback,
+  i18n,
+  landing,
+  landingSocialImages,
+  layout,
+  manifest,
+  markdown,
+  navigations,
+  og,
+  searchIndexUrls,
+  seo,
+  siteConfig,
+} from 'virtual:foldocs'
+
+import { markdownIslands } from './markdown-islands.js'
+import { mdxComponents } from './mdx-components.js'
+
+const preloadedPage = await preloadDocsPage(
+  manifest,
+  i18n,
+  window.location.pathname,
+)
+
+const program = createDocsProgram({
+  manifest,
+  basePath,
+  i18n,
+  landing,
+  landingSocialImages,
+  banner,
+  feedback,
+  layoutPreset: layout.preset,
+  navigations,
+  og,
+  seo,
+  site: siteConfig,
+  markdown,
+  islands: markdownIslands,
+  components: mdxComponents,
+  searchIndexUrls,
+  ...(ai.enabled
+    ? { ai: { client: createAiClient({ endpoint: ai.endpoint }) } }
+    : {}),
+  ...(preloadedPage === undefined ? {} : { preloadedPage }),
+})
+
+const application = Runtime.makeApplication({
+  Model: program.Model,
+  init: program.init,
+  update: program.update,
+  view: program.view,
+  subscriptions: program.subscriptions,
+  routing: program.routing,
+  container: document.getElementById('root'),
+})
+
+Runtime.run(application)
+
+requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
+    document.documentElement.dataset.foldocsReady = 'true'
+  })
+})
