@@ -194,7 +194,7 @@ fi
 # Every page is derived from README.md, CHANGELOG.md and docs/adr/ in the
 # working tree. Nothing under docs/site/content/ is written by hand, and it is
 # gitignored so nothing there can be committed and drift.
-node scripts/sync-content.mjs
+"$(mise which node)" scripts/sync-content.mjs
 bunx tsc --noEmit
 bunx vite build
 echo 'foldcase: built docs/site/dist/'
@@ -208,17 +208,38 @@ cd docs/site
 if [ ! -d node_modules ]; then
   bun install --frozen-lockfile
 fi
-node scripts/sync-content.mjs
+"$(mise which node)" scripts/sync-content.mjs
 bunx vite
 """
 
 [tasks."docs:deploy"]
-description = "Deploy docs/site to Cloudflare through alchemy (needs `alchemy login` once)"
+description = "Deploy docs/site to Cloudflare through alchemy (needs `alchemy configure` once)"
 # alchemy runs `mise run docs:build` itself, so the build is not repeated here.
+#
+# Credentials never live in this repository. `alchemy configure` stores an OAuth
+# token under ~/.alchemy per named profile, and this defaults to the profile
+# named after the project while still honouring an ALCHEMY_PROFILE already in
+# the environment. CI sets CLOUDFLARE_API_TOKEN instead, which alchemy prefers
+# over any profile.
+#
+# The entrypoint runs under **Node**, not Bun, and that is not a preference:
+# `bunx alchemy deploy` detects `bun.lock` beside it and re-executes the
+# entrypoint with Bun, where Bun 1.3.14 dies — `panic(main thread):
+# Segmentation fault`, after spinning a core for ten minutes first. Running the
+# file directly is what the alchemy CLI would do anyway, minus its telemetry
+# arguments, and Node 22.18 strips the types without a flag.
+#
+# `$(mise which node)`, not a bare `node`: inside a task on this machine a bare
+# `node` resolves to whatever is first on PATH — a Homebrew v26.4.0 here — and
+# on that version alchemy's `response.json()` throws, so every deploy dies with
+# "The API returned an invalid response". `mise which` asks for the Node this
+# repository pins, without repeating the version number.
 run = """
 set -e
 cd docs/site
-bunx alchemy deploy
+: "${ALCHEMY_PROFILE:=foldcase}"
+export ALCHEMY_PROFILE
+"$(mise which node)" alchemy.run.ts
 """
 
 [tasks.pack]

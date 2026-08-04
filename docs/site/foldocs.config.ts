@@ -5,8 +5,9 @@ export default defineConfig({
     title: 'Foldcase',
     description:
       'One typed record per component state — read by your coding agent, your CI, your docs, and your coverage.',
-    // Placeholder until the first `alchemy deploy` prints the real workers.dev URL.
-    baseUrl: 'https://foldcase-docs.example.com',
+    // The Worker `mise run docs:deploy` creates. Absolute links in the sitemap,
+    // the OG tags and llms.txt are built from this, so it has to be the real one.
+    baseUrl: 'https://foldcase-docs.1st-account.workers.dev',
     logoText: 'Foldcase',
     tagline:
       'One typed record per component state — read by your coding agent, your CI, your docs, and your coverage.',
