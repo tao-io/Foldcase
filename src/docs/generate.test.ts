@@ -106,6 +106,58 @@ describe("renderComponentDoc", () => {
     expect(doc.markdown).toContain("`count`")
   })
 
+  test("names the Messages no play dispatches, under the table that lists them", async () => {
+    const increments: Showcase = {
+      id: "counter/increments",
+      play: () => {},
+      dispatches: ["Increment"],
+      ...schemas,
+    }
+    const doc = await docOf([increments])
+
+    expect(doc.markdown).toContain("Not showcased: `SetLabel`")
+    // The line sits under the Messages table, and above the Model section.
+    expect(doc.markdown.indexOf("Not showcased")).toBeGreaterThan(doc.markdown.indexOf("| Message"))
+    expect(doc.markdown.indexOf("Not showcased")).toBeLessThan(doc.markdown.indexOf("## Model"))
+    // The document carries the gap as data too, so the CLI reads it rather
+    // than its own Markdown.
+    expect(doc.gap?.undispatched).toEqual(["SetLabel"])
+  })
+
+  test("says nothing about gaps when every Message of the union is showcased", async () => {
+    const whole: Showcase = {
+      id: "counter/whole",
+      play: () => {},
+      dispatches: ["Increment", "SetLabel"],
+      ...schemas,
+    }
+    const doc = await docOf([whole])
+
+    expect(doc.markdown).not.toContain("Not showcased")
+    expect(doc.markdown).not.toContain("Unknown dispatches")
+    expect(doc.gap?.undispatched).toEqual([])
+  })
+
+  test("says nothing about gaps when no Showcase declares what it dispatches", async () => {
+    const doc = await docOf([full])
+
+    expect(doc.markdown).not.toContain("Not showcased")
+    expect(doc.gap).toBeUndefined()
+  })
+
+  test("calls a declared tag the union does not carry out, where the gaps are shown", async () => {
+    const typo: Showcase = {
+      id: "counter/typo",
+      play: () => {},
+      dispatches: ["Increment", "SetLable"],
+      ...schemas,
+    }
+    const doc = await docOf([typo])
+
+    expect(doc.markdown).toContain("Unknown dispatches: `SetLable`")
+    expect(doc.gap?.unknown).toEqual(["SetLable"])
+  })
+
   test("declines to document a component that declares nothing, and does not fail", async () => {
     // An opaque Showcase has nothing to table, so it gets no document — a page
     // saying only "no schema declared" is worse than no page. `none`, not a

@@ -32,6 +32,8 @@ import { collectCoverage } from "./coverage/collect.js"
 import { type CoverageReport, formatCoverage } from "./coverage/report.js"
 import {
   checkComponentDocs,
+  type ComponentDoc,
+  type ComponentGap,
   type StaleDoc,
   writeComponentDocs,
   type WrittenDoc,
@@ -277,9 +279,10 @@ const printDocsDocument = (
   written: ReadonlyArray<WrittenDoc>,
   failures: ReadonlyArray<ShowcaseModuleError>,
   stale: Option.Option<ReadonlyArray<StaleDoc>>,
+  gaps: ReadonlyArray<ComponentGap>,
 ) =>
   encodeDocsDocument(
-    new DocsDocument({ docs: written, failures, stale: Option.getOrUndefined(stale) }),
+    new DocsDocument({ docs: written, failures, stale: Option.getOrUndefined(stale), gaps }),
   ).pipe(Effect.orDie, Effect.flatMap(Console.log))
 
 const printWritten = (outDir: string, written: ReadonlyArray<WrittenDoc>) =>
@@ -340,7 +343,10 @@ const docs = Effect.fn("foldcase.docs")(function* (
     ? Option.some(yield* checkComponentDocs(outDir, generated))
     : Option.none<ReadonlyArray<StaleDoc>>()
   const written = check ? [] : yield* writeComponentDocs(outDir, generated)
-  yield* json ? printDocsDocument(written, failures, stale) : Effect.void
+  // The gaps the pages already report, read off the documents rather than back
+  // out of their Markdown — one derivation, two renderings of it.
+  const gaps = generated.flatMap((doc: ComponentDoc) => (doc.gap === undefined ? [] : [doc.gap]))
+  yield* json ? printDocsDocument(written, failures, stale, gaps) : Effect.void
   yield* Option.match(stale, {
     onNone: () => (json ? Effect.void : printWritten(outDir, written)),
     onSome: (drifted) =>
@@ -354,14 +360,30 @@ const docs = Effect.fn("foldcase.docs")(function* (
     concurrency: 1,
     discard: true,
   })
+  // A Message tag a catalog says it dispatches but its union does not have is
+  // the catalog lying about itself — a typo, or a Message renamed since. It is
+  // named on stderr in both modes, like a file that would not load, because a
+  // reader watching the terminal has to see it.
+  const lying = gaps.filter((gap) => !Arr.isReadonlyArrayEmpty(gap.unknown))
+  yield* Effect.forEach(
+    lying,
+    (gap) =>
+      Console.error(
+        `foldcase docs: ${gap.component} dispatches ${gap.unknown.join(", ")}, which its Message union does not declare`,
+      ),
+    { concurrency: 1, discard: true },
+  )
   // Drift fails the run the same way a file that would not load does: a `docs`
   // page that no longer matches its catalog is out of date, and the exit code is
-  // the only thing a CI job reads.
+  // the only thing a CI job reads. An unknown dispatch fails it for the same
+  // reason a Schema that will not introspect does — the declaration is wrong.
+  // A mere gap does not: a Message nobody showcases yet is information, and the
+  // next Showcase to write.
   const drifted = Option.match(stale, {
     onNone: () => false,
     onSome: (entries) => !Arr.isReadonlyArrayEmpty(entries),
   })
-  return Arr.isReadonlyArrayEmpty(failures) && !drifted ? 0 : 1
+  return Arr.isReadonlyArrayEmpty(failures) && !drifted && Arr.isReadonlyArrayEmpty(lying) ? 0 : 1
 })
 
 // One line per file, in the order the files were wired, each naming what

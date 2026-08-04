@@ -15,7 +15,7 @@ import * as Schema from "effect/Schema"
 
 import { ShowcaseModuleError } from "./cli.js"
 import { CoverageReport } from "./coverage/report.js"
-import { StaleDoc, WrittenDoc } from "./docs/generate.js"
+import { ComponentGap, StaleDoc, WrittenDoc } from "./docs/generate.js"
 import { InitArtifact } from "./init.js"
 import { SuiteReport } from "./runner.js"
 
@@ -44,6 +44,15 @@ export class DocsDocument extends Schema.Class<DocsDocument>("foldcase/DocsDocum
   docs: Schema.Array(WrittenDoc),
   failures: Schema.Array(ShowcaseModuleError),
   stale: Schema.optional(Schema.Array(StaleDoc)),
+  /**
+   * The message-tag gap of every component the answer is knowable for: which
+   * Messages of its union no `play` declares it dispatches, and which declared
+   * tags the union does not carry. The Markdown says the same under each
+   * component's Messages table; this is the half an agent reads, because
+   * `undispatched` is the list of Showcases still to write. A component nobody
+   * declared for is absent, never an empty gap.
+   */
+  gaps: Schema.Array(ComponentGap),
 }) {}
 
 /**
@@ -62,6 +71,6 @@ export class InitDocument extends Schema.Class<InitDocument>("foldcase/InitDocum
 export { ShowcaseModuleError } from "./cli.js"
 export { SkippedFile } from "./coverage/coverage.js"
 export { CoverageReport, FileCoverage, ShowcaseCoverage } from "./coverage/report.js"
-export { StaleDoc, WrittenDoc } from "./docs/generate.js"
+export { ComponentGap, StaleDoc, WrittenDoc } from "./docs/generate.js"
 export { InitArtifact, InitFileError } from "./init.js"
 export { SerializedError, ShowcaseReport, SuiteReport } from "./runner.js"

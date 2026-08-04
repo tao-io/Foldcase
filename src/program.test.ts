@@ -407,6 +407,9 @@ describe("run", () => {
         },
       ],
       failures: [],
+      // A catalog that declares no dispatches has no knowable gap, so the list
+      // is empty — the fixture says nothing about what its play sends.
+      gaps: [],
     })
     await Bun.$`rm -rf ${out}`.quiet()
   })
@@ -428,6 +431,89 @@ describe("run", () => {
     ])
     expect(document.failures[0]?.reason.length).toBeGreaterThan(0)
     await Bun.$`rm -rf ${out}`.quiet()
+  })
+
+  /**
+   * A catalog declaring what its plays dispatch, written where `effect/Schema`
+   * resolves. `dispatches` names the tags of the union above it, so a run over
+   * this directory has a real gap to report — and, when `unknown` is asked for,
+   * a tag the union does not carry.
+   */
+  const catalogDeclaring = async (dir: string, dispatches: ReadonlyArray<string>): Promise<void> => {
+    await Bun.$`rm -rf ${dir}`.quiet()
+    await Bun.$`mkdir -p ${dir}`.quiet()
+    await Bun.write(
+      `${dir}/gap.showcase.ts`,
+      [
+        `import * as Schema from "effect/Schema"`,
+        ``,
+        `const Message = Schema.Union([`,
+        `  Schema.TaggedStruct("Increment", {}),`,
+        `  Schema.TaggedStruct("SetLabel", { label: Schema.String }),`,
+        `])`,
+        ``,
+        `export const showcases = [`,
+        `  {`,
+        `    id: "counter/one",`,
+        `    play: () => {},`,
+        `    message: Message,`,
+        `    dispatches: ${JSON.stringify(dispatches)},`,
+        `  },`,
+        `]`,
+        ``,
+      ].join("\n"),
+    )
+  }
+
+  test("docs prints the Messages no play dispatches, and still exits 0 — a gap is information", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-docs-gap`
+    const out = `${dir}/out`
+    await catalogDeclaring(dir, ["Increment"])
+
+    const result = await runCapturing(["docs", dir, out])
+
+    // A Message nobody showcases is the next Showcase to write, not a broken
+    // catalog: the page says so and the run stays green.
+    expect(result.code).toBe(0)
+    expect(await Bun.file(`${out}/counter.md`).text()).toContain("Not showcased: `SetLabel`")
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
+  test("docs exits non-zero on a dispatch the Message union does not carry", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-docs-unknown`
+    const out = `${dir}/out`
+    await catalogDeclaring(dir, ["Increment", "SetLable"])
+
+    const result = await runCapturing(["docs", dir, out])
+
+    // A tag the union does not have means the catalog is lying about itself —
+    // the same class of failure as a Schema that will not introspect, and the
+    // exit code is the only thing a CI job reads.
+    expect(result.code).toBe(1)
+    expect(result.err.join("\n")).toContain("SetLable")
+    expect(await Bun.file(`${out}/counter.md`).text()).toContain("Unknown dispatches: `SetLable`")
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
+  test("docs --json carries the gaps, so an agent reads them rather than the Markdown", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-docs-gap-json`
+    const out = `${dir}/out`
+    await catalogDeclaring(dir, ["Increment"])
+
+    const result = await runCapturing(["docs", "--json", dir, out])
+
+    expect(result.code).toBe(0)
+    const document = documentOf(result) as {
+      gaps: ReadonlyArray<{
+        component: string
+        undispatched: ReadonlyArray<string>
+        unknown: ReadonlyArray<string>
+      }>
+    }
+    expect(document.gaps).toEqual([
+      { component: "counter", undispatched: ["SetLabel"], unknown: [] },
+    ])
+    await Bun.$`rm -rf ${dir}`.quiet()
   })
 
   test("docs --check exits 0 when the out-dir already holds what this run would write", async () => {
