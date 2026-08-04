@@ -256,6 +256,13 @@ ships dist/main.js
 ships dist/main.bun.js
 ships dist/runner.d.ts
 ships dist/coverage/collector.mjs
+# The `foldcase/lab` entry point and the two modules behind it. The lab is
+# ordinary TypeScript that `tsc -b` compiles like everything else (ADR-0004),
+# so nothing but this proves the consumer's dev server has something to import.
+ships dist/lab/index.js
+ships dist/lab/index.d.ts
+ships dist/lab/app.js
+ships dist/lab/catalog.js
 ships README.md
 ships CHANGELOG.md
 ships LICENSE

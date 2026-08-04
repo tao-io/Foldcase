@@ -35,6 +35,10 @@
       "types": "./dist/runner.d.ts",
       "import": "./dist/runner.js"
     },
+    "./lab": {
+      "types": "./dist/lab/index.d.ts",
+      "import": "./dist/lab/index.js"
+    },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js"
