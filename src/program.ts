@@ -77,20 +77,33 @@ const DEFAULT_TARGET = "."
  * which word was one too many, so the reason names them; the banner still follows
  * it, because the reader also needs the form that would have worked.
  */
+const refusal = (takes: string, words: ReadonlyArray<string>): Option.Option<Command> =>
+  Arr.isReadonlyArrayEmpty(words)
+    ? Option.none()
+    : Option.some(
+        Command.Usage({
+          reason: Option.some(`${takes}; it did not understand: ${words.join(", ")}`),
+        }),
+      )
+
 const surplus = (
   takes: string,
   limit: number,
   positionals: ReadonlyArray<string>,
-): Option.Option<Command> =>
-  positionals.length > limit
-    ? Option.some(
-        Command.Usage({
-          reason: Option.some(
-            `${takes}; it did not understand: ${positionals.slice(limit).join(", ")}`,
-          ),
-        }),
-      )
-    : Option.none()
+): Option.Option<Command> => refusal(takes, positionals.slice(limit))
+
+/**
+ * A flag the verb does not know is a refusal too, and for the same reason: a
+ * dropped `--covrage` ran the suite without coverage and exited 0, so the typo
+ * read as a clean run — the worst answer a tool can give an agent. The `takes`
+ * phrase names the flags that would have worked, since a misspelling is nearly
+ * always a near miss of one of them.
+ */
+const unknown = (
+  takes: string,
+  known: ReadonlyArray<string>,
+  flags: ReadonlySet<string>,
+): Option.Option<Command> => refusal(takes, [...flags].filter((flag) => !known.includes(flag)))
 
 /**
  * Read the argument vector (already stripped of the runtime and script paths).
@@ -108,16 +121,22 @@ export const parseCommand = (argv: ReadonlyArray<string>): Command => {
   const positionals = words.slice(1)
   switch (subcommand) {
     case "test":
-      return Option.getOrElse(surplus("test takes one target", 1, positionals), () =>
-        Command.Test({
-          target: target ?? DEFAULT_TARGET,
-          coverage: flags.has("--coverage"),
-          json: flags.has("--json"),
-        }),
+      return Option.getOrElse(
+        Option.orElse(surplus("test takes one target", 1, positionals), () =>
+          unknown("test takes --coverage and --json", ["--coverage", "--json"], flags),
+        ),
+        () =>
+          Command.Test({
+            target: target ?? DEFAULT_TARGET,
+            coverage: flags.has("--coverage"),
+            json: flags.has("--json"),
+          }),
       )
     case "docs":
       return Option.getOrElse(
-        surplus("docs takes a target and an out-dir", 2, positionals),
+        Option.orElse(surplus("docs takes a target and an out-dir", 2, positionals), () =>
+          unknown("docs takes --json", ["--json"], flags),
+        ),
         () =>
           Command.Docs({
             target: target ?? DEFAULT_TARGET,
@@ -126,7 +145,12 @@ export const parseCommand = (argv: ReadonlyArray<string>): Command => {
           }),
       )
     case "mcp":
-      return Option.getOrElse(surplus("mcp takes no target", 0, positionals), () => Command.Mcp())
+      return Option.getOrElse(
+        Option.orElse(surplus("mcp takes no target", 0, positionals), () =>
+          unknown("mcp takes no flags", [], flags),
+        ),
+        () => Command.Mcp(),
+      )
     default:
       return Command.Usage({ reason: Option.none() })
   }

@@ -97,10 +97,36 @@ describe("parseCommand", () => {
     )
   })
 
+  test("refuses a flag `test` does not know, naming it", () => {
+    // A misspelled flag used to be dropped in silence: `--covrage` ran the
+    // suite without coverage and exited 0, so the typo looked like a pass.
+    expect(parseCommand(["test", "src/ui", "--covrage"])).toEqual(
+      Command.Usage({
+        reason: Option.some("test takes --coverage and --json; it did not understand: --covrage"),
+      }),
+    )
+  })
+
   test("refuses a third positional for `docs`, whose second one is the out-dir", () => {
     expect(parseCommand(["docs", "src/ui", "out", "extra"])).toEqual(
       Command.Usage({
         reason: Option.some("docs takes a target and an out-dir; it did not understand: extra"),
+      }),
+    )
+  })
+
+  test("refuses --coverage for `docs`, which collects none", () => {
+    expect(parseCommand(["docs", "src/ui", "--coverage"])).toEqual(
+      Command.Usage({
+        reason: Option.some("docs takes --json; it did not understand: --coverage"),
+      }),
+    )
+  })
+
+  test("refuses every flag for `mcp`, which takes none, and names them all", () => {
+    expect(parseCommand(["mcp", "--json", "--coverage"])).toEqual(
+      Command.Usage({
+        reason: Option.some("mcp takes no flags; it did not understand: --json, --coverage"),
       }),
     )
   })
@@ -150,6 +176,22 @@ describe("run", () => {
     const said = result.err.join("\n")
     expect(said).toContain("did not understand: ")
     expect(said).toContain(`${malformed}/bad-message.showcase.ts`)
+    expect(said).toContain("usage: foldcase")
+  })
+
+  test("a misspelled flag exits non-zero instead of running without it", async () => {
+    const result = await runCapturing([
+      "test",
+      `${fixtures}/counter-logic.showcase.ts`,
+      "--covrage",
+    ])
+
+    // The catalog passes, so a run that ignored the typo would exit 0 and print
+    // a green summary — the flag has to be refused before anything runs.
+    expect(result.code).toBe(1)
+    expect(result.out).toEqual([])
+    const said = result.err.join("\n")
+    expect(said).toContain("did not understand: --covrage")
     expect(said).toContain("usage: foldcase")
   })
 
