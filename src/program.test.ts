@@ -145,6 +145,33 @@ describe("parseCommand", () => {
     )
   })
 
+  test("reads `init`, with the directory defaulting to the current one", () => {
+    expect(parseCommand(["init"])).toEqual(Command.Init({ target: ".", json: false }))
+    expect(parseCommand(["init", "app"])).toEqual(Command.Init({ target: "app", json: false }))
+    expect(parseCommand(["init", "--json", "app"])).toEqual(
+      Command.Init({ target: "app", json: true }),
+    )
+    expect(parseCommand(["init", "app", "--json"])).toEqual(
+      Command.Init({ target: "app", json: true }),
+    )
+  })
+
+  test("refuses a second directory for `init`, which wires exactly one", () => {
+    expect(parseCommand(["init", "app", "other"])).toEqual(
+      Command.Usage({
+        reason: Option.some("init takes one directory; it did not understand: other"),
+      }),
+    )
+  })
+
+  test("refuses a flag `init` does not know, naming it", () => {
+    expect(parseCommand(["init", "app", "--force"])).toEqual(
+      Command.Usage({
+        reason: Option.some("init takes --json; it did not understand: --force"),
+      }),
+    )
+  })
+
   test("refuses every flag for `mcp`, which takes none, and names them all", () => {
     expect(parseCommand(["mcp", "--json", "--coverage"])).toEqual(
       Command.Usage({
@@ -299,6 +326,38 @@ describe("run", () => {
     expect(result.code).toBe(1)
     expect(result.out).toEqual([])
     expect(result.err.join("\n")).toContain("no *.showcase.ts found")
+  })
+
+  test("init says what it did to each file, and a second run says it kept them", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-init`
+    await Bun.$`rm -rf ${dir}`.quiet()
+    await Bun.$`mkdir -p ${dir}`.quiet()
+
+    const first = await runCapturing(["init", dir])
+    const second = await runCapturing(["init", dir])
+
+    expect(first.code).toBe(0)
+    expect(first.out).toEqual([
+      "foldcase init: .mcp.json created",
+      "foldcase init: AGENTS.md created",
+    ])
+    // Idempotent, and it says so rather than going quiet.
+    expect(second.code).toBe(0)
+    expect(second.out).toEqual([
+      "foldcase init: .mcp.json kept",
+      "foldcase init: AGENTS.md kept",
+    ])
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
+  test("init on a directory that is not there fails instead of creating one", async () => {
+    const absent = `${import.meta.dir}/../runtime-test-init-absent`
+    await Bun.$`rm -rf ${absent}`.quiet()
+
+    // The same typed failure every other subcommand gives for a target that
+    // does not exist — `init` does not invent the directory it was pointed at.
+    await expect(runCapturing(["init", absent])).rejects.toThrow()
+    expect(await Bun.file(`${absent}/.mcp.json`).exists()).toBe(false)
   })
 
   test("docs --json names the documents it wrote", async () => {

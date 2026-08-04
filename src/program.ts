@@ -36,6 +36,7 @@ import {
   writeComponentDocs,
   type WrittenDoc,
 } from "./docs/generate.js"
+import { type InitArtifact, initialize } from "./init.js"
 import { FoldcaseMcpServer } from "./mcp/server.js"
 // The `--json` documents are a published contract, so they are declared on the
 // entry point a consumer imports and used here — not the other way round.
@@ -44,7 +45,7 @@ import { formatSuite, type Showcase, type SuiteReport, suiteExitCode } from "./r
 
 /** The one-line usage banner, printed to stderr for an unknown subcommand. */
 export const usage =
-  "usage: foldcase <test [dir-or-file] [--coverage] [--json] | docs [dir] [out-dir] [--json] [--check] | mcp>   (test/docs default to the current directory; --coverage adds a V8 line/function coverage summary; --json prints one JSON document on stdout instead of the summary, diagnostics on stderr; docs writes Schema-table Markdown to out-dir, default FOLDCASE_DOCS_DIR; --check writes nothing and exits non-zero if any document would change; mcp serves the catalog over stdio)"
+  "usage: foldcase <test [dir-or-file] [--coverage] [--json] | docs [dir] [out-dir] [--json] [--check] | init [dir] [--json] | mcp>   (test/docs/init default to the current directory; --coverage adds a V8 line/function coverage summary; --json prints one JSON document on stdout instead of the summary, diagnostics on stderr; docs writes Schema-table Markdown to out-dir, default FOLDCASE_DOCS_DIR; --check writes nothing and exits non-zero if any document would change; init wires .mcp.json and AGENTS.md for an agent, never overwriting what is already there; mcp serves the catalog over stdio)"
 
 /** What the argument vector asked for. */
 export type Command = Data.TaggedEnum<{
@@ -69,6 +70,15 @@ export type Command = Data.TaggedEnum<{
      * catalog it was rendered from.
      */
     readonly check: boolean
+  }
+  /**
+   * Wire `target` for an agent: the MCP server into `.mcp.json`, the Showcase
+   * house rules into `AGENTS.md`. Both are merged, never overwritten, so a
+   * second run is a no-op that says so.
+   */
+  readonly Init: {
+    readonly target: string
+    readonly json: boolean
   }
   /** Serve the catalog to an agent over stdio MCP. */
   readonly Mcp: object
@@ -158,6 +168,17 @@ export const parseCommand = (argv: ReadonlyArray<string>): Command => {
             outDir: Option.fromUndefinedOr(outDir),
             json: flags.has("--json"),
             check: flags.has("--check"),
+          }),
+      )
+    case "init":
+      return Option.getOrElse(
+        Option.orElse(surplus("init takes one directory", 1, positionals), () =>
+          unknown("init takes --json", ["--json"], flags),
+        ),
+        () =>
+          Command.Init({
+            target: target ?? DEFAULT_TARGET,
+            json: flags.has("--json"),
           }),
       )
     case "mcp":
@@ -343,6 +364,23 @@ const docs = Effect.fn("foldcase.docs")(function* (
   return Arr.isReadonlyArrayEmpty(failures) && !drifted ? 0 : 1
 })
 
+// One line per file, in the order the files were wired, each naming what
+// happened to it. `kept` is the line a second run prints, and it is the point:
+// the tool says it changed nothing rather than staying silent about it.
+const printInit = (artifacts: ReadonlyArray<InitArtifact>) =>
+  Effect.forEach(
+    artifacts,
+    (artifact) => Console.log(`foldcase init: ${artifact.file} ${artifact.action}`),
+    { concurrency: 1, discard: true },
+  )
+
+const init = Effect.fn("foldcase.init")(function* (target: string) {
+  yield* printInit(yield* initialize(target))
+  // Wiring either happened or failed: there is no partial verdict to report,
+  // so a run that returns at all returns clean.
+  return 0
+})
+
 // In JSON mode stdout carries the document and nothing else, so the built-in
 // logger — which writes to stdout — moves to stderr for the run, where every
 // other diagnostic already goes. The MCP server reserves stdout the same way.
@@ -358,6 +396,7 @@ export const runCommand = Command.$match({
   Test: ({ coverage, json, target }) => reserveStdout(json, test(target, coverage, json)),
   Docs: ({ check, json, outDir, target }) =>
     reserveStdout(json, docs(target, outDir, json, check)),
+  Init: ({ json, target }) => reserveStdout(json, init(target)),
   Mcp: () => Layer.launch(FoldcaseMcpServer),
   // The reason goes above the banner, so a reader meets the word that was
   // wrong before the form that is right — both on stderr, both in one write.
