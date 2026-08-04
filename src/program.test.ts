@@ -487,6 +487,93 @@ describe("run", () => {
     await Bun.$`rm -rf ${import.meta.dir}/../runtime-test-lab-json`.quiet()
   })
 
+  test("lab --check exits 0 when the entry on disk is the one this run would write", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-lab-check`
+    const out = `${dir}/entry.ts`
+    await Bun.$`rm -rf ${dir}`.quiet()
+    expect(await exitCodeOf(["lab", `${fixtures}/counter-logic.showcase.ts`, out])).toBe(0)
+
+    const result = await runCapturing([
+      "lab",
+      "--check",
+      `${fixtures}/counter-logic.showcase.ts`,
+      out,
+    ])
+
+    expect(result.code).toBe(0)
+    expect(result.out.join("\n")).toContain("is up to date")
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
+  test("lab --check exits 1 on an entry that is not there, and writes nothing", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-lab-check-missing`
+    const out = `${dir}/entry.ts`
+    await Bun.$`rm -rf ${dir}`.quiet()
+    const result = await runCapturing([
+      "lab",
+      "--check",
+      `${fixtures}/counter-logic.showcase.ts`,
+      out,
+    ])
+
+    // The gate's whole job, as `docs --check` does it: a stale tree fails CI
+    // without being repaired underneath the check.
+    expect(result.code).toBe(1)
+    expect(result.out.join("\n")).toContain("would change — missing")
+    expect(await Bun.file(out).exists()).toBe(false)
+  })
+
+  test("lab --check names an entry the catalog has outgrown", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-lab-check-changed`
+    const out = `${dir}/entry.ts`
+    await Bun.$`rm -rf ${dir}`.quiet()
+    // Written over one catalog, checked against two: the entry on disk imports
+    // one file where this run would import both.
+    expect(await exitCodeOf(["lab", `${fixtures}/counter-logic.showcase.ts`, out])).toBe(0)
+
+    const result = await runCapturing(["lab", "--check", fixtures, out])
+
+    expect(result.code).toBe(1)
+    expect(result.out.join("\n")).toContain("would change — changed")
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
+  test("lab --check --json puts the status in the document, and stdout carries only it", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-lab-check-json`
+    const out = `${dir}/entry.ts`
+    await Bun.$`rm -rf ${dir}`.quiet()
+    const result = await runCapturing([
+      "lab",
+      "--check",
+      "--json",
+      `${fixtures}/counter-logic.showcase.ts`,
+      out,
+    ])
+
+    expect(result.code).toBe(1)
+    const document = documentOf(result) as { entry: { path: string; status: string } }
+    expect(document.entry.status).toBe("missing")
+    expect(document.entry.path).toBe(
+      `${new URL("../runtime-test-lab-check-json/entry.ts", import.meta.url).pathname}`,
+    )
+    expect(result.err.join("\n")).toContain("would change")
+  })
+
+  test("lab still writes an entry over an unloadable module, and names it on stderr", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-lab-partial`
+    const out = `${dir}/entry.ts`
+    await Bun.$`rm -rf ${dir}`.quiet()
+    const result = await runCapturing(["lab", malformed, out])
+
+    // The entry names every file that was discovered — a module Node will not
+    // load is still an ordinary module to a bundler — but the run says which
+    // ones it could not read, and the exit code says it too.
+    expect(result.code).toBe(1)
+    expect(await Bun.file(out).text()).toContain("bad-message.showcase")
+    expect(result.err.join("\n")).toContain("bad-message.showcase.ts")
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
   test("lab over a directory with no Showcases is a failure, not an empty entry", async () => {
     expect(await exitCodeOf(["lab", `${import.meta.dir}/../docs`])).toBe(1)
   })
