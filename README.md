@@ -80,9 +80,11 @@ scene(
 
 The two answer different questions, and neither catches the other's bugs. A Story asks
 whether the state machine is right. A Scene asks whether the markup reaches it. Building
-the Foldkit component gallery turned up the gap in one afternoon: a Story proved
-`DragAndDrop` moves a card from one column to the other, and the browser showed that no
-key press sends that Message. The Model was right and nothing could reach it.
+the Foldkit component gallery showed the gap: a Story proved `DragAndDrop` moves a card
+between columns and lands it in the right place, and it was right — but the browser
+showed that the card's element is rebuilt when it changes column, so focus drops to `<body>`
+halfway through a keyboard drag. The Model was correct and the person driving it was lost.
+No assertion on a Model can see that; only something that reads the rendered page can.
 
 **A Showcase is neither.** It is a record, not a function:
 
