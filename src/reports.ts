@@ -15,7 +15,7 @@ import * as Schema from "effect/Schema"
 
 import { ShowcaseModuleError } from "./cli.js"
 import { CoverageReport } from "./coverage/report.js"
-import { WrittenDoc } from "./docs/generate.js"
+import { StaleDoc, WrittenDoc } from "./docs/generate.js"
 import { SuiteReport } from "./runner.js"
 
 /**
@@ -32,10 +32,17 @@ export class TestDocument extends Schema.Class<TestDocument>("foldcase/TestDocum
  * What `foldcase docs --json` prints: the documents written, by component and
  * path, and the files that would not load, with the reason each was skipped.
  * The same two facts the human output says, in the order a reader needs them.
+ *
+ * `stale` is the third, and it is optional so a reader of an older document
+ * stays right: it is present only under `--check`, which writes nothing — so
+ * `docs` is empty there, because nothing was written, and `stale` names every
+ * document the out-dir does not already hold. An empty `stale` therefore says
+ * "checked, and current", which no absent field could.
  */
 export class DocsDocument extends Schema.Class<DocsDocument>("foldcase/DocsDocument")({
   docs: Schema.Array(WrittenDoc),
   failures: Schema.Array(ShowcaseModuleError),
+  stale: Schema.optional(Schema.Array(StaleDoc)),
 }) {}
 
 // The parts, re-exported from where they are declared. A consumer decoding half
@@ -44,5 +51,5 @@ export class DocsDocument extends Schema.Class<DocsDocument>("foldcase/DocsDocum
 export { ShowcaseModuleError } from "./cli.js"
 export { SkippedFile } from "./coverage/coverage.js"
 export { CoverageReport, FileCoverage, ShowcaseCoverage } from "./coverage/report.js"
-export { WrittenDoc } from "./docs/generate.js"
+export { StaleDoc, WrittenDoc } from "./docs/generate.js"
 export { SerializedError, ShowcaseReport, SuiteReport } from "./runner.js"

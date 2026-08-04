@@ -77,13 +77,35 @@ describe("parseCommand", () => {
 
   test("reads `docs`, with an optional output directory", () => {
     expect(parseCommand(["docs"])).toEqual(
-      Command.Docs({ target: ".", outDir: Option.none(), json: false }),
+      Command.Docs({ target: ".", outDir: Option.none(), json: false, check: false }),
     )
     expect(parseCommand(["docs", "src/ui", "out"])).toEqual(
-      Command.Docs({ target: "src/ui", outDir: Option.some("out"), json: false }),
+      Command.Docs({ target: "src/ui", outDir: Option.some("out"), json: false, check: false }),
     )
     expect(parseCommand(["docs", "--json", "src/ui"])).toEqual(
-      Command.Docs({ target: "src/ui", outDir: Option.none(), json: true }),
+      Command.Docs({ target: "src/ui", outDir: Option.none(), json: true, check: false }),
+    )
+  })
+
+  test("reads --check for `docs`, on either side of the target and beside --json", () => {
+    const expected = Command.Docs({
+      target: "src/ui",
+      outDir: Option.some("out"),
+      json: false,
+      check: true,
+    })
+    expect(parseCommand(["docs", "--check", "src/ui", "out"])).toEqual(expected)
+    expect(parseCommand(["docs", "src/ui", "out", "--check"])).toEqual(expected)
+    expect(parseCommand(["docs", "--json", "--check", "src/ui"])).toEqual(
+      Command.Docs({ target: "src/ui", outDir: Option.none(), json: true, check: true }),
+    )
+  })
+
+  test("refuses --check for `test`, which has nothing on disk to compare", () => {
+    expect(parseCommand(["test", "src/ui", "--check"])).toEqual(
+      Command.Usage({
+        reason: Option.some("test takes --coverage and --json; it did not understand: --check"),
+      }),
     )
   })
 
@@ -118,7 +140,7 @@ describe("parseCommand", () => {
   test("refuses --coverage for `docs`, which collects none", () => {
     expect(parseCommand(["docs", "src/ui", "--coverage"])).toEqual(
       Command.Usage({
-        reason: Option.some("docs takes --json; it did not understand: --coverage"),
+        reason: Option.some("docs takes --json and --check; it did not understand: --coverage"),
       }),
     )
   })
@@ -317,6 +339,59 @@ describe("run", () => {
     ])
     expect(document.failures[0]?.reason.length).toBeGreaterThan(0)
     await Bun.$`rm -rf ${out}`.quiet()
+  })
+
+  test("docs --check exits 0 when the out-dir already holds what this run would write", async () => {
+    const out = `${import.meta.dir}/../runtime-test-docs-check`
+    expect(await exitCodeOf(["docs", `${fixtures}/schema.showcase.ts`, out])).toBe(0)
+
+    const result = await runCapturing(["docs", "--check", `${fixtures}/schema.showcase.ts`, out])
+
+    expect(result.code).toBe(0)
+    expect(result.out.join("\n")).toContain("1 doc(s) up to date")
+    await Bun.$`rm -rf ${out}`.quiet()
+  })
+
+  test("docs --check exits 1 on a document the out-dir lacks, and writes nothing", async () => {
+    const out = `${import.meta.dir}/../runtime-test-docs-check-missing`
+    await Bun.$`rm -rf ${out}`.quiet()
+    const result = await runCapturing(["docs", "--check", `${fixtures}/schema.showcase.ts`, out])
+
+    // The gate's whole job: a stale tree fails CI without being repaired
+    // underneath the check, which would make the next run pass for no reason.
+    expect(result.code).toBe(1)
+    const said = result.out.join("\n")
+    expect(said).toContain("1 of 1 doc(s) would change")
+    // The path is the resolved one, as `docs` reports a written page.
+    expect(said).toContain(
+      `${new URL("../runtime-test-docs-check-missing", import.meta.url).pathname}/counter.md — missing`,
+    )
+    expect(await Bun.file(`${out}/counter.md`).exists()).toBe(false)
+  })
+
+  test("docs --check --json puts the drift in the document, and stdout carries only it", async () => {
+    const out = `${import.meta.dir}/../runtime-test-docs-check-json`
+    await Bun.$`rm -rf ${out}`.quiet()
+    const result = await runCapturing([
+      "docs",
+      "--check",
+      "--json",
+      `${fixtures}/schema.showcase.ts`,
+      out,
+    ])
+
+    expect(result.code).toBe(1)
+    const document = documentOf(result) as {
+      docs: ReadonlyArray<unknown>
+      stale: ReadonlyArray<{ component: string; path: string; reason: string }>
+    }
+    // Nothing was written, so nothing may claim to have been.
+    expect(document.docs).toEqual([])
+    expect(document.stale).toEqual([
+      { component: "counter", path: `${new URL("../runtime-test-docs-check-json", import.meta.url).pathname}/counter.md`, reason: "missing" },
+    ])
+    // The human line is a diagnostic here, and diagnostics leave stdout alone.
+    expect(result.err.join("\n")).toContain("would change")
   })
 
   test("docs over an unloadable module writes what it can and exits non-zero", async () => {

@@ -188,6 +188,49 @@ export const writeComponentDocs = Effect.fn("foldcase.docs.writeComponentDocs")(
   )
 })
 
+/**
+ * A component autodoc the output directory does not already hold: the file it
+ * would occupy, and why it differs — `missing` when there is no file there at
+ * all, `changed` when the file's text is not the text this run rendered.
+ */
+export class StaleDoc extends Schema.Class<StaleDoc>("StaleDoc")({
+  component: Schema.String,
+  path: Schema.String,
+  reason: Schema.Literals(["missing", "changed"]),
+}) {}
+
+/**
+ * Compare each autodoc against the file it would be written to, returning one
+ * {@link StaleDoc} per document that differs, in input order. Reads only: it
+ * neither creates `outDir` nor touches a file, so `foldcase docs --check` can
+ * decide a CI job without changing the tree it is judging.
+ */
+export const checkComponentDocs = Effect.fn("foldcase.docs.checkComponentDocs")(function* (
+  outDir: string,
+  docs: ReadonlyArray<ComponentDoc>,
+) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const dir = path.resolve(outDir)
+  const compared = yield* Effect.forEach(
+    docs,
+    (doc) =>
+      Effect.gen(function* () {
+        const file = path.join(dir, `${slug(doc.component)}.md`)
+        const at = { component: doc.component, path: file }
+        if (!(yield* fs.exists(file))) {
+          return Option.some(new StaleDoc({ ...at, reason: "missing" }))
+        }
+        const held = yield* fs.readFileString(file)
+        return held === doc.markdown
+          ? Option.none<StaleDoc>()
+          : Option.some(new StaleDoc({ ...at, reason: "changed" }))
+      }),
+    { concurrency: 1 },
+  )
+  return Arr.getSomes(compared)
+})
+
 const byComponent = Order.mapInput(Order.String, (doc: ComponentDoc) => doc.component)
 
 /**
