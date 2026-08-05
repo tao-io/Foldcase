@@ -43,6 +43,41 @@ this tool, and each of these is something it hit on the first run.
 
 ### Changed
 
+- **The lab is rebuilt to the design in [`proto/README.md`](proto/README.md), value by
+  value.** The shell is a 52px header, a 292px sidebar, a 40px tab bar over four readings
+  of the selected entry, and a 36px addon drawer over a body capped at `min(222px, 30vh)`.
+  Measured against the design prototype at 1280×633, every named region — header, tab bar,
+  drawer strip, sidebar, timeline pane, preview card, mount, scrubber — matches to the
+  pixel in both themes.
+- **The sidebar drops the file tier.** A hundred and forty-six entries across twenty-four
+  files put the path on every row, and the path is on the entry: the tab bar names it for
+  whatever is selected, relative to the deepest directory the whole catalog shares. Two
+  tiers are left, component then state, and a component opens folded unless it holds the
+  selection — which is how twenty-four components fit on one screen. A file the loader
+  could not read still gets a row, at the top of the tree in path order, because it
+  declared no id and so has no component to hang under
+  ([ADR-0001](docs/adr/0001-showcase-one-definition-many-surfaces.md) › Amendment 2).
+- **A row's mark says whether the canvas can mount it, and says nothing else.** Filled for
+  a mountable row, a hollow ring for one with no mount, and never green or red. The
+  catalog carries no pass and no fail, so a status dot would be a claim the data cannot
+  back. The `NO MOUNT` tag is replaced by a `LIVE` tag on the rows that can be drawn.
+- **The preview mounts in a shadow root of its own.** A mounted component's stylesheet no
+  longer reaches the shell — a Showcase shipping `body { background: red }` leaves the lab
+  untouched — and `Runtime.embed` gets a node the lab's virtual DOM does not own. The
+  custom properties the shell declares still cascade in, so the theme toggle re-skins the
+  mount without rebuilding it or losing its Model.
+- **"Live" comes from a verified paint.** `Runtime.run` returns `undefined` and throws
+  nothing when an application paints an empty container, so the lab now looks at the host
+  a tick after handing it over. A mount that draws nothing is reported as a failure
+  instead of being labelled Live over an empty card.
+- **Both themes are the reader's choice, not the machine's.** The palette is a `data-theme`
+  attribute the view writes, so the toggle in the header outranks `prefers-color-scheme`.
+  Dark is the default. Every piece of text in both themes was measured at or above 4.5:1;
+  three tokens depart from the design's table to get there — its `--ink-3` reads 3.5:1 on
+  `--panel`, and its `--accent`, `--pass` and `--fail` read near 4.1:1 on white. `--ink-3`
+  moves by the smallest step that clears the floor, and the three status colours keep
+  their table value for fills while `--accent-text`, `--pass-text` and `--fail-text` carry
+  the same hue at a lightness that clears it for text.
 - **`foldcase docs` reads a real Model.** A union of tagged structs documents as its tags
   rather than as `object`, and an anonymous struct as its field list rather than `object`.
   Both are recognised by shape, not by annotation, so an Effect beta cannot move them. An
@@ -55,6 +90,18 @@ this tool, and each of these is something it hit on the first run.
 
 ### Added
 
+- **Four readings of the selected entry, and an addon drawer under them.** *Canvas*
+  mounts the component; *Entry* prints the six fields the listing carries and says they
+  are six; *Timeline* records what a mount relays; *Schema* states the one-union problem
+  with the catalog's own numbers rather than a per-component table that would be the same
+  table once per component. The drawer carries the four browser-runtime facts the surface
+  was built around, the eight fields a catalog browser usually shows that a Foldcase
+  listing does not, the six MCP tools, and the selected entry as JSON. `showAgentPanel`
+  drops the third for a consumer who runs the lab and not the server.
+- **A theme toggle, a reload and a remount in the header and canvas bar.** Reloading the
+  catalog reloads the page, because in the browser the catalog is whatever the consumer's
+  entry module imported; the address carries the selection, so the reader lands back where
+  they were. Remounting rebuilds the preview from scratch.
 - **The browser lab, `foldcase/lab`.** A Foldkit application that renders a catalog: it
   groups the Showcases by component — the id namespace, the same rule `foldcase docs` and
   an MCP `id_prefix` already run on — says what each Showcase declares, names beside the

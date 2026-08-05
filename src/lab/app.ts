@@ -787,9 +787,11 @@ const STYLESHEET = `
 #foldcase-lab-brand svg { flex: none; color: var(--ink); }
 #foldcase-lab-brand b { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 #foldcase-lab-bar .foldcase-lab-spacer { flex: 1; }
-#foldcase-lab-runtime { flex: none; padding: 4px 9px; border: 1px solid var(--line);
-  border-radius: 5px; background: var(--sunken); font-family: var(--mono);
-  font-size: 11.5px; line-height: normal; color: var(--ink-3); white-space: nowrap; }
+#foldcase-lab-runtime { flex: 0 1 auto; min-width: 0; padding: 4px 9px;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--sunken);
+  font-family: var(--mono); font-size: 11.5px; line-height: normal;
+  color: var(--ink-3); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
 #foldcase-lab-runtime[data-state='live'] { color: var(--pass-text); }
 #foldcase-lab-runtime[data-state='failed'] { color: var(--fail-text); }
 #foldcase-lab-reload { flex: none; display: flex; align-items: center; gap: 7px;
@@ -888,8 +890,10 @@ const STYLESHEET = `
 #foldcase-lab-tabs button[role='tab'][aria-selected='true'] { border-bottom-color: var(--ink);
   color: var(--ink); }
 #foldcase-lab-tabs .foldcase-lab-spacer { flex: 1; }
-#foldcase-lab-tab-file { align-self: center; min-width: 0; font-family: var(--mono);
-  font-size: 11px; line-height: normal; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis;
+#foldcase-lab-tabs button[role='tab'] { flex: none; }
+#foldcase-lab-tab-file { align-self: center; min-width: 0; padding-left: 12px;
+  font-family: var(--mono); font-size: 11px; line-height: normal;
+  color: var(--ink-3); overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; }
 #foldcase-lab-body { flex: 1; min-height: 0; overflow: auto;
   overscroll-behavior: contain; display: flex; flex-direction: column;
@@ -1097,6 +1101,15 @@ const STYLESHEET = `
   line-height: 1.7; color: var(--ink-2); white-space: pre-wrap;
   overflow-wrap: anywhere; }
 
+/* Under about a phone's width the header has more controls than room. The
+   pill is the only thing on it that is a reading rather than a control, and the
+   canvas toolbar and the trail header both carry the same state — so it is the
+   one that goes, and every control stays reachable. */
+@media (max-width: 560px) {
+  #foldcase-lab-runtime { display: none; }
+  #foldcase-lab-bar { gap: 10px; }
+  #foldcase-lab-tab-file { display: none; }
+}
 @media (max-width: 880px) {
   #foldcase-lab-frame { flex-direction: column; }
   #foldcase-lab-sidebar { flex: 0 0 34%; width: auto; border-right: 0;
