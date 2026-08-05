@@ -2,11 +2,14 @@ import { describe, expect, test } from "bun:test"
 import * as Option from "effect/Option"
 import { fromString } from "foldkit/url"
 
-import type { CatalogLoad, LoadedShowcase } from "../cli.js"
+import { type CatalogLoad, type LoadedShowcase, ShowcaseModuleError } from "../cli.js"
 import type { Showcase } from "../runner.js"
 import {
   ChangedAddress,
   drawableLabel,
+  isFileExpanded,
+  sidebarFiles,
+  ToggledFile,
   drawableTotal,
   initialModel,
   isComponentExpanded,
@@ -37,10 +40,13 @@ const plain = (id: string): Showcase => ({ id, play: () => {} })
 /** A Showcase the lab can put on the canvas, because it declares the seam. */
 const drawable = (id: string): Showcase => ({ ...plain(id), mount: () => () => {} })
 
-const loadOf = (entries: ReadonlyArray<LoadedShowcase>): CatalogLoad => ({
+const loadOf = (
+  entries: ReadonlyArray<LoadedShowcase>,
+  failures: CatalogLoad["failures"] = [],
+): CatalogLoad => ({
   loaded: entries,
   showcases: entries.map((entry) => entry.showcase),
-  failures: [],
+  failures,
 })
 
 const catalogOf = (...ids: ReadonlyArray<string>) =>
@@ -333,6 +339,105 @@ describe("filtering the catalog", () => {
 
     expect(drawn(model)).toEqual([])
     expect(matchingTotal(model)).toBe(0)
+  })
+})
+
+describe("the sidebar groups by file, then by component", () => {
+  const at = (file: string, id: string): LoadedShowcase => ({ file, showcase: plain(id) })
+
+  const twoFiles = () =>
+    initialModel(
+      labCatalogOf(
+        loadOf([
+          at("/app/src/button.catalog.ts", "button/starts-unclicked"),
+          at("/app/src/button.catalog.ts", "button/counts-one-click"),
+          at("/app/src/calendar.catalog.ts", "calendar/opens-on-today"),
+        ]),
+      ),
+      bare,
+    )
+
+  const drawnTree = (model: Model) =>
+    sidebarFiles(model).map((file) => [
+      file.path,
+      file.components.map((component) => [
+        component.component,
+        component.entries.map((entry) => entry.id),
+      ]),
+    ])
+
+  test("puts every component under the file that declared it, in path order", () => {
+    expect(drawnTree(twoFiles())).toEqual([
+      ["/app/src/button.catalog.ts", [["button", ["button/counts-one-click", "button/starts-unclicked"]]]],
+      ["/app/src/calendar.catalog.ts", [["calendar", ["calendar/opens-on-today"]]]],
+    ])
+  })
+
+  test("keeps a file holding two components as one file with two groups under it", () => {
+    const model = initialModel(
+      labCatalogOf(
+        loadOf([at("/app/src/ui.catalog.ts", "alpha/one"), at("/app/src/ui.catalog.ts", "beta/one")]),
+      ),
+      bare,
+    )
+
+    expect(drawnTree(model)).toEqual([
+      ["/app/src/ui.catalog.ts", [["alpha", ["alpha/one"]], ["beta", ["beta/one"]]]],
+    ])
+  })
+
+  test("carries a file the loader could not read, so the tree is where the reader meets it", () => {
+    const model = initialModel(
+      labCatalogOf(
+        loadOf([at("/app/src/button.catalog.ts", "button/starts-unclicked")], [
+          new ShowcaseModuleError({ path: "/app/src/broken.catalog.ts", reason: "Cannot find module" }),
+        ]),
+      ),
+      bare,
+    )
+    const files = sidebarFiles(model)
+
+    expect(files.map((file) => [file.path, file.components.length, file.maybeFailure !== undefined])).toEqual(
+      [
+        ["/app/src/broken.catalog.ts", 0, true],
+        ["/app/src/button.catalog.ts", 1, false],
+      ],
+    )
+  })
+
+  test("drops a file the filter emptied, and keeps one whose own path matched", () => {
+    const [narrowed] = update(twoFiles(), TypedQuery({ query: "calendar" }))
+
+    expect(drawnTree(narrowed)).toEqual([
+      ["/app/src/calendar.catalog.ts", [["calendar", ["calendar/opens-on-today"]]]],
+    ])
+  })
+
+  test("takes a folded file's rows out of the arrow keys' walk, because they are not on screen", () => {
+    const model = initialModel(
+      labCatalogOf(
+        loadOf([
+          at("/app/src/a.catalog.ts", "alpha/one"),
+          at("/app/src/b.catalog.ts", "beta/one"),
+          at("/app/src/c.catalog.ts", "gamma/one"),
+        ]),
+      ),
+      bare,
+    )
+    const [folded] = update(model, ToggledFile({ path: "/app/src/b.catalog.ts" }))
+
+    expect(neighbourId(model, 1)).toEqual(Option.some("beta/one"))
+    expect(neighbourId(folded, 1)).toEqual(Option.some("gamma/one"))
+  })
+
+  test("folds a file shut by its path, which is what a file row's click does", () => {
+    const [folded] = update(twoFiles(), ToggledFile({ path: "/app/src/button.catalog.ts" }))
+
+    expect(isFileExpanded(folded, "/app/src/button.catalog.ts")).toBe(false)
+    expect(isFileExpanded(folded, "/app/src/calendar.catalog.ts")).toBe(true)
+    // Folded is about the file alone: the components under it are untouched, so
+    // unfolding puts the reader back exactly where they were.
+    expect(drawnTree(folded)).toEqual(drawnTree(twoFiles()))
   })
 })
 

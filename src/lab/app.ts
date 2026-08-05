@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
 import * as M from "effect/Match"
 import * as Option from "effect/Option"
+import * as Order from "effect/Order"
 import * as Schema from "effect/Schema"
 import { Command, Mount, Runtime } from "foldkit"
 import type { Document, Html, HtmlBuilder } from "foldkit/html"
@@ -53,6 +54,16 @@ export const ToggledComponent = m("ToggledComponent", { component: Schema.String
 export const TypedQuery = m("TypedQuery", { query: Schema.String })
 
 /**
+ * A reader folded a file shut, or opened it again.
+ *
+ * The file is the tier above the component, because a file is what the loader
+ * reads and a component is what a record declares — and the one thing that has
+ * a file but no component is a file that would not load. Folding is keyed by
+ * path for that reason: the path is the only name such a file has.
+ */
+export const ToggledFile = m("ToggledFile", { path: Schema.String })
+
+/**
  * A reader walked the sidebar with an arrow key. It carries a step and not an
  * id because the reader is naming a direction, not a Showcase — what lies one
  * step away depends on the filter and the folds, and `update` is the one place
@@ -92,6 +103,7 @@ export const Message = Schema.Union([
   SelectedShowcase,
   MountedShowcase,
   ToggledComponent,
+  ToggledFile,
   TypedQuery,
   MovedSelection,
   RevealedSelection,
@@ -158,6 +170,7 @@ export const Model = Schema.Struct({
   maybeSelectedId: Schema.Option(Schema.String),
   maybeUnknownId: Schema.Option(Schema.String),
   collapsedComponents: Schema.Array(Schema.String),
+  collapsedFiles: Schema.Array(Schema.String),
   query: Schema.String,
 })
 export type Model = typeof Model.Type
@@ -235,6 +248,7 @@ export const initialModel = (catalog: LabCatalog, url: Url): Model => {
     // Every group open: a lab that opened folded would hide the catalog it
     // exists to show, and folding is the reader's move to make.
     collapsedComponents: [],
+    collapsedFiles: [],
     // And nothing filtered, for the same reason.
     query: "",
   }
@@ -310,6 +324,92 @@ export const sidebarComponents = (model: Model): ReadonlyArray<LabComponent> => 
 }
 
 /**
+ * One file as the sidebar draws it: the components it declared, and — when the
+ * loader could not read it — the failure instead.
+ *
+ * The two are exclusive by construction. A file that would not load declared no
+ * id, so it has no component and no entry; a file that loaded has no failure.
+ * Holding both on one record is what lets the tree draw them in one pass, in
+ * path order, rather than stacking a failure panel above a list and leaving the
+ * reader to work out which name is missing from it.
+ *
+ * This is a view-time projection and not Model state, so it is a plain type: it
+ * is rebuilt from the catalog, the filter and the folds on every draw, and
+ * nothing about it has to encode.
+ */
+export type LabFile = {
+  readonly path: string
+  readonly components: ReadonlyArray<LabComponent>
+  readonly maybeFailure: LabCatalog["failures"][number] | undefined
+}
+
+/**
+ * Whether a file's group shows what is under it. Same rule as a component's: a
+ * live filter opens everything it matched, because a filter that hid its own
+ * hits behind an old fold would lie about the catalog.
+ */
+export const isFileExpanded = (model: Model, path: string): boolean =>
+  normalisedQuery(model) !== "" || !Arr.contains(model.collapsedFiles, path)
+
+/**
+ * The catalog as the sidebar draws it: file, then component, then entries.
+ *
+ * The file tier exists for one reason, and it is the failure. A file the loader
+ * could not read declared no id and so has no component to hang under — in a
+ * two-tier tree it has nowhere to go, which is why it used to sit in a panel of
+ * its own above the list. Here it is a row in path order among the files that
+ * did load, which is where a reader looking for a missing component actually
+ * looks.
+ *
+ * A file keeps its place if the filter left it any entry, or if its own path
+ * holds what was typed — so narrowing by a path finds a file whose ids do not
+ * mention it. Entries from a catalog no file backs group under the empty path,
+ * and the view draws no file row for that one.
+ */
+export const sidebarFiles = (model: Model): ReadonlyArray<LabFile> => {
+  const query = normalisedQuery(model)
+  const byPath = new Map<string, Array<LabComponent>>()
+  for (const component of sidebarComponents(model)) {
+    // Entries of one component can come from more than one file, so the group
+    // is split per path rather than assigned to the first entry's.
+    const perPath = new Map<string, Array<LabEntry>>()
+    for (const entry of component.entries) {
+      const path = entry.file ?? ""
+      const held = perPath.get(path)
+      if (held === undefined) {
+        perPath.set(path, [entry])
+      } else {
+        held.push(entry)
+      }
+    }
+    for (const [path, entries] of perPath) {
+      const group = new LabComponent({ component: component.component, entries })
+      const held = byPath.get(path)
+      if (held === undefined) {
+        byPath.set(path, [group])
+      } else {
+        held.push(group)
+      }
+    }
+  }
+  const failed = Arr.filter(
+    model.catalog.failures,
+    (failure) => query === "" || failure.path.toLowerCase().includes(query),
+  )
+  const files: Array<LabFile> = [
+    ...[...byPath.entries()].map(([path, components]) => ({
+      path,
+      components,
+      maybeFailure: undefined,
+    })),
+    ...failed.map((failure) => ({ path: failure.path, components: [], maybeFailure: failure })),
+  ]
+  return Arr.sort(files, byPath_)
+}
+
+const byPath_ = Order.mapInput(Order.String, (file: LabFile) => file.path)
+
+/**
  * How many Showcases the filter left. The header says this against the catalog
  * total, so a reader who typed something that matched three of a hundred and
  * forty-six reads that it matched three — rather than reading a short list and
@@ -369,9 +469,13 @@ export const drawableLabel = (model: Model): string => {
  * step enters the list from the end it came from.
  */
 export const neighbourId = (model: Model, delta: number): Option.Option<string> => {
-  const drawn = sidebarComponents(model)
-    .filter((component) => isComponentExpanded(model, component.component))
-    .flatMap((component) => component.entries.map((entry) => entry.id))
+  const drawn = sidebarFiles(model)
+    .filter((file) => isFileExpanded(model, file.path))
+    .flatMap((file) =>
+      file.components
+        .filter((component) => isComponentExpanded(model, component.component))
+        .flatMap((component) => component.entries.map((entry) => entry.id)),
+    )
   const at = pipe(
     model.maybeSelectedId,
     Option.flatMap((id) => Arr.findFirstIndex(drawn, (drawnId) => drawnId === id)),
@@ -443,6 +547,15 @@ export const update = (
             External: ({ href }) => [model, [LeavePage({ href })]],
           }),
         ),
+      ToggledFile: ({ path }) => [
+        {
+          ...model,
+          collapsedFiles: Arr.contains(model.collapsedFiles, path)
+            ? Arr.filter(model.collapsedFiles, (held) => held !== path)
+            : Arr.append(model.collapsedFiles, path),
+        },
+        [],
+      ],
       ToggledComponent: ({ component }) => [
         {
           ...model,
@@ -584,7 +697,7 @@ const STYLESHEET = `
   background: var(--panel); }
 #foldcase-lab-tree ul { list-style: none; margin: 0 0 6px; padding: 0; }
 #foldcase-lab-tree button { position: relative; display: flex; align-items: center;
-  gap: 9px; width: 100%; text-align: left; padding: 5px 12px 5px 27px; border: 0;
+  gap: 9px; width: 100%; text-align: left; padding: 5px 12px 5px 39px; border: 0;
   border-left: 2px solid transparent; background: none; font: inherit;
   font-size: 12.5px; color: var(--ink-2); cursor: pointer;
   transition: background-color 120ms ease-out, color 120ms ease-out; }
@@ -601,18 +714,37 @@ const STYLESHEET = `
 #foldcase-lab-tree button[data-selected='true'],
 #foldcase-lab-tree button[data-selected='true']:hover { background: var(--sel);
   border-left-color: var(--accent); color: var(--ink); font-weight: 500; }
-#foldcase-lab-tree button[data-group] { padding-left: 12px; gap: 7px;
-  font-weight: 600; color: var(--ink); }
-#foldcase-lab-tree button[data-group] svg { flex: none; color: var(--ink-3);
+/* The file row: the fold, and the one thing in the tree set in mono, because a
+   path is a value and the names under it are prose. */
+#foldcase-lab-tree button[data-file] { padding: 5px 12px; gap: 7px;
+  font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+#foldcase-lab-tree button[data-file]:hover { background: none; color: var(--ink); }
+#foldcase-lab-tree button[data-file] svg { flex: none; width: 8px; color: var(--ink-3);
   transform: rotate(-90deg); transition: transform 140ms ease-out; }
-#foldcase-lab-tree button[data-group][data-expanded='true'] svg { transform: none; }
-#foldcase-lab-tree button[data-group] em { flex: 1; min-width: 0; font-style: normal;
-  overflow: hidden; text-overflow: ellipsis; }
-#foldcase-lab-tree button[data-group] span,
+#foldcase-lab-tree button[data-file][data-expanded='true'] svg { transform: none; }
+#foldcase-lab-tree button[data-file] em { flex: 1; min-width: 0; font-style: normal;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A component's name, not a control: the file above it is the fold, and one
+   fold per tier is one too many. */
+.foldcase-lab-group { display: flex; align-items: center; gap: 7px;
+  margin: 0; padding: 6px 12px 4px 27px; font-size: 12.5px; font-weight: 600;
+  color: var(--ink); }
+.foldcase-lab-group em { font-style: normal; }
+.foldcase-lab-group span { font-family: var(--mono); font-size: 10px;
+  font-weight: 400; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 #foldcase-lab-tree button[data-id] i { flex: none; font-family: var(--mono);
   font-style: normal; font-weight: 400; color: var(--ink-3);
   font-variant-numeric: tabular-nums; }
-#foldcase-lab-tree button[data-group] span { font-size: 10px; }
+#foldcase-lab-tree button[data-file] i { flex: none; font-family: var(--mono);
+  font-style: normal; font-size: 10px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums; }
+/* The file that would not load, in the tree rather than in a panel over it. */
+.foldcase-lab-failed { display: flex; align-items: baseline; gap: 8px; margin: 0;
+  padding: 6px 12px 6px 25px; border-left: 2px solid var(--fail);
+  color: var(--fail); font-size: 12px; }
+.foldcase-lab-failed i { flex: none; font-family: var(--mono); font-style: normal; }
+.foldcase-lab-failed small { flex: 1; min-width: 0; font-size: 11px;
+  color: var(--ink-2); overflow-wrap: anywhere; }
 /* The one fact a row carries beyond its name: whether there is anything behind
    it to look at. Most entries in most catalogs have nothing, and finding that
    out used to cost a click each. */
@@ -675,15 +807,6 @@ const STYLESHEET = `
 #foldcase-lab-no-mount code, #foldcase-lab-empty code { font-family: var(--mono);
   font-size: 12px; color: var(--ink-2); }
 
-#foldcase-lab-failures { margin: 0 10px 10px; border: 1px solid var(--fail-line);
-  border-radius: 8px; background: var(--fail-bg); padding: 10px 12px;
-  font-size: 12px; }
-#foldcase-lab-failures h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600;
-  color: var(--fail); }
-#foldcase-lab-failures ul { list-style: none; margin: 0; padding: 0;
-  display: grid; gap: 6px; color: var(--ink-2); }
-#foldcase-lab-failures code { display: block; font-family: var(--mono);
-  color: var(--fail); overflow-wrap: anywhere; }
 #foldcase-lab-unknown-id { margin: 12px 24px 0; border: 1px solid var(--warn-line);
   border-radius: 8px; background: var(--warn-bg); color: var(--warn);
   padding: 10px 12px; }
@@ -849,87 +972,109 @@ const foldMark = (h: HtmlBuilder<Message>): Html =>
  * or a radio group, and six thousand pixels down a catalog the heading is the
  * only thing that says which.
  */
+/**
+ * One component under its file: a heading, and its entries.
+ *
+ * The heading does not fold. The file above it does, and one fold per tier is
+ * one too many — a reader who wants a component out of the way wants the file
+ * out of the way, because in every catalog measured so far a file declares one
+ * component. `ToggledComponent` stays in the union, so an agent that folds a
+ * namespace by dispatch still can; there is simply no second button for it.
+ */
 const componentSection = (
   component: LabComponent,
   model: Model,
   h: HtmlBuilder<Message>,
 ): Html => {
   const expanded = isComponentExpanded(model, component.component)
-  const listId = `foldcase-lab-entries-${component.component}`
   return h.section(
     [
       h.DataAttribute("component", component.component),
       h.DataAttribute("expanded", String(expanded)),
     ],
     [
-      h.h3(
-        [],
-        [
-          h.button(
-            [
-              h.Type("button"),
-              h.Id(`foldcase-lab-fold-${component.component}`),
-              h.OnClick(ToggledComponent({ component: component.component })),
-              h.DataAttribute("group", component.component),
-              h.DataAttribute("expanded", String(expanded)),
-              h.AriaExpanded(expanded),
-              // Only while there is a list to point at: `aria-controls` naming
-              // an element that is not in the document is a dangling reference,
-              // and a folded group renders none.
-              ...(expanded ? [h.AriaControls(listId)] : []),
-            ],
-            [
-              foldMark(h),
-              h.em([], [component.component]),
-              h.span([], [String(component.entries.length)]),
-            ],
-          ),
-        ],
+      h.h4(
+        [h.Class("foldcase-lab-group")],
+        [h.em([], [component.component]), h.span([], [String(component.entries.length)])],
       ),
       ...(expanded
-        ? [
-            h.ul(
-              [h.Id(listId)],
-              Arr.map(component.entries, (entry) => entryButton(entry, model, h)),
-            ),
-          ]
+        ? [h.ul([], Arr.map(component.entries, (entry) => entryButton(entry, model, h)))]
         : []),
     ],
   )
 }
 
 /**
- * The files the loader could not read, shown rather than swallowed (ADR-0001 ›
- * Amendment 2). A component missing from the list above is a question, and this
- * is where its answer is.
+ * The one row a file the loader could not read gets (ADR-0001 › Amendment 2).
+ *
+ * It sits in the tree, in path order, among the files that did load — not in a
+ * panel above it. A reader wondering why a component is missing looks at the
+ * list of files, and this is the answer in the place the question is asked.
  */
-const failureSection = (
-  failures: LabCatalog["failures"],
+const failureRow = (
+  failure: LabCatalog["failures"][number],
   h: HtmlBuilder<Message>,
-): ReadonlyArray<Html> =>
-  failures.length === 0
-    ? []
-    : [
-        h.section(
-          [h.Id("foldcase-lab-failures")],
-          [
+): Html =>
+  h.p(
+    [h.Class("foldcase-lab-failed"), h.DataAttribute("failed", failure.path)],
+    [h.i([], ["\u2717"]), h.span([], ["did not load"]), h.small([], [failure.reason])],
+  )
+
+/**
+ * One file's group: a heading that folds it, then whatever it declared.
+ *
+ * The heading is `aria-expanded` over the list it owns, and it is
+ * `position: sticky`, because a leaf name is meaningless without its namespace
+ * and a namespace is easier to place when the file that declared it is on
+ * screen. A catalog no file backs has an empty path and gets no heading at all,
+ * so an in-memory catalog does not grow a blank row.
+ */
+const fileSection = (file: LabFile, model: Model, h: HtmlBuilder<Message>): Html => {
+  const expanded = isFileExpanded(model, file.path)
+  const bodyId = `foldcase-lab-file-${file.path}`
+  const named = file.path !== ""
+  const body = [
+    ...(file.maybeFailure === undefined ? [] : [failureRow(file.maybeFailure, h)]),
+    ...Arr.map(file.components, (component) => componentSection(component, model, h)),
+  ]
+  return h.section(
+    [
+      h.Class("foldcase-lab-file"),
+      h.DataAttribute("path", file.path),
+      h.DataAttribute("expanded", String(expanded)),
+      h.DataAttribute("failed", String(file.maybeFailure !== undefined)),
+    ],
+    [
+      ...(named
+        ? [
             h.h3(
               [],
               [
-                failures.length === 1
-                  ? "1 file would not load"
-                  : `${failures.length} files would not load`,
+                h.button(
+                  [
+                    h.Type("button"),
+                    h.OnClick(ToggledFile({ path: file.path })),
+                    h.DataAttribute("file", file.path),
+                    h.DataAttribute("expanded", String(expanded)),
+                    h.AriaExpanded(expanded),
+                    ...(expanded ? [h.AriaControls(bodyId)] : []),
+                  ],
+                  [foldMark(h), h.em([], [file.path]), h.i([], [countOf(file)])],
+                ),
               ],
             ),
-            h.ul(
-              [],
-              Arr.map(failures, (failure) =>
-                h.li([], [h.code([], [failure.path]), failure.reason]),
-              ),
-            ),
-          ],
-        ),
-      ]
+          ]
+        : []),
+      ...(expanded || !named ? [h.div([h.Id(bodyId)], body)] : []),
+    ],
+  )
+}
+
+/** How many entries a file is holding, or the mark that it holds none. */
+const countOf = (file: LabFile): string =>
+  file.maybeFailure !== undefined
+    ? "\u2717"
+    : String(file.components.reduce((total, group) => total + group.entries.length, 0))
 
 /**
  * What the sidebar strip says the catalog is: how many entries it holds, or —
@@ -1004,7 +1149,7 @@ const titleBar = (h: HtmlBuilder<Message>): Html =>
  * filters is several thousand pixels long.
  */
 const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const components = sidebarComponents(model)
+  const files = sidebarFiles(model)
   return h.nav(
     [
       h.Id("foldcase-lab-sidebar"),
@@ -1059,13 +1204,12 @@ const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
         [
           h.b([], [catalogCount(model)]),
           h.span([h.DataAttribute("field", "drawable")], [drawableLabel(model)]),
-          h.span([], [componentCount(components.length)]),
+          h.span([], [componentCount(sidebarComponents(model).length)]),
         ],
       ),
-      ...failureSection(model.catalog.failures, h),
       h.div(
         [h.Id("foldcase-lab-tree")],
-        components.length === 0
+        files.length === 0
           ? [
               h.p(
                 [h.Id("foldcase-lab-empty-tree")],
@@ -1082,7 +1226,7 @@ const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
                 ],
               ),
             ]
-          : Arr.map(components, (component) => componentSection(component, model, h)),
+          : Arr.map(files, (file) => fileSection(file, model, h)),
       ),
     ],
   )
