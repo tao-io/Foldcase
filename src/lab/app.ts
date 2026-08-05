@@ -5,7 +5,7 @@ import * as M from "effect/Match"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Schema from "effect/Schema"
-import { Command, Mount, Runtime } from "foldkit"
+import { Command, Mount, Runtime, Subscription } from "foldkit"
 import type { Document, Html, HtmlBuilder } from "foldkit/html"
 import { m } from "foldkit/message"
 import { load, pushUrl, UrlRequest } from "foldkit/navigation"
@@ -82,6 +82,47 @@ export const PreviewDispatched = m("PreviewDispatched", {
 
 /** A reader emptied the trail, which is a statement about the list and nothing else. */
 export const ClearedHistory = m("ClearedHistory")
+
+/**
+ * The envelope a mounted component posts to put a Message on the trail.
+ *
+ * Foldkit gives a host no read on a runtime it did not build: the store that
+ * records Messages is closure-local to that runtime, ports are declared by the
+ * app itself, and there is no registry to look one up in. So the relay is the
+ * mount's to make, and this is the shape it makes it in —
+ * `window.postMessage({ foldcase: "dispatch", tag })`, which is the same channel
+ * the design's prototype relayed its own frame's dispatches over.
+ *
+ * It carries the tag and nothing else. The gap between Messages is measured
+ * here rather than sent, because a sender's clock is a sender's claim, and the
+ * trail is the lab saying what it saw.
+ */
+const PreviewRelay = Schema.Struct({
+  foldcase: Schema.Literals(["dispatch"]),
+  tag: Schema.String,
+})
+
+const decodeRelay = Schema.decodeUnknownOption(PreviewRelay)
+
+/**
+ * The tag in a relayed Message, if what arrived was one.
+ *
+ * A page is full of `message` events — a dev server's own socket, an extension,
+ * another frame — so anything that is not this envelope is dropped rather than
+ * guessed at. Decoding is `Schema`'s job because the payload crosses a boundary.
+ */
+export const relayedTag = (data: unknown): Option.Option<string> =>
+  Option.map(decodeRelay(data), (relay) => relay.tag)
+
+/**
+ * The gap the trail records: whole milliseconds since the Message before it.
+ *
+ * The first Message has nothing to be measured against, so it is zero rather
+ * than the age of the page. A clock that went backwards is zero too — a
+ * negative gap is a reading nobody can use.
+ */
+export const relayGapFrom = (previous: number | undefined, now: number): number =>
+  previous === undefined ? 0 : Math.max(0, Math.round(now - previous))
 
 /**
  * A reader asked for the preview to be built again: the Model back at `init`
@@ -674,8 +715,16 @@ export const update = (
       // — `hasMount: true` says a thunk exists, not that it drew anything.
       PreviewMounted: () => [{ ...model, mounted: true, previewFailed: false }, []],
       PreviewFailed: () => [{ ...model, mounted: false, previewFailed: true }, []],
+      // The first row on an empty trail has nothing before it to be measured
+      // against, so its gap is zero whatever the edge handed over.
       PreviewDispatched: ({ tag, delta }) => [
-        { ...model, trail: Arr.append(model.trail, { tag, delta }) },
+        {
+          ...model,
+          trail: Arr.append(model.trail, {
+            tag,
+            delta: model.trail.length === 0 ? 0 : delta,
+          }),
+        },
         [],
       ],
       ClearedHistory: () => [{ ...model, trail: [] }, []],
@@ -1581,7 +1630,7 @@ const timelineTab = (model: Model, h: HtmlBuilder<Message>): Html =>
       h.p(
         [],
         [
-          "A play is an opaque thunk — the runner never looks inside it, and the catalog listing carries no trace of one. What can be recorded is a live mount: every Message a mounted component relays out as it reaches its own update.",
+          "A play is an opaque thunk — the runner never looks inside it, and the catalog listing carries no trace of one. What can be recorded is a live mount. Foldkit gives a host no read on a runtime it did not build, so the trail is the mount's to fill: post { foldcase: \"dispatch\", tag } to the window as each Message reaches update, and the gap between them is measured here.",
         ],
       ),
       ...(model.trail.length === 0
@@ -1590,7 +1639,7 @@ const timelineTab = (model: Model, h: HtmlBuilder<Message>): Html =>
               [h.Id("foldcase-lab-timeline-empty")],
               [
                 model.mounted
-                  ? "This mount has relayed nothing. Foldkit gives a host no read on a runtime it did not build, so a Showcase that does not relay its own dispatches leaves this empty rather than filling it with a guess."
+                  ? "Nothing relayed yet. Foldkit gives a host no read on a runtime it did not build, so a mount puts a Message here by posting { foldcase: \"dispatch\", tag } to the window."
                   : "The trail records real dispatches, so it fills only while a component is mounted.",
               ],
             ),
@@ -2220,7 +2269,7 @@ export const makeLabApplication = (config: {
                 [h.Id("foldcase-lab-trail-empty")],
                 [
                   model.mounted
-                    ? "This mount has relayed nothing. Foldkit gives a host no read on a runtime it did not build, so the trail fills only for a Showcase that relays its own dispatches."
+                    ? "Nothing relayed yet. Foldkit gives a host no read on a runtime it did not build, so a mount puts a Message here by posting { foldcase: \"dispatch\", tag } to the window."
                     : "The trail records real dispatches, so it fills only while a component is mounted.",
                 ],
               ),
@@ -2307,6 +2356,36 @@ export const makeLabApplication = (config: {
       M.exhaustive,
     )
 
+  /**
+   * The trail's one source: `message` events on the window carrying the relay
+   * envelope.
+   *
+   * It is a subscription and not a Mount because the channel outlives any one
+   * mount — a component that posts from a timer, a worker or a frame of its own
+   * is still relaying, and a subscription keyed to the slot would miss it.
+   *
+   * The gap is measured here, at the edge, against the arrival before it. That
+   * keeps `update` pure: it is handed a number, and it appends a row. `lastAt`
+   * is the one piece of mutable state in this module, and it is the clock —
+   * exactly the thing that cannot live in a Model.
+   */
+  let lastAt: number | undefined
+  const subscriptions = Subscription.make<Model, Message>()(() => ({
+    relay: Subscription.persistent(
+      Subscription.fromEventFilterMap<MessageEvent, Message>({
+        target: globalThis,
+        type: "message",
+        toMessage: (event) =>
+          Option.map(relayedTag(event.data), (tag) => {
+            const at = performance.now()
+            const delta = relayGapFrom(lastAt, at)
+            lastAt = at
+            return PreviewDispatched({ tag, delta })
+          }),
+      }),
+    ),
+  }))
+
   const view = (model: Model, h: HtmlBuilder<Message>): Document => {
     const entry = selectedEntry(model)
     return {
@@ -2385,6 +2464,7 @@ export const makeLabApplication = (config: {
     init: (url) => [initialModel(catalog, url), []] as const,
     update,
     view,
+    subscriptions,
     container: config.container,
     routing: {
       onUrlRequest: (request) => RequestedAddress({ request }),

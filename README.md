@@ -565,6 +565,19 @@ a mount relays; **Schema** says what the Message and Model documents actually ar
 under them carries the browser-runtime facts, the six MCP tools, the entry as JSON, and the
 fields a catalog browser usually shows that a Foldcase listing does not.
 
+The trail beside the canvas is the mount's to fill. Foldkit gives a host no read on a
+runtime it did not build — the store that records Messages is private to that runtime, and
+ports are declared by the application itself — so a mount that wants its dispatches on the
+trail posts them:
+
+```ts
+window.postMessage({ foldcase: 'dispatch', tag: `Clicked({ clicks: ${clicks} })` }, '*')
+```
+
+The lab decodes that envelope with `Schema`, ignores everything else on the channel, and
+measures the gap between arrivals itself. A mount that posts nothing leaves the trail
+empty, which is the honest reading rather than a guess.
+
 Nothing in it claims a status, a duration or a coverage number, because a listing carries
 none — those belong to a run. A row's mark says whether the canvas can mount that entry and
 says nothing else, and "Live" appears only once the lab has watched the mount paint:

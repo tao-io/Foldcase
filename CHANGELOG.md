@@ -98,6 +98,13 @@ this tool, and each of these is something it hit on the first run.
   was built around, the eight fields a catalog browser usually shows that a Foldcase
   listing does not, the six MCP tools, and the selected entry as JSON. `showAgentPanel`
   drops the third for a consumer who runs the lab and not the server.
+- **A dispatch trail, filled by the mount over a documented channel.** Foldkit gives a
+  host no read on a runtime it did not build — the store that records Messages is private
+  to that runtime, and ports are declared by the application itself — so the relay is the
+  mount's to make: `window.postMessage({ foldcase: 'dispatch', tag })`. The lab decodes
+  that envelope with `Schema`, ignores everything else on the channel, and measures the
+  gap between arrivals itself, because a sender's clock is a sender's claim. A mount that
+  posts nothing leaves the trail at its empty state, which says how to fill it.
 - **A theme toggle, a reload and a remount in the header and canvas bar.** Reloading the
   catalog reloads the page, because in the browser the catalog is whatever the consumer's
   entry module imported; the address carries the selection, so the reader lands back where

@@ -19,6 +19,8 @@ import {
   PreviewFailed,
   PreviewMounted,
   relativeFile,
+  relayedTag,
+  relayGapFrom,
   ReloadedCatalog,
   Remounted,
   SelectedPanel,
@@ -299,9 +301,20 @@ describe("the dispatch trail", () => {
     const [second] = update(first, PreviewDispatched({ tag: "ChangedStep({ step: 10 })", delta: 97 }))
 
     expect(second.trail).toEqual([
-      { tag: "Clicked()", delta: 412 },
+      // The first row has nothing before it, so its gap is zero however it
+      // arrived; the second keeps the gap the edge measured.
+      { tag: "Clicked()", delta: 0 },
       { tag: "ChangedStep({ step: 10 })", delta: 97 },
     ])
+  })
+
+  test("gives the first row a zero gap, because there is nothing before it to measure against", () => {
+    const [first] = update(one(), PreviewDispatched({ tag: "Clicked()", delta: 9_000 }))
+    const [cleared] = update(first, ClearedHistory())
+    const [afresh] = update(cleared, PreviewDispatched({ tag: "Clicked()", delta: 9_000 }))
+
+    expect(first.trail).toEqual([{ tag: "Clicked()", delta: 0 }])
+    expect(afresh.trail).toEqual([{ tag: "Clicked()", delta: 0 }])
   })
 
   test("clears on request, on a remount, and on a new selection, so a trail names one mount only", () => {
@@ -310,6 +323,31 @@ describe("the dispatch trail", () => {
     expect(update(filled, ClearedHistory())[0].trail).toEqual([])
     expect(update(filled, Remounted())[0].trail).toEqual([])
     expect(update(filled, SelectedShowcase({ id: "button/two" }))[0].trail).toEqual([])
+  })
+})
+
+describe("a Message relayed out of the preview", () => {
+  test("reads the tag out of the envelope the protocol names", () => {
+    expect(relayedTag({ foldcase: "dispatch", tag: "Clicked()" })).toEqual(
+      Option.some("Clicked()"),
+    )
+  })
+
+  test("ignores anything that is not that envelope, so a page full of chatter is not a trail", () => {
+    expect(relayedTag({ tag: "Clicked()" })).toEqual(Option.none())
+    expect(relayedTag({ foldcase: "something-else", tag: "Clicked()" })).toEqual(Option.none())
+    expect(relayedTag({ foldcase: "dispatch" })).toEqual(Option.none())
+    expect(relayedTag({ foldcase: "dispatch", tag: 7 })).toEqual(Option.none())
+    expect(relayedTag("Clicked()")).toEqual(Option.none())
+    expect(relayedTag(null)).toEqual(Option.none())
+  })
+
+  test("measures the gap itself rather than trusting what was sent", () => {
+    expect(relayGapFrom(undefined, 1_000)).toBe(0)
+    expect(relayGapFrom(1_000, 1_412)).toBe(412)
+    expect(relayGapFrom(1_000, 1_412.6)).toBe(413)
+    // A clock that went backwards is a zero, not a negative gap.
+    expect(relayGapFrom(2_000, 1_000)).toBe(0)
   })
 })
 
