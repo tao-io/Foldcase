@@ -1,384 +1,353 @@
-# Handoff: Foldcase Lab
+# Handoff: Foldcase — the catalog explorer
 
-## Overview
+## What this is
 
-`foldcase lab` — a local dev-server UI that opens a browser explorer over a Foldcase Showcase catalog. Storybook's information architecture (sidebar tree → canvas → addon drawer), but for a catalog whose unit is a **Showcase** (`play` + Schemas), not a rendered component.
+`foldcase` is a headless CLI and MCP server. This handoff specifies the browser UI it grows: a local explorer over a Showcase catalog, in the shape Storybook made familiar — sidebar tree, canvas, addon drawer — but built on what a Foldcase catalog actually carries.
 
-Foldcase upstream has **no GUI**. It is a headless CLI + MCP server. So this is net-new design, not a recreation of an existing screen. Nothing in the repo needs to be matched pixel-wise; everything below is the specification.
+There is no upstream GUI to match. Everything below is the design, stated as values.
 
-## About the design files
+The word "Lab" appears nowhere in the UI. Foldcase is the lab.
 
-`foldcase-lab-prototype.html` is a **design reference created in HTML** — a working prototype of the intended look and behaviour. One self-contained file: no build step, no server, no network, no sibling files. Open it in any browser, offline, and click through it. Commit it next to this README so the reference stays available for as long as the spec does.
+## The two files, and which one wins
 
-`Foldcase Lab.dc.html` is the same prototype in its authoring form, kept for diffing. It needs the prototyping runtime and will not open on its own — use the standalone file to look at the design.
+| file | what it is |
+| --- | --- |
+| `README.md` | **the specification.** Every number is here. Where this file and the prototype disagree, this file wins. |
+| `foldcase-lab-prototype.html` | the prototype, self-contained: no build, no server, no sibling files. Open it in any browser, offline, and click through it. Use it to see and feel what the numbers add up to. |
+| `Foldcase Lab.dc.html` | the same prototype in authoring form. Needs the prototyping runtime; kept for diffing. |
+| `spike-foldkit-cdn.html` | a probe, not design. Loads Foldkit 0.138.0 from esm.sh with no build step and reports what the HTML builder offers. Open it to reproduce the runtime findings below. |
+| `docs/brand/*.svg` | the brand assets the UI uses. |
 
-Neither file is production code to copy. Both are authored as a single component with inline styles and a small state class; that shape is a property of the prototyping tool, not a recommendation.
+Do not port the prototype's markup. Its styling is inline `style="…"` strings on React elements, ordered for streaming render; its state is one class with a `renderVals()` method. Both are properties of the prototyping tool. Foldkit's Model/Message/update/view is a different decomposition, and Foldkit **cannot take inline styles at all** (see *Runtime facts*). Read the design here; build it the way the codebase builds things.
 
-The task is to **rebuild this UI in Foldkit** (`foldkit/foldkit`) using its own patterns: a Model/Message/update/view triple, Foldkit's `html` builders, and whatever styling layer the target app already uses.
+## Fidelity: high
 
-Read the design out of *this document*, not out of the prototype's source. Two reasons, and neither is about portability:
+Colours, type, spacing and interaction states are final and exact. Rebuild pixel-for-pixel.
 
-- The prototype's styling is inline `style="…"` strings on React elements, ordered for streaming render. Ported literally, that carries prototyping scaffolding into production and freezes accidental choices as if they were decisions. The sections below name which values are decisions.
-- Its state lives in one class with a `renderVals()` method. Foldkit's Model/Message/update/view is a different decomposition, and the *State* section states it in those terms.
-
-Use the standalone file to see and feel the design — hover states, the scrubber, time travel, the failure states. Use this document for every number. Where the two disagree, this document wins.
-
-## Fidelity
-
-**High-fidelity.** Colours, type, spacing, and interaction states are all final and exact. Rebuild it pixel-for-pixel. Every value in this document is the value in the prototype; where a number appears here and in the file, this document is the one to trust.
-
-Two things are deliberately *not* final:
-
-- Fixture data (the `examples/counter` catalog, timings, coverage percentages) stands in for real runner output.
-- The counter preview's `update` is a hand-copy of `examples/counter/src/counter.ts`. In production the lab imports the real module.
-
-## Prior art to reuse, not reinvent
-
-Two upstream sources were already mined; keep the alignment.
-
-**Foldkit devtools overlay** (`foldkit/foldkit`, `packages/devtools/src/overlay.ts`, `overlay-styles.ts`) — the Canvas timeline is deliberately that overlay's vocabulary: zero-padded message indices, a diff dot only when the Model actually changed, `+Nms` deltas, `Live` / `Resume →` / `Clear history`, and the footer scrubber. If the overlay's styles are importable from the lab, import them rather than restating them.
-
-**Foldcase brand** (`docs/brand/`) — `mark.svg` is used as a CSS mask over `currentColor`-ish ink, so one file serves both themes. Do not inline a recoloured copy per theme.
+One thing is deliberately not final: the live preview mounts one component (`button`) because that is the only component source the prototype carries. The real explorer mounts whatever the catalog gives it.
 
 ---
 
-## Shell
+# Part 1 — Runtime facts you need before you start
 
-Full viewport, no page scroll. `height: 100vh`, `display: flex`, `flex-direction: column`, `background: --bg`, `color: --ink`, base `font-size: 14px`, base family Outfit.
+All four verified by running Foldkit 0.138.0 in a browser. They change what is buildable, so read them first.
 
-Three bands, top to bottom: header (fixed 52px) → body (`flex: 1`, `min-height: 0`) → nothing else. The body is a row: sidebar (fixed 292px) + main (`flex: 1`, `min-width: 0`). Main is itself a column: tab bar (40px) → canvas (`flex: 1`, `min-height: 0`, `overflow: auto`) → addon drawer (auto height, pinned bottom).
+**1. The HTML builder has no `Style` attribute.** It exposes `Key`, `Class`, `Id`, `Title`, `Lang`, `Dir`, `Tabindex`, `Hidden`, every `On*` handler, and the full HTML attribute set. Passing a style string crashes the application with `Failed to set an indexed property [0] on 'CSSStyleDeclaration'`. Every value in Part 3 must therefore land as **classes** — Tailwind utilities if the explorer follows `examples/counter`, or whatever class layer you choose. The token tables are written to be read as a theme.
 
-Every scroll region needs `min-height: 0` on its flex parent or it will refuse to scroll. This is the single most common way to get this layout wrong.
+**2. `Runtime.makeApplication` owns its container.** It replaces the node it is given. The shell's chrome cannot share a node with a mounted preview.
 
-### Header — 52px
+**3. `update` runs on an Effect fiber.** The Model lands a tick after the event, not synchronously. Anything reading state straight after a dispatch must wait a frame.
 
-`height: 52px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 14px; border-bottom: 1px solid --line; background: --panel`.
+**4. The preview needs its own document.** Two independent reasons: a shell that re-renders on every dispatch wipes an in-tree mount, and a mounted component's stylesheet must not reach the shell. The prototype mounts the preview in an `<iframe srcdoc>` positioned over a placeholder in the card, and relays dispatches to the shell by `postMessage`. Use an iframe, a shadow root, or a separate Foldkit element — but isolate it.
 
-Contents, left to right:
-
-1. **Brand lockup.** `display: flex; align-items: center; gap: 9px`.
-   - Mark: 22×22, `background-color: --ink`, masked with `docs/brand/mark.svg` (`center / contain no-repeat`, both `mask` and `-webkit-mask`).
-   - Wordmark: "Foldcase" at 15px/700, `letter-spacing: -0.01em`. Nothing else — no "Lab" qualifier beside it.
-2. **Spacer** — `flex: 1`.
-3. **Run all button.** Height 30px, `padding: 0 12px`, `border: 1px solid --ink`, `radius: 6px`, `background: --ink`, `color: --bg`, 12.5px/600, `gap: 7px`. Hover `opacity: 0.85`. While running: label becomes "Running" and an 11px spinner appears before it (`1.5px solid currentColor`, `border-top-color: transparent`, circle, `animation: fc-spin 0.7s linear infinite`). When idle the spinner element is `display: none`, not removed.
-4. **Theme toggle.** 30×30, centred glyph, `border: 1px solid --line`, `radius: 6px`, `background: --panel`, `color: --ink-2`, 13px. Glyph `☾` in dark, `☀` in light. Hover: `color: --ink`, `border-color: --ink-3`.
-
-Two elements were **removed** on review and must not come back: a `FOLDCASE_SHOWCASE_DIR` path chip, and a `report-first` / `source-first` segmented toggle. The report/source split survives only as a tweakable prop (see *Props*), not as header chrome.
-
-### Sidebar — 292px
-
-`width: 292px; flex: none`, column, `border-right: 1px solid --line`, `background: --panel`.
-
-**Search field.** In a `padding: 10px` box with `border-bottom: 1px solid --line`. Input is full-width, 30px tall, `padding: 0 10px`, `border: 1px solid --line`, `radius: 6px`, `background: --sunken`, `color: --ink`, 12.5px, `outline: none`, placeholder "Find a showcase". Focus: `border-color: --ink-3`.
-
-**Summary strip.** `padding: 9px 12px`, `border-bottom: 1px solid --line`, JetBrains Mono 11px, `color: --ink-2`, `gap: 10px`. Reads `11 total` · dot+`9 passed` · dot+`2 failed` · (spacer) · `412ms` in `--ink-3`. The two dots are 6px circles in `--pass` / `--fail`. Duration reads `running…` mid-run.
-
-**Tree.** `flex: 1; overflow: auto; padding: 6px 0 20px`. Grouping is **file → component → showcase state**.
-
-- *File row* — full-width button, `padding: 5px 12px`, `gap: 7px`, transparent, `color: --ink-2`, JetBrains Mono 11px, left-aligned. Hover `color: --ink`. Caret (`▾` open / `▸` closed) in an 8px-wide slot, 9px, `--ink-3`. Path text truncates with ellipsis. Trailing 6px status dot, right-aligned.
-- *Component row* (only when the file has visible showcases) — not interactive. `padding: 6px 12px 4px 27px`, 12.5px/600, `--ink`, followed by the visible count in JetBrains Mono 10px/400 `--ink-3`.
-- *Showcase row* — full-width button, `padding: 5px 12px 5px 39px`, `gap: 9px`, 12.5px. 7px status dot; label (the id minus its `component/` prefix) truncating with ellipsis; trailing kind badge `STORY` / `SCENE` in JetBrains Mono 9.5px, `letter-spacing: 0.04em`, `--ink-3`. Selected: `background: --sel`, `color: --ink`. Unselected: transparent, `--ink-2`, hover `background: --sel-hover`.
-- *Failed-file row* — when a file did not load it has no component and no children, just one row reading "did not load": `padding: 6px 12px 6px 27px`, `border-left: 2px solid --fail`, `color: --fail`, with a monospace `✗` in a fixed-width slot. Selecting it opens the load-failure canvas.
-
-File status dot: `--fail` if the file failed to load or any of its showcases failed; `--pass` if all passed; `--ink-3` while any are pending.
-
-Search filters showcases by substring of the full id; a file stays in the tree if it has matching showcases or its own path matches.
-
-### Canvas tab bar — 40px
-
-`height: 40px; flex: none; padding: 0 12px; border-bottom: 1px solid --line; background: --panel`, tabs stretched full height.
-
-Tabs: **Canvas** · **Report** · **Timeline** · **Source** · (**View** — Scene plays only) · **Docs**. Each: `padding: 0 12px`, `border-bottom: 2px solid` (`--ink` active, `transparent` otherwise), 12.5px/500, `color: --ink` active / `--ink-3` otherwise, hover `--ink`.
-
-Right-aligned after a spacer: the selected showcase's file path, JetBrains Mono 11px, `--ink-3`.
-
-Default tab is **Canvas**. If the current tab does not exist for the newly selected showcase (View, on a Story), fall back to Canvas.
-
-The canvas body gets `animation: fc-in 0.18s ease` so switching selection cross-fades rather than snapping.
+`Runtime` also exports `makeElement` and `embed` for embedded mounts; `makeApplication` inside a body-level container is what the prototype proved works.
 
 ---
 
-## Canvas tab — the rendered component
+# Part 2 — The data the UI is allowed to show
 
-The reason this UI exists. A `play` is an opaque thunk and cannot be rendered — but a component module exports `view`, so the lab mounts `{ update, view }` exactly as a Scene does and renders the real thing. The play's declared messages are folded into the real `update` to reach the state at any point.
+From `proto/catalog.json`, the gallery run: **24 components, 146 entries, `failures: []`**. Every entry carries exactly six fields:
 
-Layout: column, `min-height: 100%`.
+```json
+{
+  "id": "calendar/opens-on-the-month-of-today",
+  "component": "calendar",
+  "file": "/tmp/foldcase-lab-gallery/src/ui/calendar.showcase.ts",
+  "hasMount": true,
+  "hasMessageSchema": true,
+  "hasModelSchema": true
+}
+```
 
-**Toolbar** (`flex: none`, `padding: 9px 20px`, `border-bottom: 1px solid --line`, `background: --panel`, `gap: 10px`): the text `mounted { update, view }` in JetBrains Mono 11px `--ink-3`, then a spacer, then a 3-button segmented group, then the position readout.
+Grouping in the listing is `catalog.components[] → { component, entries[] }`. The run also reports `entry: { path, status }` — the gallery entry file it writes.
 
-Segmented group — `gap: 1px`, buttons sharing borders: `‹` (26×24, radius `5px 0 0 5px`), `›` (26×24, `border-left: 0`), `replay` (24px tall, `padding: 0 9px`, `border-left: 0`, radius `0 5px 5px 0`, 11px). All `border: 1px solid --line`, `background: --panel`, `color: --ink-2`, hover `--ink`. Titles: "Step back", "Step forward", "Replay from the given model".
+## What the catalog does not carry
 
-**Body** is a row (`flex: 1; min-height: 0`): preview surface + timeline pane.
+An earlier draft of this design leaned on all of these. None exist. Do not invent them, and do not render a neutral placeholder that reads as a value.
+
+| field | reality |
+| --- | --- |
+| `status` | Absent from the listing. Pass and fail belong to a run the explorer triggers — so **no status dots in the tree**. |
+| `error` | `failures: []`; every file loaded. Failure states live in the run report. |
+| `kind` (Story / Scene) | No field, and no gallery file uses Scene. All 146 are Stories, so a badge would say nothing. |
+| `dispatches` | 0 of 146 declare it; 2 of 24 files mention the option. A gap list would be empty by default, which reads as "covered" when it means "unknown". |
+| `duration` | Not a field on `ShowcaseReport`. |
+| `lines` / `functions` | Coverage collected nothing: `files: []` on every showcase. |
+| "exports a view" | No such field. `hasMount` is the closest and is `true` for all 146. |
+| per-component schema | One Message union for the whole catalog: 24 calls returned the same 45,759-byte document. |
+
+The UI surfaces this rather than hiding it — see the **Not in the data** drawer panel, which lists these eight rows verbatim, and the **Schema** tab, which states the one-union problem in place of a fake per-component table.
+
+---
+
+# Part 3 — The screen, value by value
+
+## Global
+
+**Fonts.** Two families, nothing else.
+
+- **Outfit** — all UI chrome. Weights 300/400/500/600/700.
+- **JetBrains Mono** — every identifier, path, count, number and code block. Weights 400/500/700.
+
+Base: `font-size: 14px`, family Outfit, `-webkit-font-smoothing: antialiased`, `box-sizing: border-box` on everything, zero body margin.
+
+**Tokens.** Two themes, same keys. Status, accent and diff colours are oklch so both themes stay perceptually matched.
+
+| token | dark | light |
+| --- | --- | --- |
+| `--bg` | `#1e1c21` | `#f8f7fb` |
+| `--panel` | `#26242b` | `#ffffff` |
+| `--sunken` | `#1a181d` | `#f2f1f6` |
+| `--ink` | `#FAFAFA` | `#0B0C0E` |
+| `--ink-2` | `#a7a3ae` | `#5c5a63` |
+| `--ink-3` | `#7a7683` | `#8b8891` |
+| `--line` | `#34313a` | `#e4e2ea` |
+| `--sel` | `#332f3d` | `#ecebf3` |
+| `--sel-hover` | `#2c2a33` | `#f4f3f8` |
+| `--sel-text` | `#413b54` | `#e3e0f2` |
+| `--accent` | `oklch(0.76 0.11 285)` | `oklch(0.52 0.14 285)` |
+| `--pass` | `oklch(0.76 0.13 155)` | `oklch(0.52 0.11 155)` |
+| `--fail` | `oklch(0.71 0.16 25)` | `oklch(0.53 0.17 25)` |
+| `--pass-bg` | `oklch(0.28 0.04 155)` | `oklch(0.96 0.03 155)` |
+| `--fail-bg` | `oklch(0.29 0.05 25)` | `oklch(0.96 0.03 25)` |
+| `--fail-line` | `oklch(0.40 0.08 25)` | `oklch(0.88 0.06 25)` |
+| `--diff` | `oklch(0.76 0.11 235)` | `oklch(0.62 0.12 235)` |
+
+`#0B0C0E` / `#FAFAFA` are the brand ink pair from `docs/brand/README.md`. `#1e1c21` / `#f8f7fb` are the docs site's `theme-color` values. Default theme is **dark**.
+
+**Radii:** 4px badge · 5px chip and small button · 6px input, button, pill · 9px card and table · 10px preview card · `9999px` scrubber.
+
+**Borders:** 1px `--line` everywhere. 2px only for the active tab underline.
+
+**Spacing scale in use:** 4 5 6 7 8 9 10 11 12 14 15 16 17 18 20 22 24 26 28 30 32 34 40.
+
+**No shadows anywhere.** Depth comes from `--panel` / `--sunken` against `--bg`, plus hairlines.
+
+**Motion.** Two keyframes only: `fc-spin` (`to { transform: rotate(360deg) }`, used at `0.7s linear infinite`) and `fc-in` (opacity 0→1, used at `0.18s ease` on the canvas body so switching selection cross-fades).
+
+**Links.** `a { color: var(--accent) }`, `a:hover { color: var(--ink); text-decoration: underline }`. `::selection { background: var(--sel-text) }`.
+
+## Shell geometry
+
+`height: 100vh`, column, `background: --bg`, `color: --ink`. No page scroll.
+
+```
+┌─ header  52px ────────────────────────────────────────────┐
+├─ body  flex:1, min-height:0 ──────────────────────────────┤
+│ ┌ sidebar 292px ┐ ┌ main  flex:1, min-width:0 ──────────┐ │
+│ │               │ │ tab bar 40px                        │ │
+│ │               │ │ canvas  flex:1, min-height:0, auto  │ │
+│ │               │ │ drawer  36px + min(222px, 30vh)     │ │
+│ └───────────────┘ └─────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────┘
+```
+
+Every scroll region needs `min-height: 0` on its flex parent. This is the single most common way to get this layout wrong.
+
+## Header — 52px
+
+`flex: none; display: flex; align-items: center; gap: 14px; padding: 0 14px; border-bottom: 1px solid --line; background: --panel`.
+
+1. **Brand**, `gap: 9px`: the mark at 22×22 — `background-color: --ink` masked by `docs/brand/mark.svg` (`center / contain no-repeat`, set both `mask` and `-webkit-mask`), so one file serves both themes. Then "Foldcase" at 15px/700, `letter-spacing: -0.01em`. Nothing beside it.
+2. **Spacer**, `flex: 1`.
+3. **Runtime pill**: `padding: 4px 9px; border: 1px solid --line; border-radius: 5px; background: --sunken`, JetBrains Mono 11.5px. Text and colour by state — `loading foldkit…` in `--ink-3`, `foldkit 0.138.0 · mounted` in `--pass`, `foldkit unavailable` in `--fail`.
+4. **Reload catalog** — the primary button: `height: 30px; padding: 0 12px; border: 1px solid --ink; border-radius: 6px; background: --ink; color: --bg`, 12.5px/600, `gap: 7px`, hover `opacity: 0.85`. Maps to `foldcase_load_catalog`. While loading, the label becomes "Loading" and an 11px spinner precedes it: `1.5px solid currentColor`, `border-top-color: transparent`, circle, `fc-spin`. Idle, the spinner element is `display: none` — not removed.
+5. **Theme toggle** — 30×30, centred glyph `☾` (dark) / `☀` (light), `border: 1px solid --line; border-radius: 6px; background: --panel; color: --ink-2`, 13px; hover `color: --ink; border-color: --ink-3`.
+
+The header holds nothing else. Two elements were removed on review and must not return: a `FOLDCASE_SHOWCASE_DIR` path chip, and a `report-first` / `source-first` segmented toggle.
+
+## Sidebar — 292px
+
+`flex: none`, column, `border-right: 1px solid --line; background: --panel`.
+
+**Search.** In a `padding: 10px` box with `border-bottom: 1px solid --line`. Input: full width, `height: 30px; padding: 0 10px; border: 1px solid --line; border-radius: 6px; background: --sunken; color: --ink`, 12.5px, `outline: none`, focus `border-color: --ink-3`. Placeholder `Find a showcase`. Filters on every keystroke: case-insensitive substring against the full id. A component group survives if it has matching entries or its own name matches. While a query is active every matching group is forced open.
+
+**Summary strip.** `padding: 9px 12px; border-bottom: 1px solid --line`, JetBrains Mono 11px, `gap: 10px`: `146 showcases` in `--ink-2`, spacer, `24 components` in `--ink-3`.
+
+**Tree.** `flex: 1; overflow: auto; padding: 6px 0 16px`. Two levels: **component → state**. No file level — 146 entries across 24 files make the path noise, and the file is on the entry.
+
+- *Component row* — full-width button, `padding: 6px 12px; gap: 8px`, transparent, `color: --ink`, Outfit 12.5px/600, left-aligned, hover `color: --accent`. Caret `▾`/`▸` in an 8px slot at 9px `--ink-3`. Name truncates with ellipsis. Trailing visible count in JetBrains Mono 10px/400 `--ink-3`. Default state: collapsed, except the component holding the initial selection.
+- *State row* — full-width button, `padding: 5px 12px 5px 28px; gap: 9px`, Outfit 12.5px, `line-height: 1.35`, `align-items: flex-start` (long names wrap to two lines and must stay legible). Label is the id minus its `component/` prefix. Selected: `background: --sel; color: --ink`. Otherwise transparent, `--ink-2`, hover `background: --sel-hover`.
+- *Row mark* — a 6px dot, `margin-top: 5px`, `flex: none`. Filled `--accent` when the entry can be mounted live; otherwise a hollow `1px solid --ink-3` ring. **This is not a status dot.** It says "mountable here", and the catalog carries no pass/fail.
+- *LIVE tag* — on mountable rows only, right-aligned, JetBrains Mono 9px, `letter-spacing: 0.05em`, `--accent`, `margin-top: 1px`.
+
+**Footer.** `flex: none; padding: 9px 12px; border-top: 1px solid --line`, JetBrains Mono 10.5px, `line-height: 1.55`, `--ink-3`: `foldcase_load_catalog · no run yet, so no status`.
+
+## Canvas tab bar — 40px
+
+`flex: none; padding: 0 12px; border-bottom: 1px solid --line; background: --panel`, tabs stretched full height.
+
+Four tabs: **Canvas** · **Entry** · **Timeline** · **Schema**. Each `padding: 0 12px`, `border-bottom: 2px solid` (`--ink` active, `transparent` otherwise), Outfit 12.5px/500, `--ink` active / `--ink-3` otherwise, hover `--ink`. Default is Canvas.
+
+Right-aligned after a spacer: the selected entry's file path, relative to the catalog root, JetBrains Mono 11px `--ink-3`.
+
+The canvas body: `flex: 1; min-height: 0; overflow: auto; animation: fc-in 0.18s ease`.
+
+## Canvas tab — the mounted component
+
+The reason the UI exists. Column, `min-height: 100%`.
+
+**Toolbar** — `flex: none; padding: 9px 20px; border-bottom: 1px solid --line; background: --panel; gap: 10px`. Left: JetBrains Mono 11px `--ink-3`, reading `mounted { update, view } · foldkit from esm.sh` when the mount is verified, `hasMount: true` otherwise. Spacer. Right, only when mounted: a **remount** button — `height: 24px; padding: 0 9px; border: 1px solid --line; border-radius: 5px; background: --panel; color: --ink-2`, 11px, hover `--ink`.
+
+**Body** — a row, `flex: 1; min-height: 0`: preview surface + timeline pane.
 
 ### Preview surface
 
 `flex: 1; min-width: 0; min-height: 280px; overflow: auto; padding: 24px; background: --sunken`, `display: flex; align-items: flex-start; justify-content: center`.
 
-The card inside is `width: 100%; max-width: 520px; margin: auto` (auto margins so it centres while staying scrollable in both directions), `border: 1px solid --line`, `radius: 10px`, `background: --panel`, `overflow: hidden`. Three stacked bands:
+The card: `width: 100%; max-width: 520px; margin: auto` (auto margins centre it while both overflow directions stay scrollable), `border: 1px solid --line; border-radius: 10px; background: --panel; overflow: hidden`. Three bands:
 
-1. **Title bar** — `padding: 7px 12px`, `border-bottom: 1px solid --line`, JetBrains Mono 11px `--ink-3`, `gap: 8px`: a 6px `--pass` dot then the live document title, `Counter: {count}`.
-2. **The component** — `padding: 30px 32px 28px`, column, centred, `gap: 20px`. The count as JetBrains Mono 52px/500, `line-height: 1`, `letter-spacing: -0.03em`, `--ink`. Below it a `gap: 8px` row of three buttons `-`, `Reset`, `+`: `min-width: 44px` (hit target), height 34px, `padding: 0 14px`, `border: 1px solid --line`, `radius: 6px`, `background: --bg`, `color: --ink`, 14px, hover `border-color: --ink-3`. These dispatch for real.
-3. **Model bar** — `padding: 9px 12px`, `border-top: 1px solid --line`, `background: --sunken`, JetBrains Mono 11.5px `--ink-2`: the label `model` in `--ink-3`, the serialized model `{ count: 0, step: 1 }`, a spacer, then a `ChangedStep 10` button (22px tall, `padding: 0 8px`, `border: 1px solid --line`, `radius: 5px`, `background: --panel`, 11px) that dispatches a payload-carrying Message.
+1. **Title bar** — `padding: 7px 12px; border-bottom: 1px solid --line`, JetBrains Mono 11px `--ink-3`, `gap: 8px`: a 6px dot (`--pass` when mounted, `--ink-3` otherwise) then the live document title, e.g. `button — 2 clicks`.
+2. **The mount** — a `height: 186px` region when the selection is mountable, `height: 0` otherwise. The component renders here, in its own document (Runtime fact 4).
+3. **Model bar** — mounted only. `padding: 9px 12px; border-top: 1px solid --line; background: --sunken`, JetBrains Mono 11.5px `--ink-2`, `gap: 10px`: the label `model` in `--ink-3`, then the serialized Model, e.g. `{ clicks: 2 }`.
+
+**Component styling inside the mount** (the prototype's `button`, for reference — the real explorer inherits whatever the catalog component brings): column, centred, `gap: 18px`, `padding: 30px 28px`. Count in JetBrains Mono 44px/500, `line-height: 1`, `letter-spacing: -0.03em`, `--ink`. Button `min-width: 44px; height: 34px; padding: 0 16px; border: 1px solid --line; border-radius: 6px; background: --bg; color: --ink`, 13px, hover `border-color: --ink-3`. Caption 12.5px `--ink-3`.
+
+**Not-mountable state.** When the selection has no source the explorer can mount, the card body is `padding: 40px 30px`, centred, JetBrains Mono 12px, `line-height: 1.75`, `--ink-3`, `text-wrap: pretty`, naming the component and saying plainly that this prototype does not carry it. Do not draw a fake component.
 
 ### Timeline pane — 308px
 
-`width: 308px; flex: none`, column, `border-left: 1px solid --line`, `background: --panel`. This is the Foldkit devtools overlay, transplanted.
+`flex: none`, column, `border-left: 1px solid --line; background: --panel`. This is Foldkit's own devtools overlay vocabulary (`foldkit/foldkit`, `packages/devtools/src/overlay.ts`) — if those styles are importable, import them rather than restating them.
 
-**Header** — `padding: 6px 10px`, `border-bottom: 1px solid --line`, `justify-content: space-between`, `gap: 8px`.
-- When at the head of history: `Live` — JetBrains Mono 12px `--pass`, preceded by a 6px `--pass` dot.
-- When scrubbed back: `Resume →` — a borderless button, JetBrains Mono 12px/500 `--pass`, hover `opacity: 0.7`. Returns to the head.
-- Always, on the right: `Clear history` — borderless, JetBrains Mono 12px `--ink-3`, hover `--ink`. Drops the user's own dispatches and returns to the play's trail.
+**Header** — `padding: 6px 10px; border-bottom: 1px solid --line; justify-content: space-between; gap: 8px`. Left: a 6px dot plus `Live` in `--pass` when mounted, `Idle` in `--ink-3` otherwise, JetBrains Mono 12px. Right: `Clear history` — borderless, JetBrains Mono 12px `--ink-3`, hover `--ink`.
 
-**Message list** — `flex: 1; min-height: 0; overflow: auto`. One row per entry, `padding: 4px 6px`, `border-bottom: 1px solid --line`, `gap: 6px`, clickable, hover `background: --sel-hover`. Row 0 is always `init`. Columns:
-- index — `min-width: 20px`, JetBrains Mono 10px `--ink-3`, zero-padded to three digits (`000`, `001`).
-- diff dot — 5px circle, `--diff` when this Message changed the Model, otherwise `transparent` (the element still occupies its 5px so rows stay aligned).
-- tag — `flex: 1`, truncating, JetBrains Mono 11.5px. Rendered as `ClickedIncrement()` or `ChangedStep({ step: 10 })`.
-- delta — JetBrains Mono 10px `--ink-3`, `+Nms`.
+**Message list** — `flex: 1; min-height: 0; overflow: auto`. One row per real dispatch: `padding: 4px 6px; border-bottom: 1px solid --line; gap: 6px`. Columns:
 
-Row colour: selected → `background: --sel`, `color: --ink`. Ahead of the cursor → `--ink-3`. Behind → `--ink-2`.
+- index — `min-width: 20px`, JetBrains Mono 10px `--ink-3`, zero-padded to three digits (`001`).
+- diff dot — 5px circle in `--diff`. The element keeps its 5px even when it carries no colour, so rows stay aligned.
+- tag — `flex: 1`, truncating, JetBrains Mono 11.5px `--ink-2`, rendered as the constructor call: `Clicked()`, `ChangedStep({ step: 10 })`.
+- delta — JetBrains Mono 10px `--ink-3`, `+Nms`, measured between dispatches.
 
-**Scrubber footer** — `height: 33px; flex: none; border-top: 1px solid --line`.
-- Track: `flex: 1`, 16px tall hit area with `padding: 0 7px`. Inside, a 4px-tall `9999px` bar in `--line`; a fill in `--accent` at `{at / total * 100}%`; a 14px `--accent` thumb, `border: 2px solid --panel`, `left: calc({pct} - 7px)`, vertically centred by `top: 50%; margin-top: -7px`.
-- Clicking anywhere on the track jumps: `round(((clientX - rect.left) / rect.width) * total)`, clamped to `[0, total]`.
-- Readout: `width: 72px`, `padding-left: 12px`, `border-left: 1px solid --line`, centred, JetBrains Mono 10px `--ink-3`, `003 / 012` (both sides zero-padded to three).
+Empty state: `padding: 14px 12px`, JetBrains Mono 11px, `line-height: 1.75`, `--ink-3`. Mounted: "Nothing dispatched yet. Click the component — each Message that reaches update lands here." Not mounted: "The trail records real dispatches, so it fills only while a component is mounted."
 
-### No-view state
+**Scrubber footer** — `flex: none; height: 33px; border-top: 1px solid --line`. Track: `flex: 1`, 16px hit area, `padding: 0 7px`; inside, a 4px `9999px` bar in `--line` with a fill in `--accent`. Readout: `width: 72px; padding-left: 12px; border-left: 1px solid --line`, centred, JetBrains Mono 10px `--ink-3`, `003 / 003`, both sides zero-padded to three.
 
-When the selected showcase's module exports no `view` (all of `tasks`), the Canvas shows a centred column, `max-width: 420px`, `padding: 40px`: the brand mark at 30px in `--ink-3` at `opacity: 0.5`, then 13.5px/1.6 `--ink-2` text — `"{component}.ts exports no view — Story-only, so there is nothing to mount."` — then 12.5px `--ink-3`: "The Report and Timeline tabs still hold everything the play asserted on."
+Time travel is out of scope for a live mount: replaying means re-running the real `update` from the initial Model, which the catalog does not expose per state. The scrubber reads position; do not wire it to a fake rewind.
 
-Do not fake a preview here. A Story-only component genuinely has nothing to render, and saying so is the correct output.
+## Entry tab
 
----
+`padding: 26px 32px 34px; max-width: 900px`. This is the whole listing entry, said plainly.
 
-## Report tab
-
-Two presentations, selected by the `canvasMode` prop.
-
-### report-first (default)
-
-`padding: 26px 32px 34px; max-width: 900px`.
-
-1. Status row (`gap: 12px`, `margin-bottom: 16px`): a status pill — `padding: 4px 10px`, `radius: 6px`, JetBrains Mono 11.5px/600, background and foreground per status (below) — then `{ms}ms · fresh subprocess` in JetBrains Mono 11px `--ink-3`.
-2. The id as `h1`: JetBrains Mono 22px/500, `letter-spacing: -0.015em`, margins `0 0 4px`.
-3. Meta row, `gap: 14px`, `margin-bottom: 22px`, JetBrains Mono 11.5px `--ink-3`: the file path, then `play: Story` / `play: Scene`.
-4. **Error block** (failures only), `margin-bottom: 24px`, `border: 1px solid --fail-line`, `radius: 9px`, `overflow: hidden`. Header: `padding: 9px 15px`, `background: --fail-bg`, `color: --fail`, JetBrains Mono 11.5px/600, the error name. Body: `<pre>`, `padding: 13px 15px`, `background: --panel`, `color: --ink`, JetBrains Mono 12px/1.65, `white-space: pre-wrap` — message and stack.
-5. **Timeline** section. Heading: 11px/600, `letter-spacing: 0.07em`, uppercase, `--ink-3`, followed by a 1px `--line` rule filling the row (`gap: 9px`). Then a `border: 1px solid --line`, `radius: 9px` block with `background: --line` and `gap: 1px` between rows so the gaps read as hairlines. Each row: `display: grid; grid-template-columns: 96px 1fr auto; gap: 14px; align-items: baseline; padding: 11px 15px; background: --panel`. Columns: step kind (JetBrains Mono 10.5px/600, `letter-spacing: 0.04em`, coloured per kind), assertion text (JetBrains Mono 12.5px `--ink`, `word-break: break-word`), detail (JetBrains Mono 11.5px `--ink-3`, `white-space: nowrap`).
-6. **Play** section, same heading treatment, `margin: 26px 0 12px`. A `<pre>` at `padding: 15px 17px`, `border: 1px solid --line`, `radius: 9px`, `background: --panel`, JetBrains Mono 12px/1.7 `--ink-2`, `white-space: pre-wrap` — the play's source.
-
-### source-first
-
-A thin sticky-feeling bar (`flex: none`, `padding: 11px 24px`, `border-bottom: 1px solid --line`, `background: --panel`, `gap: 12px`): status pill (`padding: 3px 8px`, `radius: 5px`, 11px/600) · id in JetBrains Mono 13px · spacer · duration in JetBrains Mono 11px `--ink-3`. Below it, `flex: 1; overflow: auto; padding: 18px 24px 28px`: the error `<pre>` if any (`margin-bottom: 18px`, `border: 1px solid --fail-line`, `radius: 8px`, `background: --fail-bg`, `color: --fail`, 12px/1.65), then the source as a plain `<pre>`, JetBrains Mono 12.5px/1.75 `--ink`.
-
-### Status pill values
-
-| status | mark | fg | bg |
-| --- | --- | --- | --- |
-| passed | `✓` | `--pass` | `--pass-bg` |
-| failed | `✗` | `--fail` | `--fail-bg` |
-| pending | `·` | `--ink-3` | `--sunken` |
+1. Status row, `gap: 12px; margin-bottom: 14px`: a neutral pill reading `listed` — `padding: 4px 10px; border-radius: 6px; background: --sunken; color: --ink-2`, JetBrains Mono 11.5px/600 — then `foldcase_list_showcases — the catalog reports no status until a run` in JetBrains Mono 11px `--ink-3`.
+2. The id as `h1`: JetBrains Mono 22px/500, `letter-spacing: -0.015em`, `word-break: break-word`, `margin: 0 0 20px`.
+3. **Facts grid**: `display: grid; grid-template-columns: 1fr 1fr; gap: 1px`, `border: 1px solid --line; border-radius: 9px; overflow: hidden`, `background: --line` so the 1px gaps read as hairlines. Six cells, `padding: 11px 15px; background: --panel`: label in Outfit 10.5px/600, `letter-spacing: 0.06em`, uppercase, `--ink-3`, `margin-bottom: 4px`; value in JetBrains Mono 12.5px, `word-break: break-word`. The three booleans are `true` in `--pass`; `component` and `state` in `--ink`; `file` in `--ink-2`.
+4. Closing note: `padding: 14px 16px; border: 1px solid --line; border-radius: 9px; background: --panel`, Outfit 12.5px, `line-height: 1.65`, `--ink-2`, `text-wrap: pretty` — that these six fields are the whole entry, and anything else is reachable only by running the showcase.
 
 ## Timeline tab
 
-`padding: 26px 32px 34px; max-width: 860px`. Opens with a 13px/1.6 `--ink-2` paragraph: "A `play` is an opaque thunk — the runner never looks inside it. This is the trace the Story recorded as it ran: the model it was given, every Message dispatched, and each assertion made on the Model that came back." (`play` in JetBrains Mono.)
+`padding: 26px 32px 34px; max-width: 860px`. Opens with Outfit 13px, `line-height: 1.65`, `--ink-2`, `margin-bottom: 20px`: that a play is an opaque thunk the runner never looks inside, that the listing carries no trace of one, and that what *can* be recorded is a live mount.
 
-Then a vertical rail: each entry is `display: grid; grid-template-columns: 18px 1fr; gap: 16px`. The left column holds a 9px dot in the step's colour with `margin-top: 5px`, then a 1px `--line` line filling the remaining height. The right column, `padding-bottom: 20px`: kind (JetBrains Mono 10.5px/600, `letter-spacing: 0.05em`, step colour, `margin-bottom: 4px`), text (JetBrains Mono 13.5px `--ink`, `margin-bottom: 5px`, `word-break: break-word`), detail (JetBrains Mono 12px `--ink-3`).
+Empty state: `padding: 20px; border: 1px dashed --line; border-radius: 9px`, JetBrains Mono 12px, `line-height: 1.75`, `--ink-3`.
 
-### Step kind colours
+Each entry: `display: grid; grid-template-columns: 18px 1fr; gap: 16px`. Left column: a 9px dot in `--accent`, `margin-top: 5px`, then a 1px `--line` rule filling the remaining height. Right column, `padding-bottom: 20px`: kind in JetBrains Mono 10.5px/600, `letter-spacing: 0.05em`, `--accent`, `margin-bottom: 4px`; the Message in JetBrains Mono 13.5px `--ink`, `margin-bottom: 5px`, `word-break: break-word`; the detail in JetBrains Mono 12px `--ink-3`.
 
-| kind | colour |
-| --- | --- |
-| `given` | `--ink-3` |
-| `message` | `--accent` |
-| `click` | `--accent` |
-| `model` | `--pass` |
-| `expect` | `--pass` |
-| `failed` | `--fail` |
+## Schema tab
 
-## Source tab
+`padding: 28px 32px 40px; max-width: 820px`. The one-union problem, stated rather than papered over.
 
-`padding: 22px 28px 34px`, a single `<pre>`, JetBrains Mono 12.5px/1.75, `white-space: pre-wrap`, no background.
+1. Top row, `gap: 12px; margin-bottom: 18px`: a chip reading `foldcase_get_showcase_schema` — `padding: 3px 8px; border: 1px solid --line; border-radius: 5px; background: --panel`, JetBrains Mono 11px `--ink-2` — spacer, then `catalog-wide, not per component` in JetBrains Mono 11px **`--fail`**.
+2. Component name as `h1`: JetBrains Mono 20px/500, `margin: 0 0 12px`.
+3. **Warning block**: `padding: 15px 17px; border: 1px solid --fail-line; border-radius: 9px; background: --fail-bg`, Outfit 12.5px, `line-height: 1.7`, `--ink`, `text-wrap: pretty`. States that one Message union covers the whole catalog, that `button` and `calendar` returned the same 45,759-byte document, and that a per-component table would be the same table 24 times over.
+4. **Facts list**: `border: 1px solid --line; border-radius: 9px; overflow: hidden`, `background: --line`, `gap: 1px`. Rows `display: grid; grid-template-columns: 230px 1fr; gap: 16px; padding: 11px 15px; background: --panel`, JetBrains Mono 12px — label `--ink-2`, value coloured by meaning: `hasMessageSchema: true` and `hasModelSchema: true` in `--pass`; `distinct documents: 1 across 24 components` in `--fail`; `document size: 45,759 bytes` in `--ink-2`.
 
-## View tab — Scene plays only
-
-`padding: 26px 32px 34px; max-width: 860px`. Intro paragraph, 13px/1.6 `--ink-2`: "A Scene mounts `{ update, view }` and renders to Foldkit's virtual tree — no browser, no DOM. This is that tree, and the locators the play queried it with."
-
-Below, `display: grid; grid-template-columns: 1fr 1fr; gap: 18px`. Both panels `border: 1px solid --line`, `radius: 9px`, `background: --panel`, `overflow: hidden`, with an 8px/13px header (`border-bottom: 1px solid --line`, 11px/600, `letter-spacing: 0.06em`, uppercase, `--ink-3`).
-
-- **Virtual tree** — a `<pre>` at `padding: 14px`, JetBrains Mono 12px/1.8, `white-space: pre-wrap`. Indented element names with accessible names and their handlers.
-- **Locators** — rows at `padding: 9px 13px`, `border-bottom: 1px solid --line`, `gap: 10px`, `align-items: baseline`: a `--pass` mark in JetBrains Mono 11px, then the locator in JetBrains Mono 12px, `word-break: break-word`.
-
-## Docs tab
-
-`padding: 28px 32px 40px; max-width: 820px`. Documents the file's Schemas — the same content `foldcase docs` writes.
-
-Top row (`gap: 12px`, `margin-bottom: 20px`): the doc path in a chip (`padding: 3px 8px`, `border: 1px solid --line`, `radius: 5px`, `background: --panel`, JetBrains Mono 11px `--ink-2`), spacer, then "foldcase docs — written, not parsed" in JetBrains Mono 11px `--ink-3`.
-
-Component name as `h1`: JetBrains Mono 24px/500, `margin: 0 0 10px`. Then `Showcases:` at 12.5px/1.9 `--ink-2` with the sorted, comma-joined ids in JetBrains Mono 12px `--ink`, `margin-bottom: 30px`.
-
-**Messages table.** Section heading 13px/600, uppercase, `letter-spacing: 0.06em`, `--ink-3`. Table is `border: 1px solid --line`, `radius: 9px`, `overflow: hidden`, `background: --panel`. Header row: `display: grid; grid-template-columns: 1.3fr 1fr 1.4fr 76px; padding: 9px 14px; border-bottom: 1px solid --line; background: --sunken`, 11px/600 uppercase `letter-spacing: 0.05em` `--ink-3` — Message · Field · Type · Optional. Body rows: same grid, `padding: 10px 14px`, `border-bottom: 1px solid --line`, JetBrains Mono 12px; first cell `--ink`, middle cells `--ink-2`, last `--ink-3`. A Message with no payload writes `(no payload)` and `—` for type and optional; a multi-field Message repeats its name on each row.
-
-Below the table, 12.5px `--ink-2`: `Not showcased: — every Message tag is dispatched by a play.`
-
-**Model table.** Same treatment, `grid-template-columns: 1fr 1.4fr 76px` — Field · Type · Optional.
-
----
+When the catalog splits its unions per component, this tab becomes the Message and Model tables — `grid-template-columns: 1.3fr 1fr 1.4fr` for Messages (Message · Field · Type) and `1fr 1.4fr` for the Model (Field · Type), header row `padding: 9px 14px; background: --sunken`, Outfit 11px/600 uppercase `letter-spacing: 0.05em` `--ink-3`; body rows `padding: 10px 14px; border-bottom: 1px solid --line`, JetBrains Mono 12px, first cell `--ink`, rest `--ink-2`.
 
 ## Addon drawer
 
-`flex: none`, `border-top: 1px solid --line`, `background: --panel`, pinned to the bottom of main.
+`flex: none; border-top: 1px solid --line; background: --panel`, pinned to the bottom of main.
 
-**Tab strip** — `height: 36px`, `padding: 0 12px`, `border-bottom: 1px solid --line`. Tabs: **Coverage** · **Gaps** (badge `2`) · **Agent (MCP)** (badge `6`) · **JSON**. Each: `padding: 0 11px`, `gap: 6px`, `border-bottom: 2px solid` (`--ink` active / transparent), 12px/500, `--ink` active / `--ink-3` otherwise, hover `--ink`. Badges: `padding: 1px 5px`, `radius: 4px`, `background: --sunken`, JetBrains Mono 10px `--ink-3`. Far right, a collapse toggle: `padding: 0 8px`, borderless, 14px `--ink-3`, hover `--ink`, glyph `⌄` when open / `⌃` when collapsed.
+**Tab strip** — `height: 36px; padding: 0 12px; border-bottom: 1px solid --line`. Four tabs, each `padding: 0 11px; gap: 6px; border-bottom: 2px solid` (`--ink` active / transparent), Outfit 12px/500, `--ink` active / `--ink-3` otherwise, hover `--ink`:
 
-**Body** — `height: min(222px, 30vh)`, `overflow: auto`, `padding: 16px 20px 22px`. The `min()` matters: on a short viewport the drawer yields instead of starving the canvas.
+- **Runtime**
+- **Not in the data**, badge `8` — badge `padding: 1px 5px; border-radius: 4px`, JetBrains Mono 10px, on `--fail-bg` in `--fail` (this badge is a warning, not a count)
+- **Agent (MCP)**, badge `6` on `--sunken` in `--ink-3`
+- **JSON**
 
-- **Coverage** — a 3-column grid `1fr 130px 130px`. Header row `padding: 0 0 8px`, 11px/600 uppercase `letter-spacing: 0.05em` `--ink-3` — Showcase · Lines · Functions. Data rows `padding: 7px 0`, `border-top: 1px solid --line`, JetBrains Mono 12px; the first cell is a status mark (`✓`/`✗`/`·`, coloured) plus the id in `--ink-2`. Footer note, `margin-top: 12px`, 12px/1.6 `--ink-3`: "Collected in a spawned Node subprocess — additive, never changes the run's exit code."
-- **Gaps** — an intro at 12.5px/1.6 `--ink-2`: "Held against the Message union: the tags no `play` declares it dispatches. Each one is the next Showcase to write. A component where nothing declares stays absent — unknown must never read as covered." Then one row per component: `padding: 8px 0`, `border-top: 1px solid --line`, `gap: 12px` — component name in a 110px fixed column at 12.5px/600, then the finding in JetBrains Mono 12px, `--pass` when there is no gap.
-- **Agent (MCP)** — intro at 12.5px/1.6 `--ink-2`: "The same catalog over stdio. All six tools are `readOnlyHint: true`, so a host does not prompt to list a catalog." Then six rows, `display: grid; grid-template-columns: 280px 1fr; gap: 16px; padding: 8px 0; border-top: 1px solid --line` — tool name in JetBrains Mono 12px `--ink`, description at 12.5px/1.5 `--ink-2`. Tools: `foldcase_list_showcases`, `foldcase_get_showcase_schema`, `foldcase_get_showcase_model_schema`, `foldcase_run_showcase`, `foldcase_run_catalog`, `foldcase_load_catalog`. Copy for each is in the prototype's `TOOLS` array — reuse verbatim.
-- **JSON** — one `<pre>`, JetBrains Mono 12px/1.7 `--ink-2`, `white-space: pre-wrap`: the suite report as `--json` would emit it, `JSON.stringify(…, null, 2)`.
+Far right: a collapse toggle, `padding: 0 8px`, borderless, 14px `--ink-3`, hover `--ink`, glyph `⌄` open / `⌃` collapsed.
+
+**Body** — `height: min(222px, 30vh); overflow: auto; padding: 16px 20px 22px`. The `min()` matters: on a short viewport the drawer yields rather than starving the canvas.
+
+- **Runtime** — an intro at Outfit 12.5px/1.65 `--ink-2`, then rows `display: grid; grid-template-columns: 220px 1fr; gap: 16px; padding: 8px 0; border-top: 1px solid --line`: label in JetBrains Mono 12px coloured by meaning (`--pass` resolved, `--fail` for the constraint, `--ink-2` neutral), value in Outfit 12.5px/1.5 `--ink-2`. Content is the four runtime facts from Part 1 plus the resolved versions.
+- **Not in the data** — intro, then rows `grid-template-columns: 200px 1fr`: field in JetBrains Mono 12px `--ink`, reality in Outfit 12.5px/1.5 `--ink-2`. Exactly the eight rows in Part 2.
+- **Agent (MCP)** — intro naming `readOnlyHint: true`, then six rows `grid-template-columns: 280px 1fr`: tool name in JetBrains Mono 12px `--ink`, description in Outfit 12.5px/1.5 `--ink-2`. Tools: `foldcase_list_showcases`, `foldcase_get_showcase_schema`, `foldcase_get_showcase_model_schema`, `foldcase_run_showcase`, `foldcase_run_catalog`, `foldcase_load_catalog`. Copy for each is in the prototype's `TOOLS` array — reuse it verbatim.
+- **JSON** — one `<pre>`, JetBrains Mono 12px/1.7 `--ink-2`, `white-space: pre-wrap`: the selected entry exactly as the listing carries it, `JSON.stringify(…, null, 2)`, followed by the catalog totals.
 
 ---
 
-## Interactions & behaviour
+# Part 4 — Behaviour
 
-**Selection.** Clicking a showcase row selects it and **resets the preview** — scrub position back to live, user dispatches cleared. Clicking a failed-file row selects that path and forces the Report tab.
+**Selection.** Clicking a state row selects it and resets the preview: dispatch trail cleared, mount returned to its initial Model.
 
-**File expand/collapse.** Per-path, default open. Collapsed hides component row and children.
+**Component expand/collapse.** Per component, default collapsed except the one holding the initial selection. A search query overrides and opens every matching group.
 
-**Search.** Filters live on every keystroke, case-insensitive substring against the full id.
+**Reload catalog.** Idempotent while running: spinner plus "Loading" for the duration, then back. Maps to `foldcase_load_catalog`; the tree rebuilds from the response. Nothing about statuses changes, because the listing has none.
 
-**Run all.** Idempotent while running. Clears all statuses to pending, then reveals each entry's real status one at a time on a 130ms cadence (`setTimeout` at `130 × (i + 1)`), in catalog order, with the failed file last. `running` clears when the final entry lands. Header shows a spinner and "Running"; the summary duration reads `running…`; every not-yet-revealed dot is `--ink-3`. In production this is driven by the runner's per-showcase completion events, not a timer.
+**Live dispatch.** Every interaction inside the mount is a real Message through the real `update`. Each one appends a row to the trail with a measured `+Nms` delta and updates the Model bar and the card title. The shell must not interpret those Messages — they are the mounted component's type, not the explorer's.
 
-**Time travel.** `‹` and `›` step one Message, clamped. A message-list row jumps to that point. The scrubber track jumps proportionally. `replay` returns to index 0 and drops user dispatches. `Resume →` returns to the head. `Clear history` drops user dispatches and returns to the head.
+**Remount.** Rebuilds the preview document from scratch: Model back to `init`, trail cleared.
 
-**Live dispatch.** Clicking `-` / `Reset` / `+` / `ChangedStep 10` in the preview appends a Message to the trail and moves to the head. Dispatching while scrubbed back **truncates the future** first — everything after the cursor is dropped, then the new Message lands, as the devtools overlay does. `Clear history` and `replay` restore the play's own Messages.
-
-**Theme.** Toggle swaps the whole token set. Prototype does not persist it; production should, alongside selection and tab, so a reload lands where you left off.
+**Theme.** Toggling swaps the whole token set, including inside the preview document — the mount must be re-skinned, not left on stale colours. The prototype rebuilds the frame, which also resets the mount; production should push the theme in instead and keep the Model.
 
 **Drawer collapse.** Hides the body, keeps the 36px strip.
 
-## State
+**Persistence.** The prototype persists nothing. Production should keep theme, selection, open groups and drawer state, so a reload lands where you left off.
 
-| state | type | notes |
+# Part 5 — State, in Foldkit terms
+
+One Model for the shell:
+
+| field | type | notes |
 | --- | --- | --- |
-| `theme` | `'dark' \| 'light'` | falls back to the `theme` prop, then `'dark'` |
-| `mode` | `'report-first' \| 'source-first'` | falls back to the `canvasMode` prop |
-| `selected` | showcase id, or a file path for a load failure | |
-| `tab` | tab key or null | null means the default; invalid-for-selection falls back to Canvas |
-| `panel` | drawer tab key | |
-| `drawerOpen` | boolean | |
-| `open` | map of file path → boolean | absent means open |
+| `theme` | `'dark' \| 'light'` | default `dark` |
+| `selected` | showcase id | `component/state` |
+| `tab` | `'canvas' \| 'entry' \| 'timeline' \| 'schema'` | default `canvas` |
+| `panel` | `'runtime' \| 'absent' \| 'agent' \| 'json'` | default `runtime` |
+| `drawerOpen` | boolean | default true |
+| `open` | set of component names | absent means collapsed |
 | `query` | string | |
-| `running` | boolean | |
-| `ran` | set of revealed ids | |
-| `at` | number or null | scrub position; null means live |
-| `override` | array of Messages, or null | the trail; null means the play's own declared Messages, untouched |
+| `reloading` | boolean | |
+| `mounted` | boolean | **derived from a verified paint**, never from "the module loaded" |
+| `trail` | array of `{ tag, delta }` | real dispatches, relayed from the preview document |
 
-In Foldkit terms: this is one Model with a Message per interaction above (`SelectedShowcase`, `ToggledFile`, `ChangedQuery`, `SelectedTab`, `SelectedPanel`, `ToggledDrawer`, `ToggledTheme`, `StartedRun`, `RevealedResult`, `ScrubbedTo`, `Resumed`, `ClearedHistory`, `DispatchedIntoPreview`). The preview's own Messages are the *inner* component's Message type and must stay distinct from the lab's — the lab folds them through the inner `update` and never interprets them.
+Messages: `SelectedShowcase`, `ToggledComponent`, `ChangedQuery`, `SelectedTab`, `SelectedPanel`, `ToggledDrawer`, `ToggledTheme`, `ReloadedCatalog`, `CatalogArrived`, `PreviewMounted`, `PreviewFailed`, `PreviewDispatched`, `ClearedHistory`, `Remounted`.
 
-## Props (tweakables)
+`PreviewMounted` / `PreviewFailed` are load-bearing. `Runtime.run` returns `undefined` and throws nothing when a mount paints nothing, so a mount that is assumed to have worked will silently show an empty card while the UI claims "Live". Verify the container has children after a tick, and let the failure surface.
 
-| prop | editor | default |
-| --- | --- | --- |
-| `theme` | enum `dark` / `light` | `dark` |
-| `canvasMode` | enum `report-first` / `source-first` | `report-first` |
-| `showAgentPanel` | boolean | `true` |
+# Part 6 — Tweakables
 
-`showAgentPanel: false` removes the Agent (MCP) drawer tab entirely.
+| prop | editor | default | effect |
+| --- | --- | --- | --- |
+| `theme` | enum `dark` / `light` | `dark` | whole token set, shell and preview |
+| `showAgentPanel` | boolean | `true` | removes the Agent (MCP) drawer tab entirely |
 
-## Design tokens
+# Part 7 — Assets
 
-Two themes, same keys. Accent, status, and diff colours are in oklch so they stay perceptually matched across both.
-
-### Light
-
-| token | value |
-| --- | --- |
-| `--bg` | `#f8f7fb` |
-| `--panel` | `#ffffff` |
-| `--sunken` | `#f2f1f6` |
-| `--ink` | `#0B0C0E` |
-| `--ink-2` | `#5c5a63` |
-| `--ink-3` | `#8b8891` |
-| `--line` | `#e4e2ea` |
-| `--sel` | `#ecebf3` |
-| `--sel-hover` | `#f4f3f8` |
-| `--sel-text` | `#e3e0f2` |
-| `--accent` | `oklch(0.52 0.14 285)` |
-| `--pass` | `oklch(0.52 0.11 155)` |
-| `--fail` | `oklch(0.53 0.17 25)` |
-| `--pass-bg` | `oklch(0.96 0.03 155)` |
-| `--fail-bg` | `oklch(0.96 0.03 25)` |
-| `--fail-line` | `oklch(0.88 0.06 25)` |
-| `--diff` | `oklch(0.62 0.12 235)` |
-
-### Dark
-
-| token | value |
-| --- | --- |
-| `--bg` | `#1e1c21` |
-| `--panel` | `#26242b` |
-| `--sunken` | `#1a181d` |
-| `--ink` | `#FAFAFA` |
-| `--ink-2` | `#a7a3ae` |
-| `--ink-3` | `#7a7683` |
-| `--line` | `#34313a` |
-| `--sel` | `#332f3d` |
-| `--sel-hover` | `#2c2a33` |
-| `--sel-text` | `#413b54` |
-| `--accent` | `oklch(0.76 0.11 285)` |
-| `--pass` | `oklch(0.76 0.13 155)` |
-| `--fail` | `oklch(0.71 0.16 25)` |
-| `--pass-bg` | `oklch(0.28 0.04 155)` |
-| `--fail-bg` | `oklch(0.29 0.05 25)` |
-| `--fail-line` | `oklch(0.40 0.08 25)` |
-| `--diff` | `oklch(0.76 0.11 235)` |
-
-`#0B0C0E` / `#FAFAFA` are the brand's ink pair from `docs/brand/README.md`. `#f8f7fb` / `#1e1c21` are the docs site's `theme-color` values.
-
-### Typography
-
-Two families, no others.
-
-- **Outfit** — all UI chrome. Weights 300/400/500/600/700. Sizes in use: 15px (brand), 13.5px, 13px, 12.5px, 12px, 11px, 10.5px.
-- **JetBrains Mono** — every identifier, path, assertion, count, and code block. Weights 400/500/700. Sizes: 52px (the count), 24px, 22px, 19px, 13.5px, 13px, 12.5px, 12px, 11.5px, 11px, 10.5px, 10px, 9.5px.
-
-Loaded from Google Fonts in the prototype with `preconnect`. In production, self-host and match the weights.
-
-Section headings are 11px/600 uppercase with `letter-spacing: 0.07em` (canvas) or `0.06em` / `0.05em` (drawer, tables). Large monospace headings carry negative tracking: `-0.015em` at 22px, `-0.03em` at 52px.
-
-### Other scales
-
-- Radii: 4px (badge) · 5px (chip, small button) · 6px (input, button, pill) · 8px (pre) · 9px (card, table) · 10px (preview card) · `9999px` (scrubber).
-- Borders: 1px `--line` everywhere; 2px for the active tab underline and the failed-file left edge.
-- Spacing: 4 · 5 · 6 · 7 · 8 · 9 · 10 · 12 · 14 · 16 · 18 · 20 · 22 · 24 · 26 · 28 · 30 · 32 · 34 · 38 · 40.
-- No shadows anywhere. Depth comes from `--panel` / `--sunken` against `--bg`, and hairlines.
-- Keyframes: `fc-spin` (`to { transform: rotate(360deg) }`), `fc-in` (opacity 0 → 1, used at `0.18s ease`).
-- `::selection` background is `--sel-text`.
-
-## Assets
-
-From `docs/brand/` in `tao-io/foldcase`, copied into this bundle:
+From `docs/brand/` in `tao-io/foldcase`:
 
 | file | use |
 | --- | --- |
-| `mark.svg` | header logo and the no-view empty state, applied as a CSS mask so ink colour follows the theme |
+| `mark.svg` | header logo and the not-mountable empty state, applied as a CSS mask so ink follows the theme |
 | `mark-inverse.svg`, `lockup.svg`, `lockup-inverse.svg`, `favicon.svg` | not used by this screen; included for the app shell and favicon |
 
-No other imagery. No icon library — the few glyphs are literal characters: `▾ ▸ ✓ ✗ · ☾ ☀ ⌄ ⌃ ‹ › →`. Consider replacing these with the codebase's icon set if it has one; the arrows and carets especially.
+No other imagery, no icon library. The glyphs are literal characters: `▾ ▸ ☾ ☀ ⌄ ⌃ →`. Swap them for the codebase's icon set if it has one — the carets especially.
 
-## Fixture data
+# Part 8 — Pixel-perfect checklist
 
-The prototype's `CATALOG` mirrors `examples/counter` in `tao-io/foldcase`: `src/counter.showcase.ts` (4 Stories, 2 Scenes), `src/tasks.showcase.ts` (4 Stories, one failing on `tasks/adds-in-order` with a real `AssertionError` and stack), and a synthetic `src/ui/picker.showcase.ts` that fails to load with `ERR_MODULE_NOT_FOUND` — the type-only-import mistake the README calls out. Schemas in the Docs tab come from `examples/counter/docs/counter.md` and `tasks.md`.
+Work through this against the standalone prototype, both themes:
 
-Keep the failing showcase and the failing file in whatever fixture the real lab ships with. Both failure states are load-bearing design, and a catalog that only ever renders green hides them.
-
-## Files
-
-| file | what it is |
-| --- | --- |
-| `foldcase-lab-prototype.html` | the prototype, self-contained — open in any browser, offline, fully interactive |
-| `Foldcase Lab.dc.html` | the same prototype in authoring form; needs the prototyping runtime, kept for diffing |
-| `docs/brand/*.svg` | brand assets listed above |
-| `github.md` | which upstream files each screen was built from |
-
-Everything above lives under `proto/` in the design project, and belongs under `proto/` in the repo. Paths inside the files are relative to that folder, so the bundle moves as a unit.
+- [ ] Header is exactly 52px; tab bar 40px; drawer strip 36px; sidebar 292px; timeline pane 308px.
+- [ ] Every scroll region scrolls, and the shell itself never does. Sidebar and canvas scroll independently; the drawer caps at `min(222px, 30vh)`.
+- [ ] Fonts: no UI chrome in JetBrains Mono, no identifier or number in Outfit.
+- [ ] Both themes: no hard-coded hex outside the token table; oklch values kept as oklch.
+- [ ] No shadows. No border wider than 1px except the 2px active tab underline.
+- [ ] Facts grid and Schema facts show hairline gaps, not doubled borders — the `background: --line` + `gap: 1px` trick.
+- [ ] Long state names wrap to two lines in the sidebar and stay aligned with their dot.
+- [ ] The sidebar mark is never green or red. It means mountable, not passing.
+- [ ] Nothing in the UI claims a status, duration, coverage number or Story/Scene kind.
+- [ ] "Live" appears only after a verified paint; a silent mount failure shows the failure.
+- [ ] The mounted component's stylesheet does not reach the shell: mount something with `body { background: red }` and confirm the shell is untouched.
+- [ ] Clicking inside the mount adds exactly one trail row per dispatch, with a measured delta.
+- [ ] Theme toggle re-skins the preview too.
+- [ ] Focus is visible on every control by keyboard: the search input's `border-color: --ink-3` at minimum.
+- [ ] Hit targets in the mount are at least 44px wide.
+- [ ] The word "Lab" appears nowhere.

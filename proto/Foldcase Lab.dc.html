@@ -21,7 +21,33 @@
   ::selection { background: var(--sel-text); }
   @keyframes fc-spin { to { transform: rotate(360deg); } }
   @keyframes fc-in { from { opacity: 0; } to { opacity: 1; } }
+  /* Foldkit's builder has no Style attribute — only Class. The mounted
+     component can therefore only be styled from a stylesheet. */
+  .fk-demo { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 34px 28px; }
+  .fk-demo-count { margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 44px; font-weight: 500; letter-spacing: -0.03em; color: var(--ink); }
+  .fk-demo-label { margin: 0; font-size: 12.5px; color: var(--ink-3); }
+  .fk-demo-btn { min-width: 44px; height: 34px; padding: 0 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-family: Outfit, sans-serif; font-size: 13px; cursor: pointer; }
+  .fk-demo-btn:hover { border-color: var(--ink-3); }
 </style>
+<script type="module">
+  // Foldkit runs in the browser with no build step — proven by proto/spike-foldkit-cdn.html.
+  const V = '4.0.0-beta.103', FK = '0.138.0'
+  const deps = `deps=effect@${V},@effect/platform-browser@${V}`
+  const at = (sub) => `https://esm.sh/foldkit@${FK}${sub}?${deps}`
+  const started = performance.now()
+  try {
+    const [effect, fk, message, struct] = await Promise.all([
+      import(`https://esm.sh/effect@${V}`),
+      import(at('')),
+      import(at('/message')),
+      import(at('/struct')),
+    ])
+    window.__foldkit = { effect, fk, message, struct, ms: Math.round(performance.now() - started), version: FK }
+  } catch (error) {
+    window.__foldkitError = String(error && error.message ? error.message : error)
+  }
+  window.dispatchEvent(new CustomEvent('foldkit-settled'))
+</script>
 </helmet>
 <div style="{{ rootStyle }}">
   <div style="height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--ink);font-size:14px">
@@ -29,14 +55,13 @@
     <header style="height:52px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--panel)">
       <div style="display:flex;align-items:center;gap:9px">
         <div style="width:22px;height:22px;background-color:var(--ink);mask:url('docs/brand/mark.svg') center / contain no-repeat;-webkit-mask:url('docs/brand/mark.svg') center / contain no-repeat"></div>
-        <div style="display:flex;align-items:baseline;gap:7px">
-          <span style="font-weight:700;letter-spacing:-0.01em;font-size:15px">Foldcase</span>
-        </div>
+        <span style="font-weight:700;letter-spacing:-0.01em;font-size:15px">Foldcase</span>
       </div>
       <div style="flex:1"></div>
-      <button onClick="{{ runAll }}" style="display:flex;align-items:center;gap:7px;height:30px;padding:0 12px;border:1px solid var(--ink);border-radius:6px;background:var(--ink);color:var(--bg);font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="opacity:0.85">
+      <span style="{{ runtime.pillStyle }}">{{ runtime.pillText }}</span>
+      <button onClick="{{ reload }}" style="display:flex;align-items:center;gap:7px;height:30px;padding:0 12px;border:1px solid var(--ink);border-radius:6px;background:var(--ink);color:var(--bg);font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer" style-hover="opacity:0.85">
         <span style="{{ spinnerStyle }}"></span>
-        <span>{{ runLabel }}</span>
+        <span>{{ reloadLabel }}</span>
       </button>
       <button onClick="{{ toggleTheme }}" title="Toggle theme" style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink-2);font-family:inherit;font-size:13px;cursor:pointer" style-hover="color:var(--ink);border-color:var(--ink-3)">{{ themeGlyph }}</button>
     </header>
@@ -48,42 +73,28 @@
           <input value="{{ query }}" onInput="{{ onQuery }}" placeholder="Find a showcase" style="width:100%;height:30px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--sunken);color:var(--ink);font-size:12.5px;outline:none" style-focus="border-color:var(--ink-3)">
         </div>
         <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-2)">
-          <span>{{ summary.total }}</span>
-          <span style="display:flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:var(--pass)"></span>{{ summary.passed }}</span>
-          <span style="display:flex;align-items:center;gap:5px"><span style="width:6px;height:6px;border-radius:50%;background:var(--fail)"></span>{{ summary.failed }}</span>
+          <span>{{ summaryLeft }}</span>
           <span style="flex:1"></span>
-          <span style="color:var(--ink-3)">{{ summary.duration }}</span>
+          <span style="color:var(--ink-3)">{{ summaryRight }}</span>
         </div>
 
-        <div style="flex:1;overflow:auto;padding:6px 0 20px">
-          <sc-for list="{{ tree }}" as="file" hint-placeholder-count="3">
-            <div style="margin-bottom:2px">
-              <button onClick="{{ file.toggle }}" style="width:100%;display:flex;align-items:center;gap:7px;padding:5px 12px;border:0;background:transparent;color:var(--ink-2);font-family:'JetBrains Mono',monospace;font-size:11px;text-align:left;cursor:pointer" style-hover="color:var(--ink)">
-                <span style="width:8px;flex:none;color:var(--ink-3);font-size:9px">{{ file.caret }}</span>
-                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ file.path }}</span>
-                <span style="flex:1"></span>
-                <span style="width:6px;height:6px;flex:none;border-radius:50%;background: {{ file.dot }}"></span>
+        <div style="flex:1;overflow:auto;padding:6px 0 16px">
+          <sc-for list="{{ tree }}" as="group" hint-placeholder-count="8">
+            <div>
+              <button onClick="{{ group.toggle }}" style="width:100%;display:flex;align-items:center;gap:8px;padding:6px 12px;border:0;background:transparent;color:var(--ink);font-family:inherit;font-size:12.5px;font-weight:600;text-align:left;cursor:pointer" style-hover="color:var(--accent)">
+                <span style="width:8px;flex:none;color:var(--ink-3);font-size:9px">{{ group.caret }}</span>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ group.name }}</span>
+                <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:400;color:var(--ink-3)">{{ group.count }}</span>
               </button>
-
-              <sc-if value="{{ file.open }}" hint-placeholder-val="{{ true }}">
+              <sc-if value="{{ group.open }}" hint-placeholder-val="{{ false }}">
                 <div>
-                  <sc-if value="{{ file.loadError }}" hint-placeholder-val="{{ false }}">
-                    <button onClick="{{ file.select }}" style="width:100%;display:flex;align-items:flex-start;gap:8px;padding:6px 12px 6px 27px;border:0;border-left:2px solid var(--fail);background: {{ file.rowBg }};color:var(--fail);font-family:inherit;font-size:12px;text-align:left;cursor:pointer">
-                      <span style="flex:none;font-family:'JetBrains Mono',monospace">✗</span>
-                      <span style="line-height:1.35">did not load</span>
-                    </button>
-                  </sc-if>
-                  <sc-if value="{{ file.hasComponent }}" hint-placeholder-val="{{ true }}">
-                    <div style="display:flex;align-items:center;gap:7px;padding:6px 12px 4px 27px;font-size:12.5px;font-weight:600;color:var(--ink)">
-                      <span>{{ file.component }}</span>
-                      <span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:400;color:var(--ink-3)">{{ file.count }}</span>
-                    </div>
-                  </sc-if>
-                  <sc-for list="{{ file.items }}" as="item" hint-placeholder-count="4">
-                    <button onClick="{{ item.select }}" style="width:100%;display:flex;align-items:center;gap:9px;padding:5px 12px 5px 39px;border:0;background: {{ item.bg }};color: {{ item.fg }};font-family:inherit;font-size:12.5px;text-align:left;cursor:pointer" style-hover="background:var(--sel-hover)">
-                      <span style="width:7px;height:7px;flex:none;border-radius:50%;background: {{ item.dot }}"></span>
-                      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ item.label }}</span>
-                      <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.04em;color:var(--ink-3)">{{ item.kind }}</span>
+                  <sc-for list="{{ group.items }}" as="item" hint-placeholder-count="5">
+                    <button onClick="{{ item.select }}" style="width:100%;display:flex;align-items:flex-start;gap:9px;padding:5px 12px 5px 28px;border:0;background: {{ item.bg }};color: {{ item.fg }};font-family:inherit;font-size:12.5px;line-height:1.35;text-align:left;cursor:pointer" style-hover="background:var(--sel-hover)">
+                      <span style="{{ item.dotStyle }}"></span>
+                      <span style="flex:1">{{ item.label }}</span>
+                      <sc-if value="{{ item.live }}" hint-placeholder-val="{{ false }}">
+                        <span style="flex:none;margin-top:1px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.05em;color:var(--accent)">LIVE</span>
+                      </sc-if>
                     </button>
                   </sc-for>
                 </div>
@@ -91,196 +102,121 @@
             </div>
           </sc-for>
         </div>
+
+        <div style="flex:none;padding:9px 12px;border-top:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:10.5px;line-height:1.55;color:var(--ink-3)">{{ sidebarFoot }}</div>
       </aside>
 
       <main style="flex:1;min-width:0;display:flex;flex-direction:column;background:var(--bg)">
 
-        <div style="height:40px;flex:none;display:flex;align-items:stretch;gap:0;padding:0 12px;border-bottom:1px solid var(--line);background:var(--panel)">
+        <div style="height:40px;flex:none;display:flex;align-items:stretch;padding:0 12px;border-bottom:1px solid var(--line);background:var(--panel)">
           <sc-for list="{{ tabs }}" as="tab" hint-placeholder-count="4">
             <button onClick="{{ tab.select }}" style="display:flex;align-items:center;padding:0 12px;border:0;border-bottom:2px solid {{ tab.underline }};background:transparent;color: {{ tab.fg }};font-family:inherit;font-size:12.5px;font-weight:500;cursor:pointer" style-hover="color:var(--ink)">{{ tab.label }}</button>
           </sc-for>
           <div style="flex:1"></div>
-          <div style="display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">
-            <span>{{ sel.file }}</span>
-          </div>
+          <div style="display:flex;align-items:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">{{ sel.file }}</div>
         </div>
 
         <div style="flex:1;min-height:0;overflow:auto;animation:fc-in 0.18s ease">
 
-          <sc-if value="{{ isLoadFailure }}" hint-placeholder-val="{{ false }}">
-            <div style="padding:28px 32px;max-width:840px">
-              <div style="display:inline-flex;align-items:center;gap:8px;padding:4px 9px;border-radius:5px;background:var(--fail-bg);color:var(--fail);font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500">✗ file did not load</div>
-              <h1 style="margin:14px 0 6px;font-family:'JetBrains Mono',monospace;font-size:19px;font-weight:500;letter-spacing:-0.01em">{{ sel.file }}</h1>
-              <p style="margin:0 0 20px;font-size:13.5px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">Reported as a failed entry for the file. The rest of the catalog still ran — one bad file never hides the rest.</p>
-              <pre style="margin:0 0 20px;padding:14px 16px;border:1px solid var(--fail-line);border-radius:8px;background:var(--fail-bg);color:var(--fail);font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.7;white-space:pre-wrap">{{ sel.errorText }}</pre>
-              <div style="padding:14px 16px;border:1px solid var(--line);border-radius:8px;background:var(--panel)">
-                <div style="font-size:12px;font-weight:600;margin-bottom:6px">A type-only import must say <span style="font-family:'JetBrains Mono',monospace;font-weight:500">import type</span></div>
-                <div style="font-size:12.5px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">The <span style="font-family:'JetBrains Mono',monospace">foldcase</span> bin loads the catalog through Node's type stripping, which cannot tell a type-only import from a value import. Foldcase names the cause and the fix in the failed-file line.</div>
+          <sc-if value="{{ tabCanvas }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;min-height:100%">
+              <div style="flex:none;display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid var(--line);background:var(--panel)">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">{{ preview.mountLine }}</span>
+                <span style="flex:1"></span>
+                <sc-if value="{{ preview.isLive }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ preview.remount }}" style="height:24px;padding:0 9px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--ink-2);font-family:inherit;font-size:11px;cursor:pointer" style-hover="color:var(--ink)">remount</button>
+                </sc-if>
+              </div>
+
+              <div style="flex:1;min-height:0;display:flex">
+                <div style="flex:1;min-width:0;min-height:280px;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:24px;background:var(--sunken)">
+                  <div style="width:100%;max-width:520px;margin:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden">
+                    <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">
+                      <span style="{{ preview.dotStyle }}"></span>
+                      <span>{{ preview.title }}</span>
+                    </div>
+                    <div ref="{{ preview.host }}" style="{{ preview.hostStyle }}"></div>
+                    <sc-if value="{{ preview.showNote }}" hint-placeholder-val="{{ true }}">
+                      <div style="padding:40px 30px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.75;color:var(--ink-3);text-wrap:pretty">{{ preview.note }}</div>
+                    </sc-if>
+                    <sc-if value="{{ preview.isLive }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--line);background:var(--sunken);font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-2)">
+                        <span style="color:var(--ink-3)">model</span>
+                        <span>{{ preview.modelText }}</span>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+
+                <div style="width:308px;flex:none;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--panel)">
+                  <div style="flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line)">
+                    <span style="display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:12px;color: {{ trail.headFg }}">
+                      <span style="{{ trail.headDot }}"></span>{{ trail.headLabel }}
+                    </span>
+                    <button onClick="{{ trail.clear }}" style="border:0;background:transparent;color:var(--ink-3);font-family:'JetBrains Mono',monospace;font-size:12px;cursor:pointer;padding:0" style-hover="color:var(--ink)">Clear history</button>
+                  </div>
+                  <div style="flex:1;min-height:0;overflow:auto">
+                    <sc-for list="{{ trail.rows }}" as="row" hint-placeholder-count="1">
+                      <div style="display:flex;align-items:center;gap:6px;padding:4px 6px;border-bottom:1px solid var(--line)">
+                        <span style="min-width:20px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-3)">{{ row.index }}</span>
+                        <span style="width:5px;height:5px;flex:none;border-radius:50%;background: {{ row.dot }}"></span>
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-2)">{{ row.tag }}</span>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-3)">{{ row.delta }}</span>
+                      </div>
+                    </sc-for>
+                    <sc-if value="{{ trail.isEmpty }}" hint-placeholder-val="{{ true }}">
+                      <div style="padding:14px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.75;color:var(--ink-3);text-wrap:pretty">{{ trail.emptyNote }}</div>
+                    </sc-if>
+                  </div>
+                  <div style="flex:none;height:33px;display:flex;align-items:center;border-top:1px solid var(--line)">
+                    <div style="flex:1;height:16px;padding:0 7px;display:flex;align-items:center">
+                      <div style="position:relative;width:100%;height:4px;border-radius:9999px;background:var(--line)">
+                        <div style="height:100%;border-radius:9999px;background:var(--accent);width: {{ trail.fill }}"></div>
+                      </div>
+                    </div>
+                    <div style="width:72px;align-self:stretch;padding-left:12px;border-left:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-3)">{{ trail.position }}</div>
+                  </div>
+                </div>
               </div>
             </div>
           </sc-if>
 
-          <sc-if value="{{ tabCanvas }}" hint-placeholder-val="{{ true }}">
-            <div style="display:flex;flex-direction:column;height:100%">
-              <sc-if value="{{ preview.hasView }}" hint-placeholder-val="{{ true }}">
-                <div style="display:flex;flex-direction:column;min-height:100%">
-                  <div style="flex:none;display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid var(--line);background:var(--panel)">
-                    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">mounted { update, view }</span>
-                    <span style="flex:1"></span>
-                    <div style="display:flex;align-items:center;gap:1px">
-                      <button onClick="{{ preview.back }}" title="Step back" style="width:26px;height:24px;border:1px solid var(--line);border-radius:5px 0 0 5px;background:var(--panel);color:var(--ink-2);font-family:inherit;font-size:12px;cursor:pointer" style-hover="color:var(--ink)">‹</button>
-                      <button onClick="{{ preview.forward }}" title="Step forward" style="width:26px;height:24px;border:1px solid var(--line);border-left:0;background:var(--panel);color:var(--ink-2);font-family:inherit;font-size:12px;cursor:pointer" style-hover="color:var(--ink)">›</button>
-                      <button onClick="{{ preview.replay }}" title="Replay from the given model" style="height:24px;padding:0 9px;border:1px solid var(--line);border-left:0;border-radius:0 5px 5px 0;background:var(--panel);color:var(--ink-2);font-family:inherit;font-size:11px;cursor:pointer" style-hover="color:var(--ink)">replay</button>
-                    </div>
-                    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">{{ preview.position }}</span>
+          <sc-if value="{{ tabEntry }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:26px 32px 34px;max-width:900px">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+                <span style="display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;background:var(--sunken);color:var(--ink-2);font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600">listed</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">{{ sel.listedNote }}</span>
+              </div>
+              <h1 style="margin:0 0 20px;font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:500;letter-spacing:-0.015em;word-break:break-word">{{ sel.id }}</h1>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--line);margin-bottom:22px">
+                <sc-for list="{{ sel.facts }}" as="fact" hint-placeholder-count="6">
+                  <div style="padding:11px 15px;background:var(--panel)">
+                    <div style="font-size:10.5px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:4px">{{ fact.label }}</div>
+                    <div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color: {{ fact.fg }};word-break:break-word">{{ fact.value }}</div>
                   </div>
-
-                  <div style="flex:1;min-height:0;display:flex">
-                    <div style="flex:1;min-width:0;min-height:280px;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:24px;background:var(--sunken)">
-                    <div style="width:100%;max-width:520px;margin:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden">
-                      <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">
-                        <span style="width:6px;height:6px;border-radius:50%;background:var(--pass)"></span>
-                        <span>{{ preview.title }}</span>
-                      </div>
-                      <div style="padding:30px 32px 28px;display:flex;flex-direction:column;align-items:center;gap:20px">
-                        <p style="margin:0;font-family:'JetBrains Mono',monospace;font-size:52px;font-weight:500;line-height:1;letter-spacing:-0.03em;color:var(--ink)">{{ preview.count }}</p>
-                        <div style="display:flex;gap:8px">
-                          <button onClick="{{ preview.dec }}" style="min-width:44px;height:34px;padding:0 14px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font-family:inherit;font-size:14px;cursor:pointer" style-hover="border-color:var(--ink-3)">-</button>
-                          <button onClick="{{ preview.reset }}" style="min-width:44px;height:34px;padding:0 14px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font-family:inherit;font-size:14px;cursor:pointer" style-hover="border-color:var(--ink-3)">Reset</button>
-                          <button onClick="{{ preview.inc }}" style="min-width:44px;height:34px;padding:0 14px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font-family:inherit;font-size:14px;cursor:pointer" style-hover="border-color:var(--ink-3)">+</button>
-                        </div>
-                      </div>
-                      <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-top:1px solid var(--line);background:var(--sunken);font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-2)">
-                        <span style="color:var(--ink-3)">model</span>
-                        <span>{{ preview.modelText }}</span>
-                        <span style="flex:1"></span>
-                        <button onClick="{{ preview.step10 }}" style="height:22px;padding:0 8px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--ink-2);font-family:inherit;font-size:11px;cursor:pointer" style-hover="color:var(--ink)">ChangedStep 10</button>
-                      </div>
-                    </div>
-                  </div>
-
-                    <div style="width:308px;flex:none;display:flex;flex-direction:column;border-left:1px solid var(--line);background:var(--panel)">
-                      <div style="flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;border-bottom:1px solid var(--line)">
-                        <sc-if value="{{ preview.isLive }}" hint-placeholder-val="{{ true }}">
-                          <span style="display:flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--pass)">
-                            <span style="width:6px;height:6px;border-radius:50%;background:var(--pass)"></span>Live
-                          </span>
-                        </sc-if>
-                        <sc-if value="{{ preview.isPaused }}" hint-placeholder-val="{{ false }}">
-                          <button onClick="{{ preview.resume }}" style="border:0;background:transparent;color:var(--pass);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;cursor:pointer;padding:0" style-hover="opacity:0.7">Resume →</button>
-                        </sc-if>
-                        <button onClick="{{ preview.clear }}" style="border:0;background:transparent;color:var(--ink-3);font-family:'JetBrains Mono',monospace;font-size:12px;cursor:pointer;padding:0" style-hover="color:var(--ink)">Clear history</button>
-                      </div>
-                      <div style="flex:1;min-height:0;overflow:auto">
-                        <sc-for list="{{ preview.rows }}" as="row" hint-placeholder-count="5">
-                          <div onClick="{{ row.go }}" style="display:flex;align-items:center;gap:6px;padding:4px 6px;border-bottom:1px solid var(--line);background: {{ row.bg }};cursor:pointer" style-hover="background:var(--sel-hover)">
-                            <span style="min-width:20px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-3)">{{ row.index }}</span>
-                            <span style="width:5px;height:5px;flex:none;border-radius:50%;background: {{ row.dot }}"></span>
-                            <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'JetBrains Mono',monospace;font-size:11.5px;color: {{ row.fg }}">{{ row.tag }}</span>
-                            <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-3)">{{ row.delta }}</span>
-                          </div>
-                        </sc-for>
-                      </div>
-                      <div style="flex:none;height:33px;display:flex;align-items:center;border-top:1px solid var(--line)">
-                        <div onClick="{{ preview.onTrack }}" style="flex:1;height:16px;padding:0 7px;display:flex;align-items:center;cursor:pointer">
-                          <div style="position:relative;width:100%;height:4px;border-radius:9999px;background:var(--line)">
-                            <div style="height:100%;border-radius:9999px;background:var(--accent);width: {{ preview.fill }}"></div>
-                            <div style="position:absolute;top:50%;margin-top:-7px;width:14px;height:14px;border-radius:9999px;background:var(--accent);border:2px solid var(--panel);left: {{ preview.thumb }}"></div>
-                          </div>
-                        </div>
-                        <div style="width:72px;align-self:stretch;padding-left:12px;border-left:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-3)">{{ preview.position }}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </sc-if>
-
-              <sc-if value="{{ previewMissing }}" hint-placeholder-val="{{ false }}">
-                <div style="flex:1;display:flex;align-items:center;justify-content:center;padding:40px">
-                  <div style="max-width:420px;text-align:center">
-                    <div style="width:30px;height:30px;margin:0 auto 16px;background-color:var(--ink-3);mask:url('docs/brand/mark.svg') center / contain no-repeat;-webkit-mask:url('docs/brand/mark.svg') center / contain no-repeat;opacity:0.5"></div>
-                    <div style="font-size:13.5px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">{{ preview.note }}</div>
-                    <div style="margin-top:10px;font-size:12.5px;line-height:1.6;color:var(--ink-3);text-wrap:pretty">The Report and Timeline tabs still hold everything the play asserted on.</div>
-                  </div>
-                </div>
-              </sc-if>
-            </div>
-          </sc-if>
-
-          <sc-if value="{{ tabReport }}" hint-placeholder-val="{{ true }}">
-            <div style="display:flex;flex-direction:column;height:100%">
-              <sc-if value="{{ isSourceFirst }}" hint-placeholder-val="{{ false }}">
-                <div style="flex:none;display:flex;align-items:center;gap:12px;padding:11px 24px;border-bottom:1px solid var(--line);background:var(--panel)">
-                  <span style="display:inline-flex;align-items:center;gap:7px;padding:3px 8px;border-radius:5px;background: {{ sel.statusBg }};color: {{ sel.statusFg }};font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600">{{ sel.statusMark }} {{ sel.status }}</span>
-                  <span style="font-family:'JetBrains Mono',monospace;font-size:13px">{{ sel.id }}</span>
-                  <span style="flex:1"></span>
-                  <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">{{ sel.duration }}</span>
-                </div>
-                <div style="flex:1;min-height:0;overflow:auto;padding:18px 24px 28px">
-                  <sc-if value="{{ sel.hasError }}" hint-placeholder-val="{{ false }}">
-                    <pre style="margin:0 0 18px;padding:13px 15px;border:1px solid var(--fail-line);border-radius:8px;background:var(--fail-bg);color:var(--fail);font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.65;white-space:pre-wrap">{{ sel.errorText }}</pre>
-                  </sc-if>
-                  <pre style="margin:0;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.75;color:var(--ink);white-space:pre-wrap">{{ sel.source }}</pre>
-                </div>
-              </sc-if>
-
-              <sc-if value="{{ isReportFirst }}" hint-placeholder-val="{{ true }}">
-                <div style="padding:26px 32px 34px;max-width:900px">
-                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-                    <span style="display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:6px;background: {{ sel.statusBg }};color: {{ sel.statusFg }};font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600">{{ sel.statusMark }} {{ sel.status }}</span>
-                    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">{{ sel.duration }} · fresh subprocess</span>
-                  </div>
-                  <h1 style="margin:0 0 4px;font-family:'JetBrains Mono',monospace;font-size:22px;font-weight:500;letter-spacing:-0.015em">{{ sel.id }}</h1>
-                  <div style="display:flex;align-items:center;gap:14px;margin-bottom:22px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-3)">
-                    <span>{{ sel.file }}</span>
-                    <span>play: {{ sel.kind }}</span>
-                  </div>
-
-                  <sc-if value="{{ sel.hasError }}" hint-placeholder-val="{{ false }}">
-                    <div style="margin-bottom:24px;border:1px solid var(--fail-line);border-radius:9px;overflow:hidden">
-                      <div style="padding:9px 15px;border-bottom:1px solid var(--fail-line);background:var(--fail-bg);color:var(--fail);font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600">{{ sel.errorName }}</div>
-                      <pre style="margin:0;padding:13px 15px;background:var(--panel);color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.65;white-space:pre-wrap">{{ sel.errorText }}</pre>
-                    </div>
-                  </sc-if>
-
-                  <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
-                    <span style="font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--ink-3)">Timeline</span>
-                    <span style="flex:1;height:1px;background:var(--line)"></span>
-                  </div>
-                  <div style="display:flex;flex-direction:column;gap:1px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--line)">
-                    <sc-for list="{{ sel.steps }}" as="step" hint-placeholder-count="5">
-                      <div style="display:grid;grid-template-columns:96px 1fr auto;gap:14px;align-items:baseline;padding:11px 15px;background:var(--panel)">
-                        <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;letter-spacing:0.04em;color: {{ step.color }}">{{ step.kind }}</span>
-                        <span style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--ink);word-break:break-word">{{ step.text }}</span>
-                        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-3);white-space:nowrap">{{ step.detail }}</span>
-                      </div>
-                    </sc-for>
-                  </div>
-
-                  <div style="display:flex;align-items:center;gap:9px;margin:26px 0 12px">
-                    <span style="font-size:11px;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--ink-3)">Play</span>
-                    <span style="flex:1;height:1px;background:var(--line)"></span>
-                  </div>
-                  <pre style="margin:0;padding:15px 17px;border:1px solid var(--line);border-radius:9px;background:var(--panel);font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.7;color:var(--ink-2);white-space:pre-wrap">{{ sel.source }}</pre>
-                </div>
-              </sc-if>
+                </sc-for>
+              </div>
+              <div style="padding:14px 16px;border:1px solid var(--line);border-radius:9px;background:var(--panel);font-size:12.5px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">{{ sel.entryNote }}</div>
             </div>
           </sc-if>
 
           <sc-if value="{{ tabTimeline }}" hint-placeholder-val="{{ false }}">
             <div style="padding:26px 32px 34px;max-width:860px">
-              <div style="margin-bottom:18px;font-size:13px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">A <span style="font-family:'JetBrains Mono',monospace">play</span> is an opaque thunk — the runner never looks inside it. This is the trace the Story recorded as it ran: the model it was given, every Message dispatched, and each assertion made on the Model that came back.</div>
-              <div style="display:flex;flex-direction:column;gap:0">
-                <sc-for list="{{ sel.steps }}" as="step" hint-placeholder-count="5">
+              <div style="margin-bottom:20px;font-size:13px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">{{ timelineNote }}</div>
+              <sc-if value="{{ trail.isEmpty }}" hint-placeholder-val="{{ true }}">
+                <div style="padding:20px;border:1px dashed var(--line);border-radius:9px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.75;color:var(--ink-3);text-wrap:pretty">{{ trail.emptyNote }}</div>
+              </sc-if>
+              <div style="display:flex;flex-direction:column">
+                <sc-for list="{{ trail.rows }}" as="row" hint-placeholder-count="1">
                   <div style="display:grid;grid-template-columns:18px 1fr;gap:16px">
                     <div style="display:flex;flex-direction:column;align-items:center">
-                      <span style="width:9px;height:9px;margin-top:5px;border-radius:50%;background: {{ step.color }}"></span>
+                      <span style="width:9px;height:9px;margin-top:5px;border-radius:50%;background: {{ row.dotSolid }}"></span>
                       <span style="flex:1;width:1px;background:var(--line)"></span>
                     </div>
                     <div style="padding-bottom:20px">
-                      <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;letter-spacing:0.05em;color: {{ step.color }};margin-bottom:4px">{{ step.kind }}</div>
-                      <div style="font-family:'JetBrains Mono',monospace;font-size:13.5px;color:var(--ink);margin-bottom:5px;word-break:break-word">{{ step.text }}</div>
-                      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-3)">{{ step.detail }}</div>
+                      <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:600;letter-spacing:0.05em;color:var(--accent);margin-bottom:4px">{{ row.kind }}</div>
+                      <div style="font-family:'JetBrains Mono',monospace;font-size:13.5px;color:var(--ink);margin-bottom:5px;word-break:break-word">{{ row.tag }}</div>
+                      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-3)">{{ row.detail }}</div>
                     </div>
                   </div>
                 </sc-for>
@@ -288,71 +224,20 @@
             </div>
           </sc-if>
 
-          <sc-if value="{{ tabSource }}" hint-placeholder-val="{{ false }}">
-            <div style="padding:22px 28px 34px">
-              <pre style="margin:0;padding:0;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.75;white-space:pre-wrap">{{ sel.source }}</pre>
-            </div>
-          </sc-if>
-
-          <sc-if value="{{ tabView }}" hint-placeholder-val="{{ false }}">
-            <div style="padding:26px 32px 34px;max-width:860px">
-              <div style="margin-bottom:16px;font-size:13px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">A Scene mounts <span style="font-family:'JetBrains Mono',monospace">{ update, view }</span> and renders to Foldkit's virtual tree — no browser, no DOM. This is that tree, and the locators the play queried it with.</div>
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
-                <div style="border:1px solid var(--line);border-radius:9px;background:var(--panel);overflow:hidden">
-                  <div style="padding:8px 13px;border-bottom:1px solid var(--line);font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3)">Virtual tree</div>
-                  <pre style="margin:0;padding:14px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.8;white-space:pre-wrap">{{ sel.tree }}</pre>
-                </div>
-                <div style="border:1px solid var(--line);border-radius:9px;background:var(--panel);overflow:hidden">
-                  <div style="padding:8px 13px;border-bottom:1px solid var(--line);font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3)">Locators</div>
-                  <div style="display:flex;flex-direction:column">
-                    <sc-for list="{{ sel.locators }}" as="loc" hint-placeholder-count="4">
-                      <div style="display:flex;align-items:baseline;gap:10px;padding:9px 13px;border-bottom:1px solid var(--line)">
-                        <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:11px;color: {{ loc.color }}">{{ loc.mark }}</span>
-                        <span style="font-family:'JetBrains Mono',monospace;font-size:12px;word-break:break-word">{{ loc.text }}</span>
-                      </div>
-                    </sc-for>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </sc-if>
-
-          <sc-if value="{{ tabDocs }}" hint-placeholder-val="{{ false }}">
+          <sc-if value="{{ tabSchema }}" hint-placeholder-val="{{ false }}">
             <div style="padding:28px 32px 40px;max-width:820px">
-              <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
-                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--ink-2)">{{ docs.path }}</span>
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:18px">
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--ink-2)">foldcase_get_showcase_schema</span>
                 <span style="flex:1"></span>
-                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)">foldcase docs — written, not parsed</span>
+                <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--fail)">catalog-wide, not per component</span>
               </div>
-              <h1 style="margin:0 0 10px;font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:500">{{ docs.component }}</h1>
-              <div style="margin-bottom:30px;font-size:12.5px;line-height:1.9;color:var(--ink-2)">Showcases: <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink)">{{ docs.showcaseList }}</span></div>
-
-              <h2 style="margin:0 0 12px;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3)">Messages</h2>
-              <div style="margin-bottom:14px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--panel)">
-                <div style="display:grid;grid-template-columns:1.3fr 1fr 1.4fr 76px;gap:0;padding:9px 14px;border-bottom:1px solid var(--line);background:var(--sunken);font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--ink-3)">
-                  <span>Message</span><span>Field</span><span>Type</span><span>Optional</span>
-                </div>
-                <sc-for list="{{ docs.messages }}" as="row" hint-placeholder-count="5">
-                  <div style="display:grid;grid-template-columns:1.3fr 1fr 1.4fr 76px;gap:0;padding:10px 14px;border-bottom:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:12px">
-                    <span style="color:var(--ink)">{{ row.message }}</span>
-                    <span style="color:var(--ink-2)">{{ row.field }}</span>
-                    <span style="color:var(--ink-2)">{{ row.type }}</span>
-                    <span style="color:var(--ink-3)">{{ row.optional }}</span>
-                  </div>
-                </sc-for>
-              </div>
-              <div style="margin-bottom:30px;font-size:12.5px;color:var(--ink-2)">{{ docs.gapLine }}</div>
-
-              <h2 style="margin:0 0 12px;font-size:13px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--ink-3)">Model</h2>
-              <div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--panel)">
-                <div style="display:grid;grid-template-columns:1fr 1.4fr 76px;gap:0;padding:9px 14px;border-bottom:1px solid var(--line);background:var(--sunken);font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--ink-3)">
-                  <span>Field</span><span>Type</span><span>Optional</span>
-                </div>
-                <sc-for list="{{ docs.model }}" as="row" hint-placeholder-count="4">
-                  <div style="display:grid;grid-template-columns:1fr 1.4fr 76px;gap:0;padding:10px 14px;border-bottom:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:12px">
-                    <span style="color:var(--ink)">{{ row.field }}</span>
-                    <span style="color:var(--ink-2)">{{ row.type }}</span>
-                    <span style="color:var(--ink-3)">{{ row.optional }}</span>
+              <h1 style="margin:0 0 12px;font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:500">{{ sel.component }}</h1>
+              <div style="padding:15px 17px;border:1px solid var(--fail-line);border-radius:9px;background:var(--fail-bg);margin-bottom:22px;font-size:12.5px;line-height:1.7;color:var(--ink);text-wrap:pretty">{{ schemaWarning }}</div>
+              <div style="display:flex;flex-direction:column;gap:1px;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--line)">
+                <sc-for list="{{ schemaFacts }}" as="fact" hint-placeholder-count="4">
+                  <div style="display:grid;grid-template-columns:230px 1fr;gap:16px;padding:11px 15px;background:var(--panel)">
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink-2)">{{ fact.label }}</span>
+                    <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color: {{ fact.fg }}">{{ fact.value }}</span>
                   </div>
                 </sc-for>
               </div>
@@ -366,7 +251,7 @@
               <button onClick="{{ panel.select }}" style="display:flex;align-items:center;gap:6px;padding:0 11px;border:0;border-bottom:2px solid {{ panel.underline }};background:transparent;color: {{ panel.fg }};font-family:inherit;font-size:12px;font-weight:500;cursor:pointer" style-hover="color:var(--ink)">
                 <span>{{ panel.label }}</span>
                 <sc-if value="{{ panel.hasBadge }}" hint-placeholder-val="{{ false }}">
-                  <span style="padding:1px 5px;border-radius:4px;background:var(--sunken);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ink-3)">{{ panel.badge }}</span>
+                  <span style="padding:1px 5px;border-radius:4px;background: {{ panel.badgeBg }};font-family:'JetBrains Mono',monospace;font-size:10px;color: {{ panel.badgeFg }}">{{ panel.badge }}</span>
                 </sc-if>
               </button>
             </sc-for>
@@ -376,29 +261,25 @@
           <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ true }}">
             <div style="height:min(222px, 30vh);overflow:auto;padding:16px 20px 22px">
 
-              <sc-if value="{{ panelCoverage }}" hint-placeholder-val="{{ true }}">
+              <sc-if value="{{ panelRuntime }}" hint-placeholder-val="{{ true }}">
                 <div>
-                  <div style="display:grid;grid-template-columns:1fr 130px 130px;gap:0;padding:0 0 8px;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:var(--ink-3)">
-                    <span>Showcase</span><span>Lines</span><span>Functions</span>
-                  </div>
-                  <sc-for list="{{ coverage }}" as="row" hint-placeholder-count="4">
-                    <div style="display:grid;grid-template-columns:1fr 130px 130px;gap:0;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-size:12px">
-                      <span style="display:flex;align-items:center;gap:8px"><span style="color: {{ row.color }}">{{ row.mark }}</span><span style="color:var(--ink-2)">{{ row.id }}</span></span>
-                      <span>{{ row.lines }}</span>
-                      <span>{{ row.fns }}</span>
+                  <div style="margin-bottom:12px;font-size:12.5px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">{{ runtime.note }}</div>
+                  <sc-for list="{{ runtime.rows }}" as="row" hint-placeholder-count="4">
+                    <div style="display:grid;grid-template-columns:220px 1fr;gap:16px;padding:8px 0;border-top:1px solid var(--line)">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color: {{ row.fg }}">{{ row.label }}</span>
+                      <span style="font-size:12.5px;line-height:1.5;color:var(--ink-2)">{{ row.value }}</span>
                     </div>
                   </sc-for>
-                  <div style="margin-top:12px;font-size:12px;color:var(--ink-3);line-height:1.6;text-wrap:pretty">Collected in a spawned Node subprocess — additive, never changes the run's exit code.</div>
                 </div>
               </sc-if>
 
-              <sc-if value="{{ panelGaps }}" hint-placeholder-val="{{ false }}">
+              <sc-if value="{{ panelAbsent }}" hint-placeholder-val="{{ false }}">
                 <div>
-                  <div style="margin-bottom:12px;font-size:12.5px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">Held against the Message union: the tags no <span style="font-family:'JetBrains Mono',monospace">play</span> declares it dispatches. Each one is the next Showcase to write. A component where nothing declares stays absent — unknown must never read as covered.</div>
-                  <sc-for list="{{ gaps }}" as="gap" hint-placeholder-count="2">
-                    <div style="display:flex;align-items:baseline;gap:12px;padding:8px 0;border-top:1px solid var(--line)">
-                      <span style="width:110px;flex:none;font-size:12.5px;font-weight:600">{{ gap.component }}</span>
-                      <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color: {{ gap.color }}">{{ gap.text }}</span>
+                  <div style="margin-bottom:12px;font-size:12.5px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">{{ absentNote }}</div>
+                  <sc-for list="{{ absent }}" as="row" hint-placeholder-count="8">
+                    <div style="display:grid;grid-template-columns:200px 1fr;gap:16px;padding:8px 0;border-top:1px solid var(--line)">
+                      <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink)">{{ row.field }}</span>
+                      <span style="font-size:12.5px;line-height:1.5;color:var(--ink-2)">{{ row.reality }}</span>
                     </div>
                   </sc-for>
                 </div>
@@ -406,7 +287,7 @@
 
               <sc-if value="{{ panelAgent }}" hint-placeholder-val="{{ false }}">
                 <div>
-                  <div style="margin-bottom:12px;font-size:12.5px;line-height:1.6;color:var(--ink-2);text-wrap:pretty">The same catalog over stdio. All six tools are <span style="font-family:'JetBrains Mono',monospace">readOnlyHint: true</span>, so a host does not prompt to list a catalog.</div>
+                  <div style="margin-bottom:12px;font-size:12.5px;line-height:1.65;color:var(--ink-2);text-wrap:pretty">The same catalog over stdio. All six tools are <span style="font-family:'JetBrains Mono',monospace">readOnlyHint: true</span>, so a host does not prompt to list a catalog.</div>
                   <sc-for list="{{ tools }}" as="tool" hint-placeholder-count="6">
                     <div style="display:grid;grid-template-columns:280px 1fr;gap:16px;padding:8px 0;border-top:1px solid var(--line)">
                       <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--ink)">{{ tool.name }}</span>
@@ -428,7 +309,7 @@
 </div>
 
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;\&quot;dark\&quot; | \&quot;light\&quot;&quot;},&quot;canvasMode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;report-first&quot;,&quot;source-first&quot;],&quot;default&quot;:&quot;report-first&quot;,&quot;tsType&quot;:&quot;\&quot;report-first\&quot; | \&quot;source-first\&quot;&quot;},&quot;showAgentPanel&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;\&quot;dark\&quot; | \&quot;light\&quot;&quot;},&quot;showAgentPanel&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
 const THEMES = {
   light: {
     '--bg': '#f8f7fb', '--panel': '#ffffff', '--sunken': '#f2f1f6',
@@ -438,8 +319,7 @@ const THEMES = {
     '--accent': 'oklch(0.52 0.14 285)',
     '--pass': 'oklch(0.52 0.11 155)', '--fail': 'oklch(0.53 0.17 25)',
     '--pass-bg': 'oklch(0.96 0.03 155)', '--fail-bg': 'oklch(0.96 0.03 25)',
-    '--fail-line': 'oklch(0.88 0.06 25)',
-    '--diff': 'oklch(0.62 0.12 235)',
+    '--fail-line': 'oklch(0.88 0.06 25)', '--diff': 'oklch(0.62 0.12 235)',
   },
   dark: {
     '--bg': '#1e1c21', '--panel': '#26242b', '--sunken': '#1a181d',
@@ -449,553 +329,379 @@ const THEMES = {
     '--accent': 'oklch(0.76 0.11 285)',
     '--pass': 'oklch(0.76 0.13 155)', '--fail': 'oklch(0.71 0.16 25)',
     '--pass-bg': 'oklch(0.28 0.04 155)', '--fail-bg': 'oklch(0.29 0.05 25)',
-    '--fail-line': 'oklch(0.40 0.08 25)',
-    '--diff': 'oklch(0.76 0.11 235)',
+    '--fail-line': 'oklch(0.40 0.08 25)', '--diff': 'oklch(0.76 0.11 235)',
   },
 }
 
-const STEP_COLOR = {
-  given: 'var(--ink-3)', message: 'var(--accent)', model: 'var(--pass)',
-  click: 'var(--accent)', expect: 'var(--pass)', failed: 'var(--fail)',
-}
-
-const counterSchemas = {
-  messages: [
-    { message: 'ChangedStep', field: 'step', type: 'number', optional: 'no' },
-    { message: 'ClickedDecrement', field: '(no payload)', type: '—', optional: '—' },
-    { message: 'ClickedIncrement', field: '(no payload)', type: '—', optional: '—' },
-    { message: 'ClickedReset', field: '(no payload)', type: '—', optional: '—' },
-  ],
-  model: [
-    { field: 'count', type: 'number', optional: 'no' },
-    { field: 'step', type: 'number', optional: 'no' },
-  ],
-}
-
-const tasksSchemas = {
-  messages: [
-    { message: 'AddedTask', field: 'id', type: 'string', optional: 'no' },
-    { message: 'AddedTask', field: 'title', type: 'string', optional: 'no' },
-    { message: 'ChangedFilter', field: 'filter', type: '"all" | "open" | "done"', optional: 'no' },
-    { message: 'ClearedSelection', field: '(no payload)', type: '—', optional: '—' },
-    { message: 'SelectedTask', field: 'id', type: 'string', optional: 'no' },
-    { message: 'ToggledTask', field: 'id', type: 'string', optional: 'no' },
-  ],
-  model: [
-    { field: 'autosaveAfter', type: 'Duration', optional: 'no' },
-    { field: 'filter', type: '"all" | "open" | "done"', optional: 'no' },
-    { field: 'selected', type: 'Option<string>', optional: 'yes' },
-    { field: 'tasks', type: 'Task[]', optional: 'no' },
-  ],
-}
-
-// The counter's own `update`, as `examples/counter/src/counter.ts` declares it.
-// The lab mounts { update, view } the way a Scene does, so the preview is the
-// real state machine rather than a picture of one.
-const counterUpdate = (model, message) => {
-  switch (message.tag) {
-    case 'ClickedIncrement': return { ...model, count: model.count + model.step }
-    case 'ClickedDecrement': return { ...model, count: model.count - model.step }
-    case 'ClickedReset': return { ...model, count: 0 }
-    case 'ChangedStep': return { ...model, step: message.step }
-    default: return model
-  }
-}
-const counterInitial = { count: 0, step: 1 }
 const pad3 = (n) => String(n).padStart(3, '0')
-// formatTimeDelta in the overlay prints `+Nms`; these are the deltas a replay records.
-const DELTAS = ['+12ms', '+7ms', '+15ms', '+9ms', '+11ms', '+6ms', '+18ms', '+8ms']
-const msg = (tag, extra) => ({ tag, ...(extra ?? {}) })
-const label = (m) => (m.tag === 'ChangedStep' ? `ChangedStep({ step: ${m.step} })` : `${m.tag}()`)
 
-const CATALOG = [
-  {
-    path: 'src/counter.showcase.ts',
-    component: 'counter',
-    schemas: counterSchemas,
-    view: 'counter',
-    gap: 'every Message tag is dispatched by a play',
-    showcases: [
-      {
-        id: 'counter/starts-at-zero', kind: 'Story', status: 'passed', ms: 3,
-        msgs: [],
-        dispatches: [],
-        steps: [
-          { kind: 'given', text: 'initialModel', detail: '{ count: 0, step: 1 }' },
-          { kind: 'model', text: 'assert.equal(model.count, 0)', detail: 'ok' },
-        ],
-        coverage: { lines: '18/48 (38%)', fns: '2/7 (29%)' },
-        source: 'play: () =>\n  Story.story(\n    update,\n    Story.given(initialModel),\n    Story.model((model) => assert.equal(model.count, 0)),\n  ),\nmessage: Message,\nmodel: Model,\ndispatches: [],',
-      },
-      {
-        id: 'counter/counts-up-and-down', kind: 'Story', status: 'passed', ms: 4,
-        msgs: [msg('ClickedIncrement'), msg('ClickedIncrement'), msg('ClickedDecrement')],
-        dispatches: ['ClickedIncrement', 'ClickedDecrement'],
-        steps: [
-          { kind: 'given', text: 'initialModel', detail: '{ count: 0, step: 1 }' },
-          { kind: 'message', text: 'ClickedIncrement()', detail: 'count 0 → 1' },
-          { kind: 'message', text: 'ClickedIncrement()', detail: 'count 1 → 2' },
-          { kind: 'message', text: 'ClickedDecrement()', detail: 'count 2 → 1' },
-          { kind: 'model', text: 'assert.equal(model.count, 1)', detail: 'ok' },
-        ],
-        coverage: { lines: '30/48 (63%)', fns: '5/7 (71%)' },
-        source: 'play: () =>\n  Story.story(\n    update,\n    Story.given(initialModel),\n    Story.message(ClickedIncrement()),\n    Story.message(ClickedIncrement()),\n    Story.message(ClickedDecrement()),\n    Story.model((model) => assert.equal(model.count, 1)),\n  ),\nmessage: Message,\nmodel: Model,\ndispatches: ["ClickedIncrement", "ClickedDecrement"],',
-      },
-      {
-        id: 'counter/step-of-ten', kind: 'Story', status: 'passed', ms: 3,
-        msgs: [msg('ChangedStep', { step: 10 }), msg('ClickedIncrement')],
-        dispatches: ['ChangedStep', 'ClickedIncrement'],
-        steps: [
-          { kind: 'given', text: 'initialModel', detail: '{ count: 0, step: 1 }' },
-          { kind: 'message', text: 'ChangedStep({ step: 10 })', detail: 'step 1 → 10' },
-          { kind: 'message', text: 'ClickedIncrement()', detail: 'count 0 → 10' },
-          { kind: 'model', text: 'assert.equal(model.count, 10)', detail: 'ok' },
-          { kind: 'model', text: 'assert.equal(model.step, 10)', detail: 'ok' },
-        ],
-        coverage: { lines: '28/48 (58%)', fns: '4/7 (57%)' },
-        source: 'play: () =>\n  Story.story(\n    update,\n    Story.given(initialModel),\n    Story.message(ChangedStep({ step: 10 })),\n    Story.message(ClickedIncrement()),\n    Story.model((model) => {\n      assert.equal(model.count, 10)\n      assert.equal(model.step, 10)\n    }),\n  ),',
-      },
-      {
-        id: 'counter/reset-keeps-the-step', kind: 'Story', status: 'passed', ms: 3,
-        msgs: [msg('ChangedStep', { step: 5 }), msg('ClickedIncrement'), msg('ClickedReset')],
-        dispatches: ['ChangedStep', 'ClickedIncrement', 'ClickedReset'],
-        steps: [
-          { kind: 'given', text: 'initialModel', detail: '{ count: 0, step: 1 }' },
-          { kind: 'message', text: 'ChangedStep({ step: 5 })', detail: 'step 1 → 5' },
-          { kind: 'message', text: 'ClickedIncrement()', detail: 'count 0 → 5' },
-          { kind: 'message', text: 'ClickedReset()', detail: 'count 5 → 0' },
-          { kind: 'model', text: 'assert.equal(model.count, 0)', detail: 'ok' },
-          { kind: 'model', text: 'assert.equal(model.step, 5)', detail: 'ok' },
-        ],
-        coverage: { lines: '34/48 (71%)', fns: '6/7 (86%)' },
-        source: 'play: () =>\n  Story.story(\n    update,\n    Story.given(initialModel),\n    Story.message(ChangedStep({ step: 5 })),\n    Story.message(ClickedIncrement()),\n    Story.message(ClickedReset()),\n    Story.model((model) => {\n      assert.equal(model.count, 0)\n      assert.equal(model.step, 5)\n    }),\n  ),',
-      },
-      {
-        id: 'counter/renders-the-controls', kind: 'Scene', status: 'passed', ms: 6,
-        msgs: [],
-        dispatches: [],
-        steps: [
-          { kind: 'given', text: 'initialModel', detail: '{ count: 0, step: 1 }' },
-          { kind: 'expect', text: 'all.role("button") toHaveCount(3)', detail: 'ok' },
-          { kind: 'expect', text: 'role("button", { name: "-" }) toExist()', detail: 'ok' },
-          { kind: 'expect', text: 'role("button", { name: "Reset" }) toExist()', detail: 'ok' },
-          { kind: 'expect', text: 'role("button", { name: "+" }) toExist()', detail: 'ok' },
-          { kind: 'expect', text: 'selector("p") toHaveText("0")', detail: 'ok' },
-        ],
-        coverage: { lines: '40/48 (83%)', fns: '6/7 (86%)' },
-        source: 'play: () =>\n  Scene.scene(\n    { update, view },\n    Scene.given(initialModel),\n    Scene.expectAll(Scene.all.role("button")).toHaveCount(3),\n    Scene.expect(Scene.role("button", { name: "-" })).toExist(),\n    Scene.expect(Scene.role("button", { name: "Reset" })).toExist(),\n    Scene.expect(Scene.role("button", { name: "+" })).toExist(),\n    Scene.expect(shownCount).toHaveText("0"),\n  ),',
-        tree: 'div\n  p "0"\n  button "-"      OnClick ClickedDecrement()\n  button "Reset"  OnClick ClickedReset()\n  button "+"      OnClick ClickedIncrement()',
-        locators: [
-          { mark: '✓', text: 'all.role("button") — 3 found' },
-          { mark: '✓', text: 'role("button", { name: "-" })' },
-          { mark: '✓', text: 'role("button", { name: "Reset" })' },
-          { mark: '✓', text: 'role("button", { name: "+" })' },
-          { mark: '✓', text: 'selector("p") — text "0"' },
-        ],
-      },
-      {
-        id: 'counter/the-buttons-move-the-count', kind: 'Scene', status: 'passed', ms: 9,
-        msgs: [msg('ClickedIncrement'), msg('ClickedIncrement'), msg('ClickedDecrement'), msg('ClickedReset')],
-        dispatches: ['ClickedIncrement', 'ClickedDecrement', 'ClickedReset'],
-        steps: [
-          { kind: 'given', text: 'initialModel', detail: '{ count: 0, step: 1 }' },
-          { kind: 'click', text: 'role("button", { name: "+" })', detail: 'ClickedIncrement()' },
-          { kind: 'click', text: 'role("button", { name: "+" })', detail: 'ClickedIncrement()' },
-          { kind: 'expect', text: 'selector("p") toHaveText("2")', detail: 'ok' },
-          { kind: 'click', text: 'role("button", { name: "-" })', detail: 'ClickedDecrement()' },
-          { kind: 'expect', text: 'selector("p") toHaveText("1")', detail: 'ok' },
-          { kind: 'click', text: 'role("button", { name: "Reset" })', detail: 'ClickedReset()' },
-          { kind: 'expect', text: 'selector("p") toHaveText("0")', detail: 'ok' },
-        ],
-        coverage: { lines: '48/48 (100%)', fns: '7/7 (100%)' },
-        source: 'play: () =>\n  Scene.scene(\n    { update, view },\n    Scene.given(initialModel),\n    Scene.click(Scene.role("button", { name: "+" })),\n    Scene.click(Scene.role("button", { name: "+" })),\n    Scene.expect(shownCount).toHaveText("2"),\n    Scene.click(Scene.role("button", { name: "-" })),\n    Scene.expect(shownCount).toHaveText("1"),\n    Scene.click(Scene.role("button", { name: "Reset" })),\n    Scene.expect(shownCount).toHaveText("0"),\n  ),',
-        tree: 'div\n  p "0"\n  button "-"      OnClick ClickedDecrement()\n  button "Reset"  OnClick ClickedReset()\n  button "+"      OnClick ClickedIncrement()',
-        locators: [
-          { mark: '✓', text: 'role("button", { name: "+" }) — clicked ×2' },
-          { mark: '✓', text: 'role("button", { name: "-" }) — clicked' },
-          { mark: '✓', text: 'role("button", { name: "Reset" }) — clicked' },
-          { mark: '✓', text: 'selector("p") — "2" → "1" → "0"' },
-        ],
-      },
-    ],
-  },
-  {
-    path: 'src/tasks.showcase.ts',
-    component: 'tasks',
-    schemas: tasksSchemas,
-    gap: 'every Message tag is dispatched by a play',
-    showcases: [
-      {
-        id: 'tasks/adds-in-order', kind: 'Story', status: 'failed', ms: 5,
-        dispatches: ['AddedTask'],
-        steps: [
-          { kind: 'given', text: 'initialModel', detail: 'tasks: []' },
-          { kind: 'message', text: 'AddedTask({ id: "t1", title: "Write the Showcase" })', detail: 'tasks 0 → 1' },
-          { kind: 'message', text: 'AddedTask({ id: "t2", title: "Run it in CI" })', detail: 'tasks 1 → 1' },
-          { kind: 'failed', text: 'assert.deepEqual(model.tasks.map(t => t.title), […])', detail: 'expected 2, got 1' },
-        ],
-        coverage: { lines: '21/56 (38%)', fns: '3/9 (33%)' },
-        error: {
-          name: 'AssertionError [ERR_ASSERTION]',
-          text: 'Expected values to be loosely deep-equal:\n\n[ \'Write the Showcase\' ]\n\nshould loosely deep-equal\n\n[ \'Write the Showcase\', \'Run it in CI\' ]\n\n    at play (examples/counter/src/tasks.showcase.ts:38:9)\n    at runShowcase (src/runner.ts:104:22)\n    at freshRunChild (src/mcp/freshRunChild.ts:41:11)',
-        },
-        source: 'play: () =>\n  Story.story(\n    update,\n    Story.given(initialModel),\n    ...withTwoTasks,\n    Story.model((model) => {\n      assert.deepEqual(\n        model.tasks.map((task) => task.title),\n        ["Write the Showcase", "Run it in CI"],\n      )\n    }),\n  ),\nmessage: Message,\nmodel: Model,\ndispatches: ["AddedTask"],',
-      },
-      {
-        id: 'tasks/toggling-one-leaves-the-other', kind: 'Story', status: 'passed', ms: 4,
-        dispatches: ['AddedTask', 'ToggledTask'],
-        steps: [
-          { kind: 'given', text: 'initialModel', detail: 'tasks: []' },
-          { kind: 'message', text: 'AddedTask({ id: "t1", … })', detail: 'tasks 0 → 1' },
-          { kind: 'message', text: 'AddedTask({ id: "t2", … })', detail: 'tasks 1 → 2' },
-          { kind: 'message', text: 'ToggledTask({ id: "t1" })', detail: 't1.done → true' },
-          { kind: 'model', text: 'assert.deepEqual(tasks.map(t => t.done), [true, false])', detail: 'ok' },
-        ],
-        coverage: { lines: '32/56 (57%)', fns: '5/9 (56%)' },
-        source: 'play: () =>\n  Story.story(\n    update,\n    Story.given(initialModel),\n    ...withTwoTasks,\n    Story.message(ToggledTask({ id: "t1" })),\n    Story.model((model) => {\n      assert.deepEqual(\n        model.tasks.map((task) => task.done),\n        [true, false],\n      )\n    }),\n  ),',
-      },
-      {
-        id: 'tasks/open-filter-hides-the-done-one', kind: 'Story', status: 'passed', ms: 4,
-        dispatches: ['AddedTask', 'ToggledTask', 'ChangedFilter'],
-        steps: [
-          { kind: 'given', text: 'initialModel', detail: 'filter: "all"' },
-          { kind: 'message', text: 'AddedTask ×2', detail: 'tasks 0 → 2' },
-          { kind: 'message', text: 'ToggledTask({ id: "t1" })', detail: 't1.done → true' },
-          { kind: 'message', text: 'ChangedFilter({ filter: "open" })', detail: 'filter → "open"' },
-          { kind: 'model', text: 'assert.deepEqual(visibleTasks(model).map(t => t.id), ["t2"])', detail: 'ok' },
-        ],
-        coverage: { lines: '41/56 (73%)', fns: '7/9 (78%)' },
-        source: 'play: () =>\n  Story.story(\n    update,\n    Story.given(initialModel),\n    ...withTwoTasks,\n    Story.message(ToggledTask({ id: "t1" })),\n    Story.message(ChangedFilter({ filter: "open" })),\n    Story.model((model) => {\n      assert.deepEqual(\n        visibleTasks(model).map((task) => task.id),\n        ["t2"],\n      )\n    }),\n  ),',
-      },
-      {
-        id: 'tasks/selection-is-cleared', kind: 'Story', status: 'passed', ms: 4,
-        dispatches: ['AddedTask', 'SelectedTask', 'ClearedSelection'],
-        steps: [
-          { kind: 'given', text: 'initialModel', detail: 'selected: none' },
-          { kind: 'message', text: 'AddedTask ×2', detail: 'tasks 0 → 2' },
-          { kind: 'message', text: 'SelectedTask({ id: "t2" })', detail: 'selected → some("t2")' },
-          { kind: 'model', text: 'assert.deepEqual(model.selected, Option.some("t2"))', detail: 'ok' },
-          { kind: 'message', text: 'ClearedSelection()', detail: 'selected → none' },
-          { kind: 'model', text: 'assert.ok(Option.isNone(model.selected))', detail: 'ok' },
-        ],
-        coverage: { lines: '38/56 (68%)', fns: '6/9 (67%)' },
-        source: 'play: () =>\n  Story.story(\n    update,\n    Story.given(initialModel),\n    ...withTwoTasks,\n    Story.message(SelectedTask({ id: "t2" })),\n    Story.model((model) => assert.deepEqual(model.selected, Option.some("t2"))),\n    Story.message(ClearedSelection()),\n    Story.model((model) => assert.ok(Option.isNone(model.selected))),\n  ),',
-      },
-    ],
-  },
-  {
-    path: 'src/ui/picker.showcase.ts',
-    loadError: 'Error [ERR_MODULE_NOT_FOUND]: Cannot find module \'./picker\'\n  imported from examples/counter/src/ui/picker.showcase.ts\n\n  A type-only import emits a real ESM import under Node type stripping.\n  Fix: import type { Picker } from "./picker"',
-    showcases: [],
-  },
-]
+// proto/catalog.json, verbatim: 24 components, 146 entries, failures: [].
+// Every entry carries exactly these fields — no status, kind, duration,
+// dispatches or coverage. The design follows the data.
+const RAW = {
+  animation: ['ignores-a-show-while-already-shown', 'reverses-an-enter-that-is-still-running', 'starts-hidden-and-idle', 'walks-the-enter-cascade-to-settled', 'walks-the-leave-cascade-to-settled'],
+  button: ['counts-one-click', 'counts-repeated-clicks', 'leaves-the-rest-of-the-model-alone', 'starts-unclicked'],
+  calendar: ['moves-back-across-the-year-boundary', 'moves-the-cursor-with-the-arrow-keys', 'moves-to-the-next-month-without-touching-the-selection', 'opens-on-the-month-of-today', 'refuses-a-day-outside-the-window', 'selects-the-clicked-day', 'stops-the-cursor-at-the-edge-of-the-window', 'zooms-out-to-the-months-grid-to-jump-a-month'],
+  checkbox: ['checks-and-unchecks', 'one-option-leaves-the-other-alone', 'select-all-checks-every-option', 'select-all-clears-every-option', 'starts-unchecked', 'the-basic-box-does-not-move-the-options'],
+  combobox: ['a-query-that-matches-nothing-leaves-the-choice-alone', 'a-second-pick-replaces-the-first', 'picking-a-city-closes-the-list-and-stores-it', 'starts-closed-with-no-city-chosen', 'the-arrow-keys-move-the-highlight', 'the-multi-variant-adds-each-pick', 'the-multi-variant-drops-a-city-picked-twice', 'typing-opens-the-list-and-records-the-query'],
+  datePicker: ['clears-the-selected-date', 'closing-drops-back-to-the-days-grid', 'commits-the-focused-day-from-the-keyboard', 'moves-back-across-the-year-boundary', 'refuses-a-day-outside-the-window', 'selecting-a-day-closes-the-panel', 'starts-closed-on-the-month-of-today', 'the-trigger-opens-and-closes-the-panel'],
+  dialog: ['closing-a-closed-dialog-asks-for-nothing', 'escape-closes-it', 'opening-it-shows-the-native-element', 'starts-closed', 'the-animated-one-closes-after-its-leave-animation', 'the-animated-one-walks-the-enter-cascade', 'the-mobile-menu-leaves-the-page-alone'],
+  disclosure: ['animates-without-a-command', 'closes-the-panel-again', 'opens-the-panel', 'panels-open-independently', 'starts-closed'],
+  dragAndDrop: ['moves-a-card-down-inside-its-column', 'moves-a-card-to-the-other-column', 'picks-a-card-up-with-the-keyboard', 'puts-a-cancelled-drag-back', 'starts-with-two-seeded-columns'],
+  fieldset: ['agrees-and-un-agrees-without-clearing-the-text', 'fills-the-whole-group-in-one-pass', 'keeps-its-controls-apart-from-the-standalone-demos', 'starts-as-a-blank-form', 'types-a-bio-and-leaves-the-siblings-blank', 'types-a-name-and-leaves-the-siblings-blank'],
+  fileDrop: ['appends-a-second-drop-to-the-first', 'highlights-the-zone-while-a-drag-hovers', 'ignores-a-drop-that-carries-no-files', 'keeps-a-dropped-file', 'removes-a-file-by-index', 'starts-with-no-files'],
+  input: ['accepts-an-empty-value', 'keeps-the-value-it-was-given', 'leaves-the-rest-of-the-model-alone', 'replaces-the-value-rather-than-appending', 'starts-empty'],
+  listbox: ['choosing-a-chosen-name-again-drops-it', 'choosing-a-name-closes-the-list-and-stores-it', 'opening-shows-the-list-and-moves-focus-onto-it', 'starts-closed-with-nothing-chosen', 'the-active-option-moves-with-the-arrow-keys', 'the-multi-variant-collects-a-set', 'the-single-variant-holds-exactly-one-name', 'typing-a-letter-jumps-to-a-name'],
+  menu: ['choosing-an-item-closes-it', 'escape-closes-it-without-choosing', 'opening-it-moves-focus-to-the-items', 'starts-closed', 'the-animated-one-walks-the-enter-cascade', 'the-keyboard-moves-the-highlight'],
+  popover: ['a-mouse-press-on-the-button-toggles-it', 'closing-it-returns-focus-to-the-button', 'opening-it-asks-for-nothing', 'opening-the-nested-child-leaves-the-parent-closed', 'starts-closed', 'the-animated-one-walks-the-enter-cascade'],
+  radioGroup: ['holds-exactly-one-plan', 'keeps-a-plan-once-chosen', 'keeps-the-two-groups-apart', 'leaves-the-rest-of-the-model-alone', 'records-the-chosen-plan', 'starts-with-no-plan-chosen'],
+  select: ['changes-the-country', 'holds-only-the-latest-choice', 'leaves-the-rest-of-the-model-alone', 'reverts-to-the-country-it-started-on', 'starts-on-the-first-country', 'stores-whatever-value-arrives'],
+  slider: ['clamps-at-the-maximum', 'clamps-at-the-minimum', 'snaps-a-fractional-step-clean', 'starts-on-its-seeded-value', 'steps-down-and-back-up', 'steps-up-by-one-step'],
+  switch: ['leaves-the-other-toggles-alone', 'starts-off', 'stays-on-when-told-on-twice', 'turns-back-off', 'turns-on'],
+  tabs: ['committing-the-focused-tab-clears-the-roving-cursor', 'keyboard-focus-alone-does-not-switch-the-panel', 'pressing-a-tab-switches-the-panel', 'starts-on-the-foldkit-tab', 'switching-back-restores-the-first-tab', 'the-two-strips-keep-their-own-tab'],
+  textarea: ['accepts-an-empty-value', 'keeps-the-line-breaks', 'keeps-the-value-it-was-given', 'leaves-the-other-text-fields-alone', 'replaces-the-value-rather-than-appending', 'starts-empty'],
+  toast: ['adds-an-entry-with-the-counter-id', 'auto-dismiss-removes-the-entry', 'dismisses-every-entry-at-once', 'dismisses-one-entry-by-hand', 'numbers-a-second-entry-after-the-first', 'starts-with-an-empty-tray'],
+  tooltip: ['escape-dismisses-it-until-the-pointer-leaves', 'focus-shows-it-with-no-delay-at-all', 'hovering-shows-it-only-once-the-delay-elapses', 'ignores-a-timer-from-an-abandoned-hover', 'leaving-the-trigger-hides-it', 'starts-hidden-with-the-configured-delay'],
+  virtualList: ['ignores-a-stale-scroll-completion', 'jumps-to-the-middle-through-a-pending-scroll', 'moves-the-window-when-the-container-scrolls', 'opens-a-window-once-the-container-is-measured', 'sizes-the-variable-window-from-the-row-heights', 'starts-unmeasured-with-no-window'],
+}
+
+const GALLERY_ROOT = '/tmp/foldcase-lab-gallery'
+const CATALOG = Object.keys(RAW).map((component) => ({
+  component,
+  file: `${GALLERY_ROOT}/src/ui/${component}.showcase.ts`,
+  entries: RAW[component].map((state) => ({
+    id: `${component}/${state}`,
+    state,
+    component,
+    file: `${GALLERY_ROOT}/src/ui/${component}.showcase.ts`,
+    hasMount: true,
+    hasMessageSchema: true,
+    hasModelSchema: true,
+  })),
+}))
+const TOTAL = CATALOG.reduce((n, c) => n + c.entries.length, 0)
+
+// The one component the prototype carries source for, so the Canvas can mount
+// the real Foldkit runtime rather than a drawing of it.
+const LIVE_COMPONENT = 'button'
 
 const TOOLS = [
-  { name: 'foldcase_list_showcases', what: 'Enumerate every Showcase — which Schemas it carries, which Messages it dispatches, the directory served — and per-component gaps.' },
-  { name: 'foldcase_get_showcase_schema', what: "Introspect the Message union into a JSON Schema document, so a payload is built by construction." },
+  { name: 'foldcase_list_showcases', what: 'Enumerate every Showcase — the file it came from, and whether it carries a mount, a Message Schema and a Model Schema.' },
+  { name: 'foldcase_get_showcase_schema', what: 'Introspect the Message union into a JSON Schema document, so a payload is built by construction.' },
   { name: 'foldcase_get_showcase_model_schema', what: 'The same for the Model — the shape a play asserts on.' },
   { name: 'foldcase_run_showcase', what: 'Run one play in a fresh subprocess, from the code on disk, and return the typed pass/fail report.' },
   { name: 'foldcase_run_catalog', what: 'Run the whole catalog into one suite report, or the part under an id prefix.' },
   { name: 'foldcase_load_catalog', what: 'Refresh the listing after files appear or vanish, or point the server at another directory under the root.' },
 ]
 
+const ABSENT = [
+  { field: 'status', reality: 'The listing carries none. Pass and fail belong to a run the lab triggers, not to the catalog — so no status dots in the tree.' },
+  { field: 'error', reality: 'failures: [] — every file loaded. The failure states live in the run report, reachable from Run, not here.' },
+  { field: 'kind', reality: 'No field, and no gallery file uses Scene. All 146 are Stories, so a STORY / SCENE badge would say nothing.' },
+  { field: 'dispatches', reality: '0 of 146 declare it; 2 of 24 files mention the option. A gap list held against the Message union would be empty by default, which reads as covered when it means unknown.' },
+  { field: 'duration', reality: 'Not a field on ShowcaseReport.' },
+  { field: 'lines / functions', reality: 'Coverage collected nothing — files: [] on every showcase.' },
+  { field: 'exports a view', reality: 'No such field. hasMount is the closest, and it is true for all 146.' },
+  { field: 'per-component schema', reality: 'One union for the whole catalog: 24 calls returned the same 45,759-byte document.' },
+]
+
 class Component extends DCLogic {
   state = {
     theme: null,
-    mode: null,
-    selected: 'counter/counts-up-and-down',
+    selected: `${LIVE_COMPONENT}/counts-repeated-clicks`,
     tab: null,
-    panel: 'coverage',
+    panel: 'runtime',
     drawerOpen: true,
-    open: { 'src/counter.showcase.ts': true, 'src/tasks.showcase.ts': true, 'src/ui/picker.showcase.ts': true },
+    open: { [LIVE_COMPONENT]: true },
     query: '',
-    running: false,
-    ran: new Set(),
-    at: null,
-    override: null,
+    reloading: false,
+    fk: null,
+    fkError: null,
+    clicks: 0,
+    trail: [],
+    mountedOk: false,
   }
 
-  get theme() { return this.state.theme ?? this.props.theme ?? 'dark' }
-  get mode() { return this.state.mode ?? this.props.canvasMode ?? 'report-first' }
+  // The preview gets its own document. Foldkit's Runtime owns the node it mounts
+  // into, and this shell re-renders its subtree on every dispatch — so an in-tree
+  // mount is wiped. The frame lives on document.body, out of React's reach, and is
+  // positioned over a placeholder in the card. It also keeps the component's own
+  // styles out of the shell, which a real lab needs regardless.
+  frame = null
 
-  all() { return CATALOG.flatMap((f) => f.showcases) }
-  find(id) { return this.all().find((s) => s.id === id) }
-  fileOf(id) { return CATALOG.find((f) => f.showcases.some((s) => s.id === id)) }
-
-  statusOf(sc) {
-    if (this.state.running && !this.state.ran.has(sc.id)) return 'pending'
-    return sc.status
+  attachHost = (el) => {
+    this.host = el
+    this.syncHost()
   }
 
-  runAll = () => {
-    if (this.state.running) return
-    this.setState({ running: true, ran: new Set() })
-    const ids = [...this.all().map((s) => s.id), 'src/ui/picker.showcase.ts']
-    ids.forEach((id, i) => {
-      setTimeout(() => {
-        this.setState((s) => {
-          const ran = new Set(s.ran)
-          ran.add(id)
-          return { ran, running: i < ids.length - 1 }
-        })
-      }, 130 * (i + 1))
-    })
+  frameDoc(vars) {
+    const css = Object.keys(vars).map((k) => `${k}:${vars[k]}`).join(';')
+    const tag = 'scr' + 'ipt'
+    const body = [
+      "const V='4.0.0-beta.103', FK='0.138.0', deps='deps=effect@'+V+',@effect/platform-browser@'+V",
+      "const at=(s)=>'https://esm.sh/foldkit@'+FK+s+'?'+deps",
+      "const post=(m)=>parent.postMessage(m,'*')",
+      "try{",
+      "const [effect,fk,message,struct]=await Promise.all([import('https://esm.sh/effect@'+V),import(at('')),import(at('/message')),import(at('/struct'))])",
+      "const {Match:M,Schema:S}=effect",
+      "const Clicked=message.m('Clicked')",
+      "const Model=S.Struct({clicks:S.Number,note:S.String})",
+      "let last=performance.now()",
+      "const update=(model,msg)=>M.value(msg).pipe(M.tagsExhaustive({Clicked:()=>{",
+      "const now=performance.now(), delta='+'+Math.round(now-last)+'ms'; last=now",
+      "const next=struct.evo(model,{clicks:(c)=>c+1})",
+      "post({fk:'dispatch',tag:'Clicked()',delta,clicks:next.clicks})",
+      "return [next,[]]}}))",
+      "const view=(model,h)=>({title:'button',body:h.div([h.Class('fk-demo')],[",
+      "h.p([h.Class('fk-demo-count')],[model.clicks.toString()]),",
+      "h.button([h.OnClick(Clicked()),h.Class('fk-demo-btn')],['Click me']),",
+      "h.p([h.Class('fk-demo-label')],[model.note])])})",
+      "fk.Runtime.run(fk.Runtime.makeApplication({Model,init:()=>[{clicks:0,note:'real Foldkit runtime — every click is a dispatch'},[]],update,view,container:document.getElementById('root')}))",
+      "setTimeout(()=>post({fk:document.querySelector('.fk-demo')?'ready':'blank'}),300)",
+      "}catch(error){post({fk:'error',message:String(error&&error.message?error.message:error)})}",
+    ].join('\n')
+    return [
+      '<!DOCTYPE html><html><head><meta charset="utf-8">',
+      '<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">',
+      '<style>',
+      `html,body{margin:0;${css};background:var(--panel);color:var(--ink);font-family:Outfit,system-ui,sans-serif}`,
+      '.fk-demo{display:flex;flex-direction:column;align-items:center;gap:18px;padding:30px 28px}',
+      ".fk-demo-count{margin:0;font-family:'JetBrains Mono',monospace;font-size:44px;font-weight:500;letter-spacing:-0.03em;color:var(--ink)}",
+      '.fk-demo-label{margin:0;font-size:12.5px;color:var(--ink-3)}',
+      '.fk-demo-btn{min-width:44px;height:34px;padding:0 16px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font-family:Outfit,sans-serif;font-size:13px;cursor:pointer}',
+      '.fk-demo-btn:hover{border-color:var(--ink-3)}',
+      '</style></head><body><div id="root"></div>',
+      `<${tag} type="module">`,
+      body,
+      `</${tag}></body></html>`,
+    ].join('\n')
   }
 
-  // The preview: fold the play's messages into the component's own update, up
-  // to the scrubber's position. A click in the preview appends to the trail.
-  previewFor(sc, file) {
-    if (!file || file.view !== 'counter') {
-      return {
-        hasView: false,
-        note: `${file && file.component ? file.component : 'This component'}.ts exports no view — Story-only, so there is nothing to mount.`,
+  ensureFrame(vars) {
+    if (this.frame) return
+    const frame = document.createElement('iframe')
+    frame.setAttribute('title', 'button preview')
+    frame.style.cssText = 'position:absolute;border:0;background:transparent;z-index:1;display:none'
+    frame.srcdoc = this.frameDoc(vars)
+    document.body.appendChild(frame)
+    this.frame = frame
+  }
+
+  syncHost() {
+    if (!this.frame) return
+    const show = this.isLiveSelected() && !!this.host
+    if (!show) { this.frame.style.display = 'none'; return }
+    const box = this.host.getBoundingClientRect()
+    if (box.width === 0) { this.frame.style.display = 'none'; return }
+    this.frame.style.display = 'block'
+    this.frame.style.left = `${box.left + window.scrollX}px`
+    this.frame.style.top = `${box.top + window.scrollY}px`
+    this.frame.style.width = `${box.width}px`
+    this.frame.style.height = `${box.height}px`
+  }
+
+  componentDidMount() {
+    this.onFrame = (event) => {
+      const data = event.data
+      if (!data || !data.fk) return
+      if (data.fk === 'ready') this.setState({ mountedOk: true, fkError: null })
+      else if (data.fk === 'blank') this.setState({ mountedOk: false, fkError: 'Runtime.run painted nothing into its container' })
+      else if (data.fk === 'error') this.setState({ mountedOk: false, fkError: data.message })
+      else if (data.fk === 'dispatch') {
+        this.setState((s) => ({ clicks: data.clicks, trail: [...s.trail, { tag: data.tag, delta: data.delta }] }))
       }
     }
-    // null override means the play's own declared Messages, untouched.
-    const trail = this.state.override ?? (sc.msgs ?? [])
-    const at = this.state.at === null ? trail.length : Math.min(this.state.at, trail.length)
-    const model = trail.slice(0, at).reduce(counterUpdate, counterInitial)
-    const send = (m) => this.setState({ override: [...trail.slice(0, at), m], at: null })
-    // One row per recorded Message, newest last — and the diff dot the overlay
-    // shows when a Message actually changed the Model.
-    let walked = counterInitial
-    const rows = [{ index: pad3(0), tag: 'init', delta: '0ms', changed: false, at: 0 }]
-    trail.forEach((m, i) => {
-      const next = counterUpdate(walked, m)
-      rows.push({
-        index: pad3(i + 1),
-        tag: label(m),
-        delta: DELTAS[i % DELTAS.length],
-        changed: next.count !== walked.count || next.step !== walked.step,
-        at: i + 1,
-      })
-      walked = next
-    })
-    const pct = trail.length === 0 ? '100%' : `${(at / trail.length) * 100}%`
-    return {
-      hasView: true,
-      count: `${model.count}`,
-      title: `Counter: ${model.count}`,
-      modelText: `{ count: ${model.count}, step: ${model.step} }`,
-      position: `${pad3(at)} / ${pad3(trail.length)}`,
-      atStart: at === 0,
-      atEnd: at === trail.length,
-      isLive: at === trail.length,
-      isPaused: at < trail.length,
-      fill: pct,
-      thumb: `calc(${pct} - 7px)`,
-      onTrack: (e) => {
-        const rect = e.currentTarget.getBoundingClientRect()
-        const value = Math.round(((e.clientX - rect.left) / rect.width) * trail.length)
-        this.setState({ at: Math.max(0, Math.min(trail.length, value)) })
-      },
-      resume: () => this.setState({ at: null }),
-      clear: () => this.setState({ at: null, override: null }),
-      rows: rows.map((row) => ({
-        index: row.index,
-        tag: row.tag,
-        delta: row.delta,
-        dot: row.changed ? 'var(--diff)' : 'transparent',
-        bg: row.at === at ? 'var(--sel)' : 'transparent',
-        fg: row.at === at ? 'var(--ink)' : row.at > at ? 'var(--ink-3)' : 'var(--ink-2)',
-        go: () => this.setState({ at: row.at }),
-      })),
-      back: () => this.setState({ at: Math.max(0, at - 1) }),
-      forward: () => this.setState({ at: Math.min(trail.length, at + 1) }),
-      replay: () => this.setState({ at: 0, override: null }),
-      inc: () => send(msg('ClickedIncrement')),
-      dec: () => send(msg('ClickedDecrement')),
-      reset: () => send(msg('ClickedReset')),
-      step10: () => send(msg('ChangedStep', { step: 10 })),
-    }
+    this.onReflow = () => this.syncHost()
+    window.addEventListener('message', this.onFrame)
+    window.addEventListener('resize', this.onReflow)
+    window.addEventListener('scroll', this.onReflow, true)
+    this.ensureFrame(THEMES[this.state.theme ?? this.props.theme ?? 'dark'])
+    this.syncHost()
   }
 
-  tabsFor(sc) {
-    const t = [
-      { key: 'canvas', label: 'Canvas' },
-      { key: 'report', label: 'Report' },
-      { key: 'timeline', label: 'Timeline' },
-      { key: 'source', label: 'Source' },
-    ]
-    if (sc && sc.kind === 'Scene') t.push({ key: 'view', label: 'View' })
-    t.push({ key: 'docs', label: 'Docs' })
-    return t
+  componentDidUpdate() {
+    this.syncHost()
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener('message', this.onFrame)
+    window.removeEventListener('resize', this.onReflow)
+    window.removeEventListener('scroll', this.onReflow, true)
+    if (this.frame) this.frame.remove()
+  }
+
+  isLiveSelected() {
+    return this.state.selected.split('/')[0] === LIVE_COMPONENT
+  }
+
+  remount() {
+    if (!this.frame) return
+    this.setState({ clicks: 0, trail: [], mountedOk: false }, () => {
+      this.frame.srcdoc = this.frameDoc(THEMES[this.state.theme ?? this.props.theme ?? 'dark'])
+    })
   }
 
   renderVals() {
-    const theme = this.theme
+    const theme = this.state.theme ?? this.props.theme ?? 'dark'
     const vars = THEMES[theme]
     const rootStyle = Object.keys(vars).map((k) => `${k}:${vars[k]}`).join(';')
 
     const q = this.state.query.trim().toLowerCase()
-    const isLoadFailure = this.state.selected.endsWith('.showcase.ts')
-    const sc = this.find(this.state.selected)
-    const file = isLoadFailure
-      ? CATALOG.find((f) => f.path === this.state.selected)
-      : this.fileOf(this.state.selected)
+    const [selComponent] = this.state.selected.split('/')
+    const group = CATALOG.find((c) => c.component === selComponent)
+    const entry = group.entries.find((e) => e.id === this.state.selected) ?? group.entries[0]
+    const live = this.isLiveSelected()
+    const liveOk = live && this.state.mountedOk
 
-    const tabs = this.tabsFor(sc)
-    const defaultTab = this.mode === 'source-first' ? 'report' : 'canvas'
-    let tab = this.state.tab ?? defaultTab
-    if (!tabs.some((t) => t.key === tab)) tab = 'canvas'
+    const tabs = [
+      { key: 'canvas', label: 'Canvas' },
+      { key: 'entry', label: 'Entry' },
+      { key: 'timeline', label: 'Timeline' },
+      { key: 'schema', label: 'Schema' },
+    ]
+    const tab = this.state.tab ?? 'canvas'
 
-    const status = sc ? this.statusOf(sc) : 'failed'
-    const statusMap = {
-      passed: { mark: '✓', fg: 'var(--pass)', bg: 'var(--pass-bg)' },
-      failed: { mark: '✗', fg: 'var(--fail)', bg: 'var(--fail-bg)' },
-      pending: { mark: '·', fg: 'var(--ink-3)', bg: 'var(--sunken)' },
-    }
-    const st = statusMap[status]
-
-    const dotFor = (s) => (s === 'passed' ? 'var(--pass)' : s === 'failed' ? 'var(--fail)' : 'var(--ink-3)')
-
-    const tree = CATALOG.map((f) => {
-      const items = f.showcases
-        .filter((s) => !q || s.id.toLowerCase().includes(q))
-        .map((s) => {
-          const isSel = !isLoadFailure && s.id === this.state.selected
+    const tree = CATALOG.map((c) => {
+      const items = c.entries.filter((e) => !q || e.id.toLowerCase().includes(q))
+      const open = q ? items.length > 0 : this.state.open[c.component] === true
+      return {
+        name: c.component,
+        count: `${items.length}`,
+        caret: open ? '▾' : '▸',
+        open,
+        toggle: () => this.setState((s) => ({ open: { ...s.open, [c.component]: !(s.open[c.component] === true) } })),
+        items: items.map((e) => {
+          const isSel = e.id === this.state.selected
+          const isLive = e.component === LIVE_COMPONENT
           return {
-            id: s.id,
-            label: s.id.split('/').slice(1).join('/'),
-            kind: s.kind.toUpperCase(),
-            dot: dotFor(this.statusOf(s)),
+            label: e.state,
+            live: isLive,
             bg: isSel ? 'var(--sel)' : 'transparent',
             fg: isSel ? 'var(--ink)' : 'var(--ink-2)',
-            select: () => this.setState({ selected: s.id, at: null, override: null }),
+            dotStyle: `width:6px;height:6px;flex:none;margin-top:5px;border-radius:50%;${isLive ? 'background:var(--accent)' : 'border:1px solid var(--ink-3)'}`,
+            select: () => this.setState({ selected: e.id }),
           }
-        })
-      const fileStatus = f.loadError
-        ? (this.state.running && !this.state.ran.has(f.path) ? 'pending' : 'failed')
-        : f.showcases.some((s) => this.statusOf(s) === 'failed')
-          ? 'failed'
-          : f.showcases.every((s) => this.statusOf(s) === 'passed') ? 'passed' : 'pending'
-      const open = this.state.open[f.path] !== false
-      return {
-        path: f.path,
-        component: f.component ?? '',
-        hasComponent: !!f.component && items.length > 0,
-        count: `${items.length}`,
-        items,
-        open: open && (items.length > 0 || !!f.loadError),
-        caret: open ? '▾' : '▸',
-        dot: dotFor(fileStatus),
-        loadError: !!f.loadError,
-        rowBg: isLoadFailure && this.state.selected === f.path ? 'var(--sel)' : 'transparent',
-        select: () => this.setState({ selected: f.path, tab: 'report' }),
-        toggle: () => this.setState((s) => ({ open: { ...s.open, [f.path]: !(s.open[f.path] !== false) } })),
+        }),
       }
-    }).filter((f) => !q || f.items.length > 0 || f.path.toLowerCase().includes(q))
+    }).filter((c) => !q || c.items.length > 0 || c.name.toLowerCase().includes(q))
 
-    const runnable = this.all()
-    const done = runnable.filter((s) => this.statusOf(s) !== 'pending')
-    const failedFiles = CATALOG.filter((f) => f.loadError && (!this.state.running || this.state.ran.has(f.path))).length
-    const summary = {
-      total: `${runnable.length + CATALOG.filter((f) => f.loadError).length} total`,
-      passed: `${done.filter((s) => s.status === 'passed').length} passed`,
-      failed: `${done.filter((s) => s.status === 'failed').length + failedFiles} failed`,
-      duration: this.state.running ? 'running…' : '412ms',
-    }
+    const fkReady = this.state.mountedOk
+    const runtimePill = fkReady
+      ? 'foldkit 0.138.0 · mounted'
+      : this.state.fkError ? 'foldkit unavailable' : 'loading foldkit…'
+    const pillFg = fkReady ? 'var(--pass)' : this.state.fkError ? 'var(--fail)' : 'var(--ink-3)'
 
-    const docsFile = file && file.schemas ? file : CATALOG[0]
-    const docs = {
-      component: docsFile.component,
-      path: `docs/schemas/${docsFile.component}.md`,
-      showcaseList: docsFile.showcases.map((s) => s.id).sort().join(', '),
-      messages: docsFile.schemas.messages,
-      model: docsFile.schemas.model,
-      gapLine: `Not showcased: — ${docsFile.gap}.`,
-    }
-
-    const coverage = (file && file.showcases.length ? file.showcases : CATALOG[0].showcases).map((s) => ({
-      id: s.id,
-      mark: this.statusOf(s) === 'passed' ? '✓' : this.statusOf(s) === 'failed' ? '✗' : '·',
-      color: dotFor(this.statusOf(s)),
-      lines: s.coverage.lines,
-      fns: s.coverage.fns,
+    const trailRows = this.state.trail.map((r, i) => ({
+      index: pad3(i + 1),
+      tag: r.tag,
+      delta: r.delta,
+      dot: 'var(--diff)',
+      dotSolid: 'var(--accent)',
+      kind: 'message',
+      detail: `clicks ${i} → ${i + 1}`,
     }))
-
-    const gaps = CATALOG.filter((f) => f.gap).map((f) => ({
-      component: f.component,
-      text: f.gap,
-      color: 'var(--pass)',
-    }))
-
-    const jsonText = JSON.stringify({
-      suite: {
-        total: runnable.length + 1,
-        passed: runnable.filter((s) => s.status === 'passed').length,
-        failed: 2,
-        reports: [
-          { id: sc ? sc.id : null, status, file: `/abs/examples/counter/${file ? file.path : ''}` },
-          {
-            id: 'tasks/adds-in-order',
-            status: 'failed',
-            file: '/abs/examples/counter/src/tasks.showcase.ts',
-            error: { name: 'AssertionError', code: 'ERR_ASSERTION', message: 'expected 2, got 1' },
-          },
-        ],
-      },
-    }, null, 2)
 
     return {
       rootStyle,
       themeGlyph: theme === 'dark' ? '☾' : '☀',
-      toggleTheme: () => this.setState({ theme: theme === 'dark' ? 'light' : 'dark' }),
-      isReportFirst: this.mode === 'report-first',
-      isSourceFirst: this.mode === 'source-first',
-      runAll: this.runAll,
-      runLabel: this.state.running ? 'Running' : 'Run all',
-      spinnerStyle: this.state.running
+      toggleTheme: () => {
+        const next = theme === 'dark' ? 'light' : 'dark'
+        this.setState({ theme: next, clicks: 0, trail: [], mountedOk: false }, () => {
+          if (this.frame) this.frame.srcdoc = this.frameDoc(THEMES[next])
+        })
+      },
+      reload: () => {
+        if (this.state.reloading) return
+        this.setState({ reloading: true })
+        setTimeout(() => this.setState({ reloading: false }), 900)
+      },
+      reloadLabel: this.state.reloading ? 'Loading' : 'Reload catalog',
+      spinnerStyle: this.state.reloading
         ? 'width:11px;height:11px;border:1.5px solid currentColor;border-top-color:transparent;border-radius:50%;display:inline-block;animation:fc-spin 0.7s linear infinite'
         : 'display:none',
       query: this.state.query,
       onQuery: (e) => this.setState({ query: e.target.value }),
-      summary,
+      summaryLeft: `${TOTAL} showcases`,
+      summaryRight: `${CATALOG.length} components`,
+      sidebarFoot: 'foldcase_load_catalog · no run yet, so no status',
       tree,
+
       tabs: tabs.map((t) => ({
         label: t.label,
         underline: t.key === tab ? 'var(--ink)' : 'transparent',
         fg: t.key === tab ? 'var(--ink)' : 'var(--ink-3)',
         select: () => this.setState({ tab: t.key }),
       })),
-      isLoadFailure,
-      tabCanvas: !isLoadFailure && tab === 'canvas',
-      preview: isLoadFailure ? { hasView: false, note: '' } : this.previewFor(sc, file),
-      previewMissing: !isLoadFailure && tab === 'canvas' && !(file && file.view === 'counter'),
-      tabReport: !isLoadFailure && tab === 'report',
-      tabTimeline: !isLoadFailure && tab === 'timeline',
-      tabSource: !isLoadFailure && tab === 'source',
-      tabView: !isLoadFailure && tab === 'view',
-      tabDocs: !isLoadFailure && tab === 'docs',
-      sel: isLoadFailure
-        ? { file: file.path, errorText: file.loadError, id: file.path, status: 'failed', statusMark: '✗' }
-        : {
-            id: sc.id,
-            file: `examples/counter/${file.path}`,
-            kind: sc.kind,
-            status,
-            statusMark: st.mark,
-            statusFg: st.fg,
-            statusBg: st.bg,
-            duration: `${sc.ms}ms`,
-            hasError: status === 'failed' && !!sc.error,
-            errorName: sc.error ? sc.error.name : '',
-            errorText: sc.error ? sc.error.text : '',
-            source: sc.source,
-            steps: sc.steps.map((s) => ({ kind: s.kind, text: s.text, detail: s.detail, color: STEP_COLOR[s.kind] })),
-            tree: sc.tree ?? '',
-            locators: (sc.locators ?? []).map((l) => ({ ...l, color: 'var(--pass)' })),
-          },
-      docs,
+      tabCanvas: tab === 'canvas',
+      tabEntry: tab === 'entry',
+      tabTimeline: tab === 'timeline',
+      tabSchema: tab === 'schema',
+
+      sel: {
+        id: entry.id,
+        component: entry.component,
+        file: entry.file.replace(`${GALLERY_ROOT}/`, ''),
+        listedNote: 'foldcase_list_showcases — the catalog reports no status until a run',
+        facts: [
+          { label: 'component', value: entry.component, fg: 'var(--ink)' },
+          { label: 'state', value: entry.state, fg: 'var(--ink)' },
+          { label: 'file', value: entry.file, fg: 'var(--ink-2)' },
+          { label: 'hasMount', value: 'true', fg: 'var(--pass)' },
+          { label: 'hasMessageSchema', value: 'true', fg: 'var(--pass)' },
+          { label: 'hasModelSchema', value: 'true', fg: 'var(--pass)' },
+        ],
+        entryNote: 'These six fields are the whole listing entry. Anything else a catalog browser might show — pass or fail, how long it took, which Messages the play dispatched — is not in the data, and is reachable only by running the showcase.',
+      },
+
+      preview: {
+        host: this.attachHost,
+        hostStyle: live ? 'height:186px' : 'height:0',
+        mountLine: liveOk ? 'mounted { update, view } · foldkit from esm.sh' : 'hasMount: true',
+        title: liveOk ? `button — ${this.state.clicks} clicks` : entry.id,
+        dotStyle: `width:6px;height:6px;border-radius:50%;background:${liveOk ? 'var(--pass)' : 'var(--ink-3)'}`,
+        isLive: liveOk,
+        showNote: !liveOk,
+        note: live
+          ? (this.state.fkError ? `foldkit did not load — ${this.state.fkError}` : 'loading foldkit from esm.sh…')
+          : `${entry.component}.ts is not carried by this prototype.\n\nThe real lab imports it from the catalog and mounts it here.\nOnly ${LIVE_COMPONENT} runs live, to prove the mount is real.`,
+        modelText: `{ clicks: ${this.state.clicks} }`,
+        remount: () => this.remount(),
+      },
+
+      trail: {
+        rows: trailRows,
+        isEmpty: trailRows.length === 0,
+        emptyNote: liveOk
+          ? 'Nothing dispatched yet. Click the component — each Message that reaches update lands here.'
+          : 'The trail records real dispatches, so it fills only while a component is mounted.',
+        headLabel: liveOk ? 'Live' : 'Idle',
+        headFg: liveOk ? 'var(--pass)' : 'var(--ink-3)',
+        headDot: `width:6px;height:6px;border-radius:50%;background:${liveOk ? 'var(--pass)' : 'var(--ink-3)'}`,
+        clear: () => this.setState({ trail: [] }),
+        fill: trailRows.length === 0 ? '0%' : '100%',
+        position: `${pad3(trailRows.length)} / ${pad3(trailRows.length)}`,
+      },
+      timelineNote: 'A play is an opaque thunk — the runner never looks inside it, and the catalog listing carries no trace of one. What can be recorded is a live mount: every Message that reaches update while you interact with the component.',
+
+      schemaWarning: 'One Message union covers the whole catalog. Asking for button and asking for calendar returned the same 45,759-byte document, so a per-component schema table would be the same table 24 times over. Until the catalog splits its unions, this tab is honest only as a catalog-wide view.',
+      schemaFacts: [
+        { label: 'hasMessageSchema', value: 'true', fg: 'var(--pass)' },
+        { label: 'hasModelSchema', value: 'true', fg: 'var(--pass)' },
+        { label: 'distinct documents', value: '1 across 24 components', fg: 'var(--fail)' },
+        { label: 'document size', value: '45,759 bytes', fg: 'var(--ink-2)' },
+      ],
+
       panels: [
-        { key: 'coverage', label: 'Coverage', badge: '', hasBadge: false },
-        { key: 'gaps', label: 'Gaps', badge: `${gaps.length}`, hasBadge: true },
-        ...(this.props.showAgentPanel === false ? [] : [{ key: 'agent', label: 'Agent (MCP)', badge: '6', hasBadge: true }]),
+        { key: 'runtime', label: 'Runtime', badge: '', hasBadge: false },
+        { key: 'absent', label: 'Not in the data', badge: `${ABSENT.length}`, hasBadge: true, badgeBg: 'var(--fail-bg)', badgeFg: 'var(--fail)' },
+        ...(this.props.showAgentPanel === false ? [] : [{ key: 'agent', label: 'Agent (MCP)', badge: '6', hasBadge: true, badgeBg: 'var(--sunken)', badgeFg: 'var(--ink-3)' }]),
         { key: 'json', label: 'JSON', badge: '', hasBadge: false },
       ].map((p) => ({
         label: p.label,
         badge: p.badge,
         hasBadge: p.hasBadge,
+        badgeBg: p.badgeBg ?? 'var(--sunken)',
+        badgeFg: p.badgeFg ?? 'var(--ink-3)',
         underline: p.key === this.state.panel ? 'var(--ink)' : 'transparent',
         fg: p.key === this.state.panel ? 'var(--ink)' : 'var(--ink-3)',
         select: () => this.setState({ panel: p.key }),
@@ -1003,14 +709,36 @@ class Component extends DCLogic {
       drawerOpen: this.state.drawerOpen,
       drawerGlyph: this.state.drawerOpen ? '⌄' : '⌃',
       toggleDrawer: () => this.setState((s) => ({ drawerOpen: !s.drawerOpen })),
-      panelCoverage: this.state.drawerOpen && this.state.panel === 'coverage',
-      panelGaps: this.state.drawerOpen && this.state.panel === 'gaps',
+      panelRuntime: this.state.drawerOpen && this.state.panel === 'runtime',
+      panelAbsent: this.state.drawerOpen && this.state.panel === 'absent',
       panelAgent: this.state.drawerOpen && this.state.panel === 'agent',
       panelJson: this.state.drawerOpen && this.state.panel === 'json',
-      coverage,
-      gaps,
+
+      runtime: {
+        pillText: runtimePill,
+        pillStyle: `padding:4px 9px;border:1px solid var(--line);border-radius:5px;background:var(--sunken);font-family:'JetBrains Mono',monospace;font-size:11.5px;color:${pillFg}`,
+        note: 'Foldkit is loaded straight from esm.sh with no build step, so the preview is the real render pipeline rather than a picture of one.',
+        rows: [
+          { label: 'foldkit@0.138.0', value: fkReady ? 'mounted in its own document; warm start ~200ms, cold ~20s' : 'loading', fg: fkReady ? 'var(--pass)' : 'var(--ink-3)' },
+          { label: 'preview is a frame', value: 'The shell re-renders on every dispatch, which wipes an in-tree mount — and the component must not style the shell. Both point at an isolated document.', fg: 'var(--ink-2)' },
+          { label: 'effect@4.0.0-beta.103', value: 'peer dependency, resolved through the same CDN pin', fg: fkReady ? 'var(--pass)' : 'var(--ink-3)' },
+          { label: 'no Style attribute', value: 'The builder offers Class, Id, Key, Title and every On* handler. A style string crashes the application, so the mounted component is styled from a stylesheet.', fg: 'var(--fail)' },
+          { label: 'container is owned', value: 'makeApplication replaces the node it is given, so a mount gets its own child element.', fg: 'var(--ink-2)' },
+          { label: 'update is async', value: 'It runs on an Effect fiber, so the Model lands a tick after the event.', fg: 'var(--ink-2)' },
+        ],
+      },
+
+      absentNote: 'Held against proto/catalog.json from the gallery run. Each row is a field the first draft of this design leaned on, and what the real catalog carries instead.',
+      absent: ABSENT,
       tools: TOOLS,
-      jsonText,
+      jsonText: JSON.stringify({
+        id: entry.id,
+        component: entry.component,
+        file: entry.file,
+        hasMount: true,
+        hasMessageSchema: true,
+        hasModelSchema: true,
+      }, null, 2) + `\n\n// catalog: { total: ${TOTAL}, failures: [] }`,
     }
   }
 }

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Spike — Foldkit from CDN</title>
+<style>
+  body { margin: 0; font: 14px/1.5 ui-monospace, monospace; background: #1e1c21; color: #FAFAFA; }
+  #log { padding: 16px 20px; border-bottom: 1px solid #34313a; }
+  #log div { padding: 2px 0; }
+  .ok { color: #7ee2a8; }
+  .bad { color: #ff8f7a; white-space: pre-wrap; }
+  .dim { color: #7a7683; }
+  #root { padding: 20px; }
+  .wrap { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 24px; }
+  .count { font-size: 48px; margin: 0; }
+  .row { display: flex; gap: 8px; }
+  .btn { min-width: 44px; height: 34px; border: 1px solid #34313a; background: #26242b; color: #FAFAFA; font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="log"></div>
+<div id="root"></div>
+<script type="module">
+const log = document.getElementById('log')
+const say = (text, cls = 'dim') => {
+  const el = document.createElement('div')
+  el.className = cls
+  el.textContent = text
+  log.appendChild(el)
+}
+
+const V = '4.0.0-beta.103'
+const FK = '0.138.0'
+const deps = `deps=effect@${V},@effect/platform-browser@${V}`
+const url = (sub) => `https://esm.sh/foldkit@${FK}${sub}?${deps}`
+
+const t0 = performance.now()
+try {
+  say(`importing effect@${V} …`)
+  const effect = await import(`https://esm.sh/effect@${V}`)
+  say(`effect ok — Schema ${typeof effect.Schema}, Match ${typeof effect.Match}`, 'ok')
+
+  say(`importing foldkit@${FK} …`)
+  const [fk, fkHtml, fkMessage, fkStruct] = await Promise.all([
+    import(url('')),
+    import(url('/html')),
+    import(url('/message')),
+    import(url('/struct')),
+  ])
+  say(`foldkit ok — Runtime ${typeof fk.Runtime}, makeApplication ${typeof fk.Runtime?.makeApplication}`, 'ok')
+  say(`html ok — ${Object.keys(fkHtml).join(', ')}`, 'ok')
+  say(`message ok — m ${typeof fkMessage.m}`, 'ok')
+
+  const { Match: M, Schema: S } = effect
+  const { m } = fkMessage
+  const { evo } = fkStruct
+  const { Runtime } = fk
+
+  // The counter, transcribed from examples/counter/src/main.ts — same calls,
+  // no type annotations.
+  const Model = S.Struct({ count: S.Number })
+  const ClickedDecrement = m('ClickedDecrement')
+  const ClickedIncrement = m('ClickedIncrement')
+  const ClickedReset = m('ClickedReset')
+  const Message = S.Union([ClickedDecrement, ClickedIncrement, ClickedReset])
+
+  const update = (model, message) =>
+    M.value(message).pipe(
+      M.tagsExhaustive({
+        ClickedDecrement: () => [evo(model, { count: (c) => c - 1 }), []],
+        ClickedIncrement: () => [evo(model, { count: (c) => c + 1 }), []],
+        ClickedReset: () => [evo(model, { count: () => 0 }), []],
+      }),
+    )
+
+  const init = () => [{ count: 0 }, []]
+
+  let reported = false
+  const view = (model, h) => {
+    if (!reported) {
+      reported = true
+      const keys = Object.keys(h).filter((k) => /^[A-Z]/.test(k))
+      setTimeout(() => say('builder attributes — ' + keys.join(', '), 'dim'), 0)
+    }
+    return {
+      title: `Counter: ${model.count}`,
+      body: h.div([h.Class('wrap')], [
+        h.p([h.Class('count')], [model.count.toString()]),
+        h.div([h.Class('row')], [
+          h.button([h.OnClick(ClickedDecrement()), h.Class('btn')], ['-']),
+          h.button([h.OnClick(ClickedReset()), h.Class('btn')], ['Reset']),
+          h.button([h.OnClick(ClickedIncrement()), h.Class('btn')], ['+']),
+        ]),
+      ]),
+    }
+  }
+
+  say('mounting …')
+  const application = Runtime.makeApplication({
+    Model,
+    init,
+    update,
+    view,
+    container: document.getElementById('root'),
+  })
+  Runtime.run(application)
+  say(`mounted — ${Math.round(performance.now() - t0)}ms total. Click the buttons.`, 'ok')
+} catch (error) {
+  say(`FAILED after ${Math.round(performance.now() - t0)}ms`, 'bad')
+  say(String(error && error.stack ? error.stack : error), 'bad')
+}
+</script>
+</body>
+</html>
