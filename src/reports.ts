@@ -89,7 +89,11 @@ export class LabDocument extends Schema.Class<LabDocument>("foldcase/LabDocument
 export { ShowcaseModuleError } from "./cli.js"
 export { SkippedFile } from "./coverage/coverage.js"
 export { CoverageReport, FileCoverage, ShowcaseCoverage } from "./coverage/report.js"
-export { ComponentGap, StaleDoc, WrittenDoc } from "./docs/generate.js"
+export { ComponentGap, ComponentTables, StaleDoc, WrittenDoc } from "./docs/generate.js"
+// The rows a Schema table is made of. `ComponentTables` is built from them, and
+// the browser lab renders them, so a consumer reading one table out of a
+// document names the Schema the rows were derived with.
+export { FieldDoc, MessageVariant } from "./docs/schema-table.js"
 export { InitArtifact, InitFileError } from "./init.js"
 export { LabCatalog, LabComponent, LabEntry } from "./lab/catalog.js"
 export { LabEntryFile } from "./lab/scaffold.js"

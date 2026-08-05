@@ -8,7 +8,9 @@ import * as Schema from "effect/Schema"
 
 import type { Showcase } from "../runner.js"
 import {
+  FieldDoc,
   introspectDocument,
+  MessageVariant,
   messageTags,
   messageVariants,
   modelFields,
@@ -84,28 +86,33 @@ const declaring = (
 ): Option.Option<Showcase> =>
   Arr.findFirst(showcases, (showcase) => showcase[field] !== undefined)
 
-/** Render the `## Messages` section from a component's Message-union Schema, if one is declared. */
-const messageSection = Effect.fn("foldcase.docs.messageSection")(function* (
+/**
+ * The rows of a component's Messages table, from the Message Schema it
+ * declares. `none` when it declares none — which an empty array must never be
+ * read as, because a union with no variants is a different answer from no union
+ * at all.
+ */
+const messageRows = Effect.fn("foldcase.docs.messageRows")(function* (
   showcases: ReadonlyArray<Showcase>,
 ) {
   const source = declaring(showcases, "message")
   if (Option.isNone(source) || source.value.message === undefined) {
-    return Option.none<string>()
+    return Option.none<ReadonlyArray<MessageVariant>>()
   }
   const document = yield* introspectDocument(source.value.id, source.value.message)
-  return Option.some(`## Messages\n\n${renderMessageTable(messageVariants(document))}`)
+  return Option.some(messageVariants(document))
 })
 
-/** Render the `## Model` section from a component's Model Schema, if one is declared. */
-const modelSection = Effect.fn("foldcase.docs.modelSection")(function* (
+/** The rows of a component's Model table, from the Model Schema it declares. `none` when it declares none. */
+const modelRows = Effect.fn("foldcase.docs.modelRows")(function* (
   showcases: ReadonlyArray<Showcase>,
 ) {
   const source = declaring(showcases, "model")
   if (Option.isNone(source) || source.value.model === undefined) {
-    return Option.none<string>()
+    return Option.none<ReadonlyArray<FieldDoc>>()
   }
   const document = yield* introspectDocument(source.value.id, source.value.model)
-  return Option.some(`## Model\n\n${renderModelTable(modelFields(document))}`)
+  return Option.some(modelFields(document))
 })
 
 /**
@@ -219,6 +226,52 @@ export const componentGaps = Effect.fn("foldcase.docs.componentGaps")(function* 
   return Arr.sort(Arr.getSomes(gaps), byGapComponent)
 })
 
+// THE TABLES, AS DATA
+
+/**
+ * One component's Schema tables as rows, before anything renders them: the
+ * Message variants, the Model fields, and the message-tag gap. This is what
+ * `foldcase docs` derives and what the browser lab shows in its Docs tab, so
+ * the two read the same derivation instead of the lab parsing Markdown back
+ * into rows.
+ *
+ * `messages` and `model` are absent when the component declares no such Schema,
+ * which an empty array must never be read as: a union with no variants and no
+ * union at all are different answers, and only one of them is a page worth
+ * rendering. `gap` is absent when the gap is not knowable — see
+ * {@link ComponentGap}.
+ */
+export class ComponentTables extends Schema.Class<ComponentTables>("ComponentTables")({
+  component: Schema.String,
+  messages: Schema.optional(Schema.Array(MessageVariant)),
+  model: Schema.optional(Schema.Array(FieldDoc)),
+  gap: Schema.optional(ComponentGap),
+}) {}
+
+/**
+ * Derive one component's tables from its Showcases: each table read from the
+ * first Showcase, in id order, that declares that Schema — the same rule the
+ * Markdown is written by, because the Markdown is written from this. Fails
+ * {@link SchemaIntrospectionError} when a declared Schema will not introspect.
+ */
+export const componentTables = Effect.fn("foldcase.docs.componentTables")(function* (
+  group: ReadonlyArray<Showcase>,
+) {
+  const showcases = Arr.sort(group, byId)
+  const head = showcases[0] as Showcase
+  const gap = yield* componentGap(showcases)
+  const messages = yield* messageRows(showcases)
+  const model = yield* modelRows(showcases)
+  return new ComponentTables({
+    component: componentName(head.id),
+    messages: Option.getOrUndefined(messages),
+    model: Option.getOrUndefined(model),
+    gap: Option.getOrUndefined(gap),
+  })
+})
+
+// MARKDOWN
+
 const tagList = (tags: ReadonlyArray<string>): string =>
   tags.map((tag) => `\`${tag}\``).join(", ")
 
@@ -260,18 +313,21 @@ export const renderComponentDoc = Effect.fn("foldcase.docs.renderComponentDoc")(
   group: ReadonlyArray<Showcase>,
 ) {
   const showcases = Arr.sort(group, byId)
-  const head = showcases[0] as Showcase
-  const gap = yield* componentGap(showcases)
-  const message = yield* messageSection(showcases)
-  const model = yield* modelSection(showcases)
+  const tables = yield* componentTables(showcases)
+  const gap = Option.fromNullishOr(tables.gap)
   const sections = Arr.getSomes([
-    Option.map(message, (section) => [section, ...gapLines(gap)].join("\n\n")),
-    model,
+    Option.map(Option.fromNullishOr(tables.messages), (variants) =>
+      [`## Messages\n\n${renderMessageTable(variants)}`, ...gapLines(gap)].join("\n\n"),
+    ),
+    Option.map(
+      Option.fromNullishOr(tables.model),
+      (fields) => `## Model\n\n${renderModelTable(fields)}`,
+    ),
   ])
   if (Arr.isReadonlyArrayEmpty(sections)) {
     return Option.none<ComponentDoc>()
   }
-  const component = componentName(head.id)
+  const component = tables.component
   // With the ids out of the filename, the document is the only place that says
   // which Showcases stand behind these tables. A lone Showcase is already named
   // by the title, so listing it again would be noise.

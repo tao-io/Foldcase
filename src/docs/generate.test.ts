@@ -4,7 +4,7 @@ import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
 import type { Showcase } from "../runner.js"
-import { componentGaps, generateComponentDocs, renderComponentDoc } from "./generate.js"
+import { componentGaps, componentTables, generateComponentDocs, renderComponentDoc } from "./generate.js"
 
 const Message = Schema.Union([
   Schema.TaggedStruct("Increment", {}),
@@ -165,6 +165,77 @@ describe("renderComponentDoc", () => {
     const doc = await Effect.runPromise(renderComponentDoc([bare]))
 
     expect(Option.isNone(doc)).toBe(true)
+  })
+})
+
+describe("componentTables", () => {
+  test("hands out the Message variants and Model fields as rows, named by component", async () => {
+    const tables = await Effect.runPromise(componentTables([full]))
+
+    expect(tables.component).toBe("counter")
+    expect(tables.messages?.map((variant) => variant.tag)).toEqual(["Increment", "SetLabel"])
+    expect(tables.messages?.[1]?.fields).toEqual([
+      { name: "label", type: "string", optional: false },
+    ])
+    expect(tables.model?.map((field) => field.name)).toEqual(["count", "label"])
+  })
+
+  test("leaves a table out when the component declares no such Schema", async () => {
+    const messageOnly: Showcase = { id: "widget/one", play: () => {}, message: Message }
+    const tables = await Effect.runPromise(componentTables([messageOnly, bare]))
+
+    expect(tables.component).toBe("widget")
+    expect(tables.messages).toHaveLength(2)
+    // Absent, not empty: an empty Model table is a Model with no fields, which
+    // is a page, and no Model at all is not.
+    expect(tables.model).toBeUndefined()
+  })
+
+  test("keeps a declared but empty table, so it does not read as undeclared", async () => {
+    class Empty extends Schema.Class<Empty>("Empty")({}) {}
+    const hollow: Showcase = { id: "widget/hollow", play: () => {}, model: Empty }
+    const tables = await Effect.runPromise(componentTables([hollow]))
+
+    expect(tables.model).toEqual([])
+    expect(tables.messages).toBeUndefined()
+  })
+
+  test("reads each table from the first Showcase that declares it, in id order", async () => {
+    const quiet: Showcase = { id: "counter/aa-quiet", play: () => {} }
+    const loud: Showcase = {
+      id: "counter/bb-loud",
+      play: () => {},
+      message: Schema.Union([Schema.TaggedStruct("Cleared", {})]),
+    }
+    const later: Showcase = {
+      id: "counter/cc-later",
+      play: () => {},
+      message: Schema.Union([Schema.TaggedStruct("Ignored", {})]),
+      model: Model,
+    }
+    const tables = await Effect.runPromise(componentTables([later, quiet, loud]))
+
+    expect(tables.messages?.map((variant) => variant.tag)).toEqual(["Cleared"])
+    // Nothing earlier declares a Model, so the later one still supplies it.
+    expect(tables.model?.map((field) => field.name)).toEqual(["count", "label"])
+  })
+
+  test("carries the same message-tag gap the Markdown prints, and none when nobody declared", async () => {
+    const increments: Showcase = {
+      id: "counter/increments",
+      play: () => {},
+      dispatches: ["Increment"],
+      ...schemas,
+    }
+    const declared = await Effect.runPromise(componentTables([increments]))
+
+    expect(declared.gap?.component).toBe("counter")
+    expect(declared.gap?.undispatched).toEqual(["SetLabel"])
+    expect(declared.gap?.unknown).toEqual([])
+
+    const silent = await Effect.runPromise(componentTables([full]))
+
+    expect(silent.gap).toBeUndefined()
   })
 })
 

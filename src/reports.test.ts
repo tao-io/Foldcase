@@ -9,11 +9,14 @@ import * as Schema from "effect/Schema"
 
 import { run } from "./program.js"
 import {
+  ComponentTables,
   CoverageReport,
   DocsDocument,
+  FieldDoc,
   InitDocument,
   LabCatalog,
   LabDocument,
+  MessageVariant,
   TestDocument,
 } from "./reports.js"
 
@@ -127,6 +130,24 @@ describe("the --json documents are a contract a consumer can decode", () => {
       ["AGENTS.md", "created"],
     ])
     await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
+  test("ComponentTables decodes the Schema rows `docs` derives, down to a single row", () => {
+    const encoded = {
+      component: "counter",
+      messages: [{ tag: "Increment", fields: [] }],
+      model: [{ name: "count", type: "number", optional: false }],
+      gap: { component: "counter", undispatched: ["SetLabel"], unknown: [] },
+    }
+    const tables = Schema.decodeUnknownOption(ComponentTables)(encoded)
+
+    expect(Option.isSome(tables)).toBe(true)
+    // And each row on its own, for a reader taking one table out of the
+    // document rather than the whole component.
+    expect(
+      Option.isSome(Schema.decodeUnknownOption(MessageVariant)(encoded.messages[0])),
+    ).toBe(true)
+    expect(Option.isSome(Schema.decodeUnknownOption(FieldDoc)(encoded.model[0]))).toBe(true)
   })
 
   test("and they are published, so a consumer can import them at all", () => {
