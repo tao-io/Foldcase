@@ -868,8 +868,12 @@ const STYLESHEET = `
   border: 1px solid var(--line); border-radius: 6px; background: var(--sunken);
   font: inherit; font-size: 12.5px; color: var(--ink); outline: none; }
 #foldcase-lab-search::placeholder { color: var(--ink-3); }
-#foldcase-lab-search:focus, #foldcase-lab-search:focus-visible {
-  border-color: var(--ink-3); outline: none; }
+/* The design asks for the border shift as this field's focus signal; the ring
+   every other control gets stays on top of it, so a reader tabbing through does
+   not meet one control that signals focus differently from the rest. */
+#foldcase-lab-search:focus { border-color: var(--ink-3); }
+#foldcase-lab-search:focus-visible { border-color: var(--ink-3);
+  outline: 2px solid var(--accent); outline-offset: -2px; }
 #foldcase-lab-summary { flex: none; display: flex; align-items: center; gap: 10px;
   margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--line);
   font-family: var(--mono); font-size: 11px; line-height: normal; color: var(--ink-2);
