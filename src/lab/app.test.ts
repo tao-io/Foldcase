@@ -5,24 +5,31 @@ import { fromString } from "foldkit/url"
 import { type CatalogLoad, type LoadedShowcase, ShowcaseModuleError } from "../cli.js"
 import type { Showcase } from "../runner.js"
 import {
+  catalogRoot,
   ChangedAddress,
-  drawableLabel,
-  isFileExpanded,
-  sidebarFiles,
-  ToggledFile,
-  drawableTotal,
+  ClearedHistory,
   initialModel,
   isComponentExpanded,
   isSelected,
   matchingTotal,
   type Model,
-  MountedShowcase,
   MovedSelection,
   neighbourId,
+  PreviewDispatched,
+  PreviewFailed,
+  PreviewMounted,
+  relativeFile,
+  ReloadedCatalog,
+  Remounted,
+  SelectedPanel,
   SelectedShowcase,
   selectedEntry,
+  SelectedTab,
   sidebarComponents,
+  sidebarFailures,
   ToggledComponent,
+  ToggledDrawer,
+  ToggledTheme,
   TypedQuery,
   update,
 } from "./app.js"
@@ -36,9 +43,6 @@ const bare = urlOf("http://localhost:5198/")
 
 /** A Showcase with nothing to draw: the pre-`mount` shape, still valid. */
 const plain = (id: string): Showcase => ({ id, play: () => {} })
-
-/** A Showcase the lab can put on the canvas, because it declares the seam. */
-const drawable = (id: string): Showcase => ({ ...plain(id), mount: () => () => {} })
 
 const loadOf = (
   entries: ReadonlyArray<LoadedShowcase>,
@@ -171,12 +175,245 @@ describe("update", () => {
     ])
   })
 
-  test("records that the canvas drew without moving anything, because a mount is not a navigation", () => {
+  test("records that the canvas painted without moving anything, because a mount is not a navigation", () => {
     const before = initialModel(catalogOf("button/one", "button/two"), bare)
-    const [model, commands] = update(before, MountedShowcase({ id: "button/one" }))
+    const [model, commands] = update(before, PreviewMounted({ id: "button/one" }))
 
-    expect(model).toBe(before)
+    expect(model.maybeSelectedId).toEqual(before.maybeSelectedId)
     expect(commands).toEqual([])
+  })
+})
+
+describe("the theme", () => {
+  test("opens dark, which is the theme the design names as the default", () => {
+    expect(initialModel(catalogOf("button/one"), bare).theme).toBe("dark")
+  })
+
+  test("swaps to light and back, so one control covers both directions", () => {
+    const [light] = update(initialModel(catalogOf("button/one"), bare), ToggledTheme())
+    const [dark] = update(light, ToggledTheme())
+
+    expect(light.theme).toBe("light")
+    expect(dark.theme).toBe("dark")
+  })
+
+  test("keeps the mount, because re-skinning is a cascade and not a rebuild", () => {
+    const before = initialModel(catalogOf("button/one"), bare)
+    const [painted] = update(before, PreviewMounted({ id: "button/one" }))
+    const [light, commands] = update(painted, ToggledTheme())
+
+    expect(light.mounted).toBe(true)
+    expect(light.remounts).toBe(painted.remounts)
+    expect(commands).toEqual([])
+  })
+})
+
+describe("the canvas tabs and the addon drawer", () => {
+  const opened = () => initialModel(catalogOf("button/one"), bare)
+
+  test("opens on Canvas, on the Runtime panel, with the drawer open", () => {
+    const model = opened()
+
+    expect([model.tab, model.panel, model.drawerOpen]).toEqual(["canvas", "runtime", true])
+  })
+
+  test("moves to the tab that was chosen, and writes no address, because a tab is not a selection", () => {
+    const [model, commands] = update(opened(), SelectedTab({ tab: "schema" }))
+
+    expect(model.tab).toBe("schema")
+    expect(commands).toEqual([])
+  })
+
+  test("moves to the drawer panel that was chosen", () => {
+    const [model] = update(opened(), SelectedPanel({ panel: "absent" }))
+
+    expect(model.panel).toBe("absent")
+  })
+
+  test("collapses the drawer and opens it again, so the strip is the only thing that stays", () => {
+    const [shut] = update(opened(), ToggledDrawer())
+    const [open] = update(shut, ToggledDrawer())
+
+    expect(shut.drawerOpen).toBe(false)
+    expect(open.drawerOpen).toBe(true)
+  })
+
+  test("keeps the tab when the selection moves, so walking the catalog stays on one reading", () => {
+    const [schema] = update(
+      initialModel(catalogOf("button/one", "button/two"), bare),
+      SelectedTab({ tab: "entry" }),
+    )
+    const [moved] = update(schema, SelectedShowcase({ id: "button/two" }))
+
+    expect(moved.tab).toBe("entry")
+  })
+})
+
+describe("the mount, and whether it really painted", () => {
+  const one = () => initialModel(catalogOf("button/one", "button/two"), bare)
+
+  test("opens claiming nothing, because no paint has been verified yet", () => {
+    expect(one().mounted).toBe(false)
+  })
+
+  test("claims a live mount only once a paint is reported", () => {
+    const [model] = update(one(), PreviewMounted({ id: "button/one" }))
+
+    expect(model.mounted).toBe(true)
+  })
+
+  test("says a mount failed rather than staying silent, so an empty card is never called Live", () => {
+    const [painted] = update(one(), PreviewMounted({ id: "button/one" }))
+    const [failed] = update(painted, PreviewFailed({ id: "button/one" }))
+
+    expect(failed.mounted).toBe(false)
+    expect(failed.previewFailed).toBe(true)
+  })
+
+  test("drops the claim when the selection moves, because the next mount has not painted yet", () => {
+    const [painted] = update(one(), PreviewMounted({ id: "button/one" }))
+    const [moved] = update(painted, SelectedShowcase({ id: "button/two" }))
+
+    expect(moved.mounted).toBe(false)
+    expect(moved.previewFailed).toBe(false)
+  })
+
+  test("rebuilds the preview on a remount, which is a new key and a Model back at init", () => {
+    const [painted] = update(one(), PreviewMounted({ id: "button/one" }))
+    const [again] = update(painted, Remounted())
+
+    expect(again.remounts).toBe(painted.remounts + 1)
+    expect(again.mounted).toBe(false)
+  })
+})
+
+describe("the dispatch trail", () => {
+  const one = () => initialModel(catalogOf("button/one", "button/two"), bare)
+
+  test("opens empty, because nothing has been dispatched", () => {
+    expect(one().trail).toEqual([])
+  })
+
+  test("appends one row per dispatch, keeping the delta the preview measured", () => {
+    const [first] = update(one(), PreviewDispatched({ tag: "Clicked()", delta: 412 }))
+    const [second] = update(first, PreviewDispatched({ tag: "ChangedStep({ step: 10 })", delta: 97 }))
+
+    expect(second.trail).toEqual([
+      { tag: "Clicked()", delta: 412 },
+      { tag: "ChangedStep({ step: 10 })", delta: 97 },
+    ])
+  })
+
+  test("clears on request, on a remount, and on a new selection, so a trail names one mount only", () => {
+    const [filled] = update(one(), PreviewDispatched({ tag: "Clicked()", delta: 1 }))
+
+    expect(update(filled, ClearedHistory())[0].trail).toEqual([])
+    expect(update(filled, Remounted())[0].trail).toEqual([])
+    expect(update(filled, SelectedShowcase({ id: "button/two" }))[0].trail).toEqual([])
+  })
+})
+
+describe("reloading the catalog", () => {
+  test("says it is reloading and leaves for the address it is on, which is what rebuilds the tree", () => {
+    const model = initialModel(
+      catalogOf("button/one"),
+      urlOf("http://localhost:5198/?showcase=button%2Fone"),
+    )
+    const [reloading, commands] = update(model, ReloadedCatalog())
+
+    expect(reloading.reloading).toBe(true)
+    expect(commands.map((command) => [command.name, command.args])).toEqual([
+      ["LeavePage", { href: "http://localhost:5198/?showcase=button%2Fone" }],
+    ])
+  })
+
+  test("is idempotent while it runs, so a second click cannot start a second reload", () => {
+    const model = initialModel(catalogOf("button/one"), bare)
+    const [reloading] = update(model, ReloadedCatalog())
+    const [again, commands] = update(reloading, ReloadedCatalog())
+
+    expect(again.reloading).toBe(true)
+    expect(commands).toEqual([])
+  })
+})
+
+describe("the catalog root, and the path the tab bar shows", () => {
+  const at = (file: string, id: string): LoadedShowcase => ({ file, showcase: plain(id) })
+
+  test("is the deepest directory every file shares, so the path left is the part that differs", () => {
+    const catalog = labCatalogOf(
+      loadOf([
+        at("/app/src/ui/button.showcase.ts", "button/one"),
+        at("/app/src/ui/forms/input.showcase.ts", "input/one"),
+      ]),
+    )
+
+    expect(catalogRoot(catalog)).toBe("/app/src/ui")
+  })
+
+  test("is the file's own directory when one file holds the whole catalog", () => {
+    const catalog = labCatalogOf(loadOf([at("/app/src/button.showcase.ts", "button/one")]))
+
+    expect(catalogRoot(catalog)).toBe("/app/src")
+  })
+
+  test("is empty for a catalog no file backs, so an in-memory catalog names no root", () => {
+    expect(catalogRoot(catalogOf("button/one"))).toBe("")
+  })
+
+  test("stops at a directory boundary rather than at a shared prefix of two names", () => {
+    const catalog = labCatalogOf(
+      loadOf([at("/app/button.showcase.ts", "button/one"), at("/app/butter.showcase.ts", "butter/one")]),
+    )
+
+    expect(catalogRoot(catalog)).toBe("/app")
+  })
+
+  test("shows the path relative to that root, which is the part a reader has not already read", () => {
+    expect(relativeFile("/app/src/ui", "/app/src/ui/forms/input.showcase.ts")).toBe(
+      "forms/input.showcase.ts",
+    )
+    expect(relativeFile("", "/app/src/button.showcase.ts")).toBe("/app/src/button.showcase.ts")
+    expect(relativeFile("/app/src", "/elsewhere/button.showcase.ts")).toBe(
+      "/elsewhere/button.showcase.ts",
+    )
+  })
+})
+
+describe("the files the loader could not read", () => {
+  const failing = (path: string) =>
+    new ShowcaseModuleError({ path, reason: "Cannot find module" })
+
+  const model = () =>
+    initialModel(
+      labCatalogOf(
+        loadOf(
+          [{ file: "/app/src/button.showcase.ts", showcase: plain("button/one") }],
+          [failing("/app/src/broken.showcase.ts"), failing("/app/src/also-broken.showcase.ts")],
+        ),
+      ),
+      bare,
+    )
+
+  test("names every failure, in path order, because a missing component is a question the tree answers", () => {
+    expect(sidebarFailures(model()).map((failure) => failure.path)).toEqual([
+      "/app/src/also-broken.showcase.ts",
+      "/app/src/broken.showcase.ts",
+    ])
+  })
+
+  test("narrows with the filter on the one name such a file has, which is its path", () => {
+    const [narrowed] = update(model(), TypedQuery({ query: "also" }))
+
+    expect(sidebarFailures(narrowed).map((failure) => failure.path)).toEqual([
+      "/app/src/also-broken.showcase.ts",
+    ])
+  })
+
+  test("drops out when the filter matched a component instead", () => {
+    const [narrowed] = update(model(), TypedQuery({ query: "button" }))
+
+    expect(sidebarFailures(narrowed)).toEqual([])
   })
 })
 
@@ -194,21 +431,32 @@ describe("isSelected", () => {
 })
 
 describe("folding a component", () => {
-  test("opens with every component unfolded, so a fresh lab shows the whole catalog", () => {
+  test("opens with only the selection's component unfolded, so a catalog is one screen of names", () => {
     const model = initialModel(catalogOf("alpha/one", "button/one"), bare)
 
-    expect(model.collapsedComponents).toEqual([])
+    expect(model.collapsedComponents).toEqual(["button"])
+    expect(isComponentExpanded(model, "alpha")).toBe(true)
+    expect(isComponentExpanded(model, "button")).toBe(false)
+  })
+
+  test("unfolds the component the address named, not the first one, on a cold deep link", () => {
+    const model = initialModel(
+      catalogOf("alpha/one", "button/one"),
+      urlOf("http://localhost:5198/?showcase=button%2Fone"),
+    )
+
     expect(isComponentExpanded(model, "button")).toBe(true)
+    expect(isComponentExpanded(model, "alpha")).toBe(false)
   })
 
   test("folds the component that was toggled, and unfolds it when it is toggled again", () => {
     const before = initialModel(catalogOf("alpha/one", "button/one"), bare)
-    const [folded] = update(before, ToggledComponent({ component: "button" }))
-    const [unfolded] = update(folded, ToggledComponent({ component: "button" }))
+    const [unfolded] = update(before, ToggledComponent({ component: "button" }))
+    const [folded] = update(unfolded, ToggledComponent({ component: "button" }))
 
+    expect(isComponentExpanded(unfolded, "button")).toBe(true)
     expect(isComponentExpanded(folded, "button")).toBe(false)
     expect(isComponentExpanded(folded, "alpha")).toBe(true)
-    expect(isComponentExpanded(unfolded, "button")).toBe(true)
   })
 
   test("folds nothing but the component named, however many are folded already", () => {
@@ -216,7 +464,9 @@ describe("folding a component", () => {
     const [one] = update(before, ToggledComponent({ component: "button" }))
     const [two] = update(one, ToggledComponent({ component: "card" }))
 
-    expect(two.collapsedComponents).toEqual(["button", "card"])
+    expect(isComponentExpanded(two, "alpha")).toBe(true)
+    expect(isComponentExpanded(two, "button")).toBe(true)
+    expect(isComponentExpanded(two, "card")).toBe(true)
   })
 
   test("folds the component holding the selection, so the click the reader made is the one they see", () => {
@@ -226,7 +476,6 @@ describe("folding a component", () => {
     )
     const [folded] = update(before, ToggledComponent({ component: "button" }))
 
-    expect(folded.collapsedComponents).toEqual(["button"])
     expect(isComponentExpanded(folded, "button")).toBe(false)
   })
 
@@ -235,7 +484,6 @@ describe("folding a component", () => {
     const [folded] = update(before, ToggledComponent({ component: "button" }))
     const [chosen] = update(folded, SelectedShowcase({ id: "button/one" }))
 
-    expect(chosen.collapsedComponents).toEqual([])
     expect(isComponentExpanded(chosen, "button")).toBe(true)
   })
 
@@ -252,13 +500,12 @@ describe("folding a component", () => {
 
   test("leaves a fold alone when the address names an id the catalog never declared", () => {
     const before = initialModel(catalogOf("alpha/one", "button/one"), bare)
-    const [folded] = update(before, ToggledComponent({ component: "button" }))
     const [arrived] = update(
-      folded,
+      before,
       ChangedAddress({ url: urlOf("http://localhost:5198/?showcase=button%2Fnope") }),
     )
 
-    expect(arrived.collapsedComponents).toEqual(["button"])
+    expect(isComponentExpanded(arrived, "button")).toBe(false)
   })
 
   test("moves nothing and writes no address, because folding is not a navigation", () => {
@@ -318,7 +565,7 @@ describe("filtering the catalog", () => {
   })
 
   test("keeps the entries a fold hides, so the heading can say how many it is hiding", () => {
-    const [folded] = update(wide(), ToggledComponent({ component: "button" }))
+    const folded = wide()
 
     expect(drawn(folded)).toEqual([
       ["alpha", ["alpha/opens-clean"]],
@@ -327,8 +574,7 @@ describe("filtering the catalog", () => {
   })
 
   test("shows a match inside a folded component, because a filter that hides its own hits is a lie", () => {
-    const [folded] = update(wide(), ToggledComponent({ component: "button" }))
-    const [filtered] = update(folded, TypedQuery({ query: "counts" }))
+    const [filtered] = update(wide(), TypedQuery({ query: "counts" }))
 
     expect(isComponentExpanded(filtered, "button")).toBe(true)
     expect(drawn(filtered)).toEqual([["button", ["button/counts-one-click"]]])
@@ -342,173 +588,31 @@ describe("filtering the catalog", () => {
   })
 })
 
-describe("the sidebar groups by file, then by component", () => {
-  const at = (file: string, id: string): LoadedShowcase => ({ file, showcase: plain(id) })
-
-  const twoFiles = () =>
-    initialModel(
-      labCatalogOf(
-        loadOf([
-          at("/app/src/button.catalog.ts", "button/starts-unclicked"),
-          at("/app/src/button.catalog.ts", "button/counts-one-click"),
-          at("/app/src/calendar.catalog.ts", "calendar/opens-on-today"),
-        ]),
-      ),
-      bare,
-    )
-
-  const drawnTree = (model: Model) =>
-    sidebarFiles(model).map((file) => [
-      file.path,
-      file.components.map((component) => [
-        component.component,
-        component.entries.map((entry) => entry.id),
-      ]),
-    ])
-
-  test("puts every component under the file that declared it, in path order", () => {
-    expect(drawnTree(twoFiles())).toEqual([
-      ["/app/src/button.catalog.ts", [["button", ["button/counts-one-click", "button/starts-unclicked"]]]],
-      ["/app/src/calendar.catalog.ts", [["calendar", ["calendar/opens-on-today"]]]],
-    ])
-  })
-
-  test("keeps a file holding two components as one file with two groups under it", () => {
-    const model = initialModel(
-      labCatalogOf(
-        loadOf([at("/app/src/ui.catalog.ts", "alpha/one"), at("/app/src/ui.catalog.ts", "beta/one")]),
-      ),
-      bare,
-    )
-
-    expect(drawnTree(model)).toEqual([
-      ["/app/src/ui.catalog.ts", [["alpha", ["alpha/one"]], ["beta", ["beta/one"]]]],
-    ])
-  })
-
-  test("carries a file the loader could not read, so the tree is where the reader meets it", () => {
-    const model = initialModel(
-      labCatalogOf(
-        loadOf([at("/app/src/button.catalog.ts", "button/starts-unclicked")], [
-          new ShowcaseModuleError({ path: "/app/src/broken.catalog.ts", reason: "Cannot find module" }),
-        ]),
-      ),
-      bare,
-    )
-    const files = sidebarFiles(model)
-
-    expect(files.map((file) => [file.path, file.components.length, file.maybeFailure !== undefined])).toEqual(
-      [
-        ["/app/src/broken.catalog.ts", 0, true],
-        ["/app/src/button.catalog.ts", 1, false],
-      ],
-    )
-  })
-
-  test("drops a file the filter emptied, and keeps one whose own path matched", () => {
-    const [narrowed] = update(twoFiles(), TypedQuery({ query: "calendar" }))
-
-    expect(drawnTree(narrowed)).toEqual([
-      ["/app/src/calendar.catalog.ts", [["calendar", ["calendar/opens-on-today"]]]],
-    ])
-  })
-
-  test("takes a folded file's rows out of the arrow keys' walk, because they are not on screen", () => {
-    const model = initialModel(
-      labCatalogOf(
-        loadOf([
-          at("/app/src/a.catalog.ts", "alpha/one"),
-          at("/app/src/b.catalog.ts", "beta/one"),
-          at("/app/src/c.catalog.ts", "gamma/one"),
-        ]),
-      ),
-      bare,
-    )
-    const [folded] = update(model, ToggledFile({ path: "/app/src/b.catalog.ts" }))
-
-    expect(neighbourId(model, 1)).toEqual(Option.some("beta/one"))
-    expect(neighbourId(folded, 1)).toEqual(Option.some("gamma/one"))
-  })
-
-  test("folds a file shut by its path, which is what a file row's click does", () => {
-    const [folded] = update(twoFiles(), ToggledFile({ path: "/app/src/button.catalog.ts" }))
-
-    expect(isFileExpanded(folded, "/app/src/button.catalog.ts")).toBe(false)
-    expect(isFileExpanded(folded, "/app/src/calendar.catalog.ts")).toBe(true)
-    // Folded is about the file alone: the components under it are untouched, so
-    // unfolding puts the reader back exactly where they were.
-    expect(drawnTree(folded)).toEqual(drawnTree(twoFiles()))
-  })
-})
-
-describe("counting what the canvas can draw", () => {
-  const mixed = () =>
-    initialModel(
-      labCatalogOf(
-        loadOf([
-          { showcase: drawable("alpha/opens-clean") },
-          { showcase: plain("button/counts-one-click") },
-          { showcase: drawable("button/starts-unclicked") },
-        ]),
-      ),
-      bare,
-    )
-
-  test("counts the entries declaring a mount, which is what the canvas can put on screen", () => {
-    expect(drawableTotal(mixed())).toBe(2)
-  })
-
-  test("says how many of the drawn list can be drawn, without repeating the number beside it", () => {
-    expect(drawableLabel(mixed())).toBe("2 drawable")
-  })
-
-  test("says all of them rather than the total twice, when every entry declares a mount", () => {
-    const every = initialModel(
-      labCatalogOf(loadOf([{ showcase: drawable("alpha/one") }, { showcase: drawable("alpha/two") }])),
-      bare,
-    )
-
-    expect(drawableLabel(every)).toBe("all drawable")
-  })
-
-  test("says none rather than a zero, because a catalog with nothing to draw is a fact not a count", () => {
-    expect(drawableLabel(initialModel(catalogOf("alpha/one"), bare))).toBe("none drawable")
-  })
-
-  test("counts nothing when no entry declares one, so a catalog of assertions says as much", () => {
-    expect(drawableTotal(initialModel(catalogOf("alpha/one", "button/one"), bare))).toBe(0)
-  })
-
-  test("narrows with the filter, so the strip counts the list the reader is looking at", () => {
-    const [model] = update(mixed(), TypedQuery({ query: "button/" }))
-
-    expect(drawableTotal(model)).toBe(1)
-    expect(matchingTotal(model)).toBe(2)
-  })
-})
-
 describe("walking the sidebar by keyboard", () => {
   const three = () => initialModel(catalogOf("alpha/one", "button/one", "button/two"), bare)
 
+  /** The same three, with every group opened, which is what a click leaves behind. */
+  const open = () => ({ ...three(), collapsedComponents: [] })
+
   test("names the row below the selection, which is what an arrow key moves to", () => {
-    expect(neighbourId(three(), 1)).toEqual(Option.some("button/one"))
+    expect(neighbourId(open(), 1)).toEqual(Option.some("button/one"))
   })
 
   test("names the row above the selection, crossing out of a component the way the eye does", () => {
-    const [model] = update(three(), SelectedShowcase({ id: "button/one" }))
+    const [model] = update(open(), SelectedShowcase({ id: "button/one" }))
 
     expect(neighbourId(model, -1)).toEqual(Option.some("alpha/one"))
   })
 
   test("stops at the ends rather than wrapping, so holding a key cannot loop the catalog", () => {
-    const [last] = update(three(), SelectedShowcase({ id: "button/two" }))
+    const [last] = update(open(), SelectedShowcase({ id: "button/two" }))
 
-    expect(neighbourId(three(), -1)).toEqual(Option.none())
+    expect(neighbourId(open(), -1)).toEqual(Option.none())
     expect(neighbourId(last, 1)).toEqual(Option.none())
   })
 
   test("walks what the sidebar draws, not what the catalog holds, so a filter narrows the walk", () => {
-    const [chosen] = update(three(), SelectedShowcase({ id: "button/one" }))
+    const [chosen] = update(open(), SelectedShowcase({ id: "button/one" }))
     const [filtered] = update(chosen, TypedQuery({ query: "button" }))
 
     // `alpha/one` is still in the catalog, and a step up no longer reaches it.
@@ -517,15 +621,14 @@ describe("walking the sidebar by keyboard", () => {
   })
 
   test("skips the rows a fold hid, because a row nobody can see is not the next one", () => {
-    const [folded] = update(three(), ToggledComponent({ component: "button" }))
-
-    expect(neighbourId(folded, 1)).toEqual(Option.none())
+    // `alpha` holds the selection and is open; `button` opens folded.
+    expect(neighbourId(three(), 1)).toEqual(Option.none())
   })
 
   test("enters the list from the end it came from when nothing drawn is selected", () => {
     // The selection is `alpha/one`, which this filter took off the screen — so
     // there is no row to step from, and the step has to land somewhere sane.
-    const [filtered] = update(three(), TypedQuery({ query: "button" }))
+    const [filtered] = update(open(), TypedQuery({ query: "button" }))
 
     expect(neighbourId(filtered, 1)).toEqual(Option.some("button/one"))
     expect(neighbourId(filtered, -1)).toEqual(Option.some("button/two"))
@@ -535,7 +638,7 @@ describe("walking the sidebar by keyboard", () => {
   })
 
   test("moves the selection and writes the address, so an arrow key is a navigation like a click", () => {
-    const [model, commands] = update(three(), MovedSelection({ delta: 1 }))
+    const [model, commands] = update(open(), MovedSelection({ delta: 1 }))
 
     expect(model.maybeSelectedId).toEqual(Option.some("button/one"))
     expect(commands.map((command) => command.args)).toEqual([
@@ -544,7 +647,7 @@ describe("walking the sidebar by keyboard", () => {
   })
 
   test("moves nothing at the end of the list, and writes no address for a move that did not happen", () => {
-    const [model, commands] = update(three(), MovedSelection({ delta: -1 }))
+    const [model, commands] = update(open(), MovedSelection({ delta: -1 }))
 
     expect(model.maybeSelectedId).toEqual(Option.some("alpha/one"))
     expect(commands).toEqual([])

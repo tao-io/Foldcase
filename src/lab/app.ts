@@ -17,6 +17,32 @@ import { addressedId, addressOf } from "./address.js"
 import type { LabEntry } from "./catalog.js"
 import { LabCatalog, labCatalogOf, LabComponent } from "./catalog.js"
 
+// THE FOUR READINGS, AND THE FOUR PANELS
+
+/**
+ * What the main pane is showing about the selected entry.
+ *
+ * Four readings of one record, and every one of them is the record: `canvas`
+ * mounts it, `entry` prints the six fields the listing carries, `timeline`
+ * records what a live mount dispatched, and `schema` says what the Message and
+ * Model documents actually are. None of them invents a fact.
+ */
+export const Tab = Schema.Literals(["canvas", "entry", "timeline", "schema"])
+export type Tab = typeof Tab.Type
+
+/**
+ * Which panel the addon drawer is showing. `absent` is the load-bearing one: it
+ * is the list of fields a catalog browser usually shows and this catalog does
+ * not carry, said in the UI rather than papered over with a placeholder that
+ * reads as a value.
+ */
+export const Panel = Schema.Literals(["runtime", "absent", "agent", "json"])
+export type Panel = typeof Panel.Type
+
+/** The palette. Dark is the default, and a reader's choice outranks the machine's. */
+export const Theme = Schema.Literals(["dark", "light"])
+export type Theme = typeof Theme.Type
+
 // MESSAGE
 
 /**
@@ -30,11 +56,66 @@ import { LabCatalog, labCatalogOf, LabComponent } from "./catalog.js"
 export const SelectedShowcase = m("SelectedShowcase", { id: Schema.String })
 
 /**
- * The canvas finished drawing a Showcase. A Mount has to name a result Message
- * — that is how the work stays visible to devtools, Scene and time travel — so
- * this is the acknowledgement `update` records and does nothing with.
+ * The preview painted: the slot was handed to the Showcase's `mount`, and a
+ * tick later the slot had children.
+ *
+ * The check is the point. `Runtime.run` returns `undefined` and throws nothing
+ * when a Foldkit application paints nothing at all, so "the module loaded" is
+ * not evidence of anything. The lab says a mount is live only when it has seen
+ * the paint, which is what stops an empty card being labelled Live.
  */
-export const MountedShowcase = m("MountedShowcase", { id: Schema.String })
+export const PreviewMounted = m("PreviewMounted", { id: Schema.String })
+
+/** The same check, come back empty. A silent failure, said out loud. */
+export const PreviewFailed = m("PreviewFailed", { id: Schema.String })
+
+/**
+ * A Message reached the mounted component's own `update`, relayed out of the
+ * preview with the gap since the one before it. The shell records the tag and
+ * the delta and reads neither: they are the mounted component's type, not the
+ * lab's.
+ */
+export const PreviewDispatched = m("PreviewDispatched", {
+  tag: Schema.String,
+  delta: Schema.Number,
+})
+
+/** A reader emptied the trail, which is a statement about the list and nothing else. */
+export const ClearedHistory = m("ClearedHistory")
+
+/**
+ * A reader asked for the preview to be built again: the Model back at `init`
+ * and the trail empty. It carries no id because the selection already names
+ * what is being rebuilt.
+ */
+export const Remounted = m("Remounted")
+
+/** A reader chose one of the four readings of the selected entry. */
+export const SelectedTab = m("SelectedTab", { tab: Tab })
+
+/** A reader chose one of the four panels in the addon drawer. */
+export const SelectedPanel = m("SelectedPanel", { panel: Panel })
+
+/** A reader collapsed the drawer to its strip, or opened it again. */
+export const ToggledDrawer = m("ToggledDrawer")
+
+/**
+ * A reader swapped the palette. It is a Message and not a media query because a
+ * reader looking at a light component on a dark machine has to be able to say
+ * so — the `data-theme` attribute the view writes outranks
+ * `prefers-color-scheme` for exactly that reason.
+ */
+export const ToggledTheme = m("ToggledTheme")
+
+/**
+ * A reader asked for the catalog again.
+ *
+ * In the browser the catalog is whatever the consumer's entry module imported,
+ * so reloading it means reloading the page: the dev server re-reads the files,
+ * the entry module imports them again, and the tree is rebuilt from what came
+ * back. The address carries the selection, so the reader lands where they were.
+ */
+export const ReloadedCatalog = m("ReloadedCatalog")
 
 /**
  * A reader folded a component's group shut, or opened it again. A catalog of a
@@ -52,16 +133,6 @@ export const ToggledComponent = m("ToggledComponent", { component: Schema.String
  * dispatch, which is how it reaches an id it only half remembers.
  */
 export const TypedQuery = m("TypedQuery", { query: Schema.String })
-
-/**
- * A reader folded a file shut, or opened it again.
- *
- * The file is the tier above the component, because a file is what the loader
- * reads and a component is what a record declares — and the one thing that has
- * a file but no component is a file that would not load. Folding is keyed by
- * path for that reason: the path is the only name such a file has.
- */
-export const ToggledFile = m("ToggledFile", { path: Schema.String })
 
 /**
  * A reader walked the sidebar with an arrow key. It carries a step and not an
@@ -101,9 +172,17 @@ export const LeftForPage = m("LeftForPage")
 
 export const Message = Schema.Union([
   SelectedShowcase,
-  MountedShowcase,
+  PreviewMounted,
+  PreviewFailed,
+  PreviewDispatched,
+  ClearedHistory,
+  Remounted,
+  SelectedTab,
+  SelectedPanel,
+  ToggledDrawer,
+  ToggledTheme,
+  ReloadedCatalog,
   ToggledComponent,
-  ToggledFile,
   TypedQuery,
   MovedSelection,
   RevealedSelection,
@@ -159,19 +238,45 @@ const LeavePage = Command.define("LeavePage", {
  * field that rewrites what is being typed into it is a field nobody can type a
  * space into. `sidebarComponents` normalises it at the point of comparison.
  *
+ * `mounted` is whether the preview has been *seen* to paint, and it is set from
+ * `PreviewMounted` alone. Nothing derives it from "the selection declares a
+ * mount": `Runtime.run` returns `undefined` and throws nothing when a Foldkit
+ * application paints an empty container, so an assumed mount is exactly the
+ * failure the lab would then label Live. `previewFailed` is the other half —
+ * the check ran and came back empty — so an empty card says why.
+ *
+ * `remounts` is a counter and not a flag. It rides in the preview slot's key,
+ * so asking for a remount destroys the slot and builds a new one, which is what
+ * runs the teardown and takes the component's Model back to `init`.
+ *
+ * `trail` is what the mounted component dispatched, tag and measured gap. The
+ * shell records it and reads none of it: those Messages are the component's
+ * type, not the lab's.
+ *
  * The `mount` thunks are deliberately **not** here. A Model is a Schema, and a
  * closure has no encoding — so the factory closes over them, keyed by id,
  * exactly as the document is keyed. The Model carries the id, and the id is
  * enough to find the thunk again.
  */
+export const TrailEntry = Schema.Struct({ tag: Schema.String, delta: Schema.Number })
+export type TrailEntry = typeof TrailEntry.Type
+
 export const Model = Schema.Struct({
   catalog: LabCatalog,
   url: Url,
   maybeSelectedId: Schema.Option(Schema.String),
   maybeUnknownId: Schema.Option(Schema.String),
   collapsedComponents: Schema.Array(Schema.String),
-  collapsedFiles: Schema.Array(Schema.String),
   query: Schema.String,
+  theme: Theme,
+  tab: Tab,
+  panel: Panel,
+  drawerOpen: Schema.Boolean,
+  reloading: Schema.Boolean,
+  mounted: Schema.Boolean,
+  previewFailed: Schema.Boolean,
+  remounts: Schema.Number,
+  trail: Schema.Array(TrailEntry),
 })
 export type Model = typeof Model.Type
 
@@ -245,14 +350,38 @@ export const initialModel = (catalog: LabCatalog, url: Url): Model => {
     url,
     maybeSelectedId: Arr.head(idsOf(catalog)),
     maybeUnknownId: Option.none(),
-    // Every group open: a lab that opened folded would hide the catalog it
-    // exists to show, and folding is the reader's move to make.
+    // Filled below, once the address has said which component is the one that
+    // opens. A catalog of a few hundred entries is a column no screen holds,
+    // and a tree that opens as a list of component names is a tree a reader can
+    // read; the group holding what is drawn is the one exception, because it
+    // has to show the row it is drawing.
     collapsedComponents: [],
-    collapsedFiles: [],
     // And nothing filtered, for the same reason.
     query: "",
+    theme: "dark",
+    tab: "canvas",
+    panel: "runtime",
+    drawerOpen: true,
+    reloading: false,
+    // Nothing has painted, so nothing claims to have.
+    mounted: false,
+    previewFailed: false,
+    remounts: 0,
+    trail: [],
   }
-  return { ...opened, ...selectionAt(opened, addressedId(url)) }
+  const selection = selectionAt(opened, addressedId(url))
+  const shown = pipe(
+    selection.maybeSelectedId,
+    Option.flatMap((id) => Arr.findFirst(entriesOf(catalog), (entry) => entry.id === id)),
+    Option.map((entry) => entry.component),
+  )
+  return {
+    ...opened,
+    ...selection,
+    collapsedComponents: catalog.components
+      .map((component) => component.component)
+      .filter((name) => !Option.contains(shown, name)),
+  }
 }
 
 const entriesOf = (catalog: LabCatalog): ReadonlyArray<LabEntry> =>
@@ -324,90 +453,74 @@ export const sidebarComponents = (model: Model): ReadonlyArray<LabComponent> => 
 }
 
 /**
- * One file as the sidebar draws it: the components it declared, and — when the
- * loader could not read it — the failure instead.
+ * The files the loader could not read, as the sidebar draws them: in path
+ * order, and narrowed by the filter on the one name such a file has.
  *
- * The two are exclusive by construction. A file that would not load declared no
- * id, so it has no component and no entry; a file that loaded has no failure.
- * Holding both on one record is what lets the tree draw them in one pass, in
- * path order, rather than stacking a failure panel above a list and leaving the
- * reader to work out which name is missing from it.
- *
- * This is a view-time projection and not Model state, so it is a plain type: it
- * is rebuilt from the catalog, the filter and the folds on every draw, and
- * nothing about it has to encode.
+ * A file that would not load declared no id, so it has no component to hang
+ * under and no entry to be found by. It is still the answer to "where did that
+ * component go", which is why it is a row in the tree rather than a panel over
+ * it (ADR-0001 › Amendment 2), and why the filter matches its path: narrowing
+ * by a component name that is missing has to be able to find the file that was
+ * supposed to declare it.
  */
-export type LabFile = {
-  readonly path: string
-  readonly components: ReadonlyArray<LabComponent>
-  readonly maybeFailure: LabCatalog["failures"][number] | undefined
-}
-
-/**
- * Whether a file's group shows what is under it. Same rule as a component's: a
- * live filter opens everything it matched, because a filter that hid its own
- * hits behind an old fold would lie about the catalog.
- */
-export const isFileExpanded = (model: Model, path: string): boolean =>
-  normalisedQuery(model) !== "" || !Arr.contains(model.collapsedFiles, path)
-
-/**
- * The catalog as the sidebar draws it: file, then component, then entries.
- *
- * The file tier exists for one reason, and it is the failure. A file the loader
- * could not read declared no id and so has no component to hang under — in a
- * two-tier tree it has nowhere to go, which is why it used to sit in a panel of
- * its own above the list. Here it is a row in path order among the files that
- * did load, which is where a reader looking for a missing component actually
- * looks.
- *
- * A file keeps its place if the filter left it any entry, or if its own path
- * holds what was typed — so narrowing by a path finds a file whose ids do not
- * mention it. Entries from a catalog no file backs group under the empty path,
- * and the view draws no file row for that one.
- */
-export const sidebarFiles = (model: Model): ReadonlyArray<LabFile> => {
+export const sidebarFailures = (model: Model): LabCatalog["failures"] => {
   const query = normalisedQuery(model)
-  const byPath = new Map<string, Array<LabComponent>>()
-  for (const component of sidebarComponents(model)) {
-    // Entries of one component can come from more than one file, so the group
-    // is split per path rather than assigned to the first entry's.
-    const perPath = new Map<string, Array<LabEntry>>()
-    for (const entry of component.entries) {
-      const path = entry.file ?? ""
-      const held = perPath.get(path)
-      if (held === undefined) {
-        perPath.set(path, [entry])
-      } else {
-        held.push(entry)
-      }
-    }
-    for (const [path, entries] of perPath) {
-      const group = new LabComponent({ component: component.component, entries })
-      const held = byPath.get(path)
-      if (held === undefined) {
-        byPath.set(path, [group])
-      } else {
-        held.push(group)
-      }
-    }
-  }
-  const failed = Arr.filter(
-    model.catalog.failures,
-    (failure) => query === "" || failure.path.toLowerCase().includes(query),
+  return Arr.sort(
+    Arr.filter(
+      model.catalog.failures,
+      (failure) => query === "" || failure.path.toLowerCase().includes(query),
+    ),
+    byFailurePath,
   )
-  const files: Array<LabFile> = [
-    ...[...byPath.entries()].map(([path, components]) => ({
-      path,
-      components,
-      maybeFailure: undefined,
-    })),
-    ...failed.map((failure) => ({ path: failure.path, components: [], maybeFailure: failure })),
-  ]
-  return Arr.sort(files, byPath_)
 }
 
-const byPath_ = Order.mapInput(Order.String, (file: LabFile) => file.path)
+const byFailurePath = Order.mapInput(
+  Order.String,
+  (failure: LabCatalog["failures"][number]) => failure.path,
+)
+
+/**
+ * The deepest directory every declared file shares.
+ *
+ * The tab bar names the file the selection came from, and in a real catalog
+ * that path is mostly the same forty characters on every row — the part a
+ * reader has already read. Stripping the shared root leaves the part that
+ * differs, which is the part that says anything.
+ *
+ * It stops at a directory boundary rather than at a shared prefix of two
+ * names, so `button.ts` and `butter.ts` share their directory and not `butt`.
+ * A catalog no file backs shares nothing, and says so with an empty root.
+ */
+export const catalogRoot = (catalog: LabCatalog): string => {
+  const directories = catalog.components
+    .flatMap((component) => component.entries)
+    .flatMap((entry) => (entry.file === undefined ? [] : [directoryOf(entry.file)]))
+  return Arr.reduce(directories, Arr.head(directories).pipe(Option.getOrElse(() => "")), sharedPath)
+}
+
+/** Everything before a path's last separator — the directory that holds it. */
+const directoryOf = (file: string): string => file.slice(0, file.lastIndexOf("/"))
+
+/** The longest run of whole segments two paths open with. */
+const sharedPath = (left: string, right: string): string => {
+  const shared: Array<string> = []
+  const rightSegments = right.split("/")
+  left.split("/").forEach((segment, at) => {
+    if (shared.length === at && rightSegments[at] === segment) {
+      shared.push(segment)
+    }
+  })
+  return shared.join("/")
+}
+
+/**
+ * A file as the tab bar says it: relative to the catalog root, or whole when it
+ * is not under that root at all. A path that would be rewritten into something
+ * a reader cannot find on disk is worse than the long one.
+ */
+export const relativeFile = (root: string, file: string): string =>
+  root !== "" && file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file
+
 
 /**
  * How many Showcases the filter left. The header says this against the catalog
@@ -421,44 +534,6 @@ export const matchingTotal = (model: Model): number => {
 }
 
 /**
- * How many of those the canvas can actually draw — the ones declaring a mount.
- *
- * Most catalogs declare it for a minority of their entries, and until now the
- * lab said so one entry at a time: you clicked a row to find out there was
- * nothing behind it. Counting it beside the total answers the question once, for
- * the whole list, and it is the reading of the record the lab already had —
- * `hasMount` is on every entry, and the row tag draws from the same fact.
- *
- * It counts what the filter left rather than the whole catalog, because the
- * strip sits over the list the reader is looking at and a number describing some
- * other list is worse than no number.
- */
-export const drawableTotal = (model: Model): number => {
-  const query = normalisedQuery(model)
-  return Arr.filter(entriesOf(model.catalog), (entry) => matchesQuery(entry, query) && entry.hasMount)
-    .length
-}
-
-/**
- * That count as the strip says it out loud.
- *
- * It never repeats the number standing next to it. A strip reading "146 146
- * drawable" is two facts that look like one typo, and the case where every
- * entry is drawable is the common one in a component gallery — so that case
- * gets a word instead. Zero gets a word too, because a catalog with nothing to
- * put on the canvas is a thing a reader should be told rather than a count they
- * have to notice is zero.
- */
-export const drawableLabel = (model: Model): string => {
-  const drawable = drawableTotal(model)
-  const matching = matchingTotal(model)
-  if (drawable === 0) {
-    return "none drawable"
-  }
-  return drawable === matching ? "all drawable" : `${drawable} drawable`
-}
-
-/**
  * The id one step from the selection, in the order the sidebar draws.
  *
  * It walks {@link sidebarComponents} and not the catalog, so an arrow key moves
@@ -469,13 +544,9 @@ export const drawableLabel = (model: Model): string => {
  * step enters the list from the end it came from.
  */
 export const neighbourId = (model: Model, delta: number): Option.Option<string> => {
-  const drawn = sidebarFiles(model)
-    .filter((file) => isFileExpanded(model, file.path))
-    .flatMap((file) =>
-      file.components
-        .filter((component) => isComponentExpanded(model, component.component))
-        .flatMap((component) => component.entries.map((entry) => entry.id)),
-    )
+  const drawn = sidebarComponents(model)
+    .filter((component) => isComponentExpanded(model, component.component))
+    .flatMap((component) => component.entries.map((entry) => entry.id))
   const at = pipe(
     model.maybeSelectedId,
     Option.flatMap((id) => Arr.findFirstIndex(drawn, (drawnId) => drawnId === id)),
@@ -498,11 +569,26 @@ const chose = (
 ): readonly [Model, ReadonlyArray<Command.Command<Message>>] => {
   const selection = selectionAt(model, Option.some(id))
   return [
-    { ...model, ...selection, ...unfoldedAt(model, selection) },
+    { ...model, ...selection, ...unfoldedAt(model, selection), ...freshPreview },
     Option.isNone(selection.maybeUnknownId)
       ? [WriteAddress({ address: addressOf(model.url, id) })]
       : [],
   ]
+}
+
+/**
+ * What the preview is before anything has happened to it: nothing painted,
+ * nothing failed, nothing dispatched.
+ *
+ * Arriving at a Showcase resets all three, because the card is about to be
+ * rebuilt for a different component — a trail carried over from the last one
+ * would attribute its Messages to this one, and a `mounted` carried over would
+ * label an empty card Live for the tick before the new mount reports.
+ */
+const freshPreview: Pick<Model, "mounted" | "previewFailed" | "trail"> = {
+  mounted: false,
+  previewFailed: false,
+  trail: [],
 }
 
 /**
@@ -536,7 +622,26 @@ export const update = (
         ),
       ChangedAddress: ({ url }) => {
         const selection = selectionAt(model, addressedId(url))
-        return [{ ...model, url, ...selection, ...unfoldedAt(model, selection) }, []]
+        const moved = !pipe(
+          selection.maybeSelectedId,
+          Option.match({
+            onNone: () => Option.isNone(model.maybeSelectedId),
+            onSome: (id) => Option.contains(model.maybeSelectedId, id),
+          }),
+        )
+        return [
+          {
+            ...model,
+            url,
+            ...selection,
+            ...unfoldedAt(model, selection),
+            // A back button that landed on another Showcase resets the preview
+            // exactly as a click would; one that only changed a query parameter
+            // leaves a live mount alone.
+            ...(moved ? freshPreview : {}),
+          },
+          [],
+        ]
       },
       RequestedAddress: ({ request }) =>
         pipe(
@@ -547,15 +652,36 @@ export const update = (
             External: ({ href }) => [model, [LeavePage({ href })]],
           }),
         ),
-      ToggledFile: ({ path }) => [
-        {
-          ...model,
-          collapsedFiles: Arr.contains(model.collapsedFiles, path)
-            ? Arr.filter(model.collapsedFiles, (held) => held !== path)
-            : Arr.append(model.collapsedFiles, path),
-        },
+      // The four readings, the four panels and the drawer are statements about
+      // what is on screen and nothing else: no address is written, because a
+      // reading is not a selection and a link to one would be a link to a mood.
+      SelectedTab: ({ tab }) => [{ ...model, tab }, []],
+      SelectedPanel: ({ panel }) => [{ ...model, panel }, []],
+      ToggledDrawer: () => [{ ...model, drawerOpen: !model.drawerOpen }, []],
+      // The palette is a cascade: the whole shell and the preview inside it
+      // read the same custom properties, so swapping the attribute re-skins
+      // both and the mounted component keeps its Model. Nothing is rebuilt.
+      ToggledTheme: () => [{ ...model, theme: model.theme === "dark" ? "light" : "dark" }, []],
+      // Reloading the catalog is reloading the page, because in the browser the
+      // catalog *is* what the consumer's entry module imported. The address
+      // carries the selection, so the reader comes back to the row they left.
+      // Idempotent while it runs: a second click has nothing to start.
+      ReloadedCatalog: () =>
+        model.reloading
+          ? [model, []]
+          : [{ ...model, reloading: true }, [LeavePage({ href: urlToString(model.url) })]],
+      // A verified paint, and its opposite. Neither is inferred from the record
+      // — `hasMount: true` says a thunk exists, not that it drew anything.
+      PreviewMounted: () => [{ ...model, mounted: true, previewFailed: false }, []],
+      PreviewFailed: () => [{ ...model, mounted: false, previewFailed: true }, []],
+      PreviewDispatched: ({ tag, delta }) => [
+        { ...model, trail: Arr.append(model.trail, { tag, delta }) },
         [],
       ],
+      ClearedHistory: () => [{ ...model, trail: [] }, []],
+      // A new key for the preview slot, which destroys it, which runs the
+      // teardown, which is what takes the component's Model back to `init`.
+      Remounted: () => [{ ...model, remounts: model.remounts + 1, ...freshPreview }, []],
       ToggledComponent: ({ component }) => [
         {
           ...model,
@@ -566,215 +692,86 @@ export const update = (
         [],
       ],
       TypedQuery: ({ query }) => [{ ...model, query }, []],
-      MountedShowcase: () => [model, []],
       RevealedSelection: () => [model, []],
       WroteAddress: () => [model, []],
       LeftForPage: () => [model, []],
     }),
   )
-
 // VIEW
 
 /**
  * The one stylesheet the lab carries, so it draws as a lab in a page that
- * styles nothing. Every rule is scoped to a `foldcase-lab-` name, and every
- * colour and both font stacks are custom properties declared on the root, so a
- * consumer restyles the whole surface by setting six values rather than by
+ * styles nothing. Every rule is scoped to a `foldcase-lab-` name or class, and
+ * every colour and both font stacks are custom properties on the root, so a
+ * consumer restyles the whole surface by setting values rather than by
  * out-specifying a hundred rules.
  *
- * The frame is one viewport tall and each column scrolls itself. A catalog of a
- * few hundred Showcases is a sidebar several thousand pixels long, and a page
- * that scrolls as one carries the details panel off the top the moment a reader
- * reaches for anything past the first few components — so the reader scrolls
- * down to click, then back up to read what they clicked. Two scroll containers
- * are what stop that, and they are the reason the frame is `fixed`: `100vh`
- * would still ride on whatever margin the consumer's `body` carries, and a
- * margin is exactly what the lab may not reach out and change.
+ * **The palette is the reader's, not the machine's.** Both schemes are declared
+ * under `[data-theme]`, which the view always writes, so the toggle in the
+ * header outranks `prefers-color-scheme` — a reader checking a light component
+ * on a dark machine has to be able to say so. Dark is the default.
  *
- * Three decisions inside that frame are worth naming.
+ * **Three tokens depart from the design's table, and only these three.** The
+ * table's `--ink-3` reads 3.5:1 on `--panel` in both schemes, and `--accent`,
+ * `--pass` and `--fail` read near 4.1:1 on white — under the 4.5:1 floor this
+ * codebase holds every piece of text to. `--ink-3` is darkened in light and
+ * lightened in dark to the smallest value that clears the floor, and the three
+ * status colours keep their table value for *fills* — dots, the tab underline,
+ * the scrubber — while `--accent-text`, `--pass-text` and `--fail-text` carry
+ * the same hue at a lightness that clears it for *text*. Splitting them is what
+ * lets a 9px `LIVE` tag stay legible without dulling the dot beside it.
  *
- * **The ground is warm, not blue.** `--bg`, `--panel` and `--sunken` are a
- * violet-tinted neutral ramp rather than the slate this started on, and the
- * accent is violet rather than the framework blue every dashboard defaults to.
- * The component under test is still the loudest thing on screen; the chrome
- * around it now reads as one family instead of as browser defaults.
+ * **The frame is one viewport tall and each column scrolls itself.** It is
+ * `fixed` rather than `100vh` because `100vh` still rides on whatever margin
+ * the consumer's `body` carries, and a margin is exactly what the lab may not
+ * reach out and change. Every scroll region has `min-height: 0` on its flex
+ * parent, which is the single most common way to get this layout wrong.
  *
- * **Both schemes ship.** The same names are redeclared under
- * `prefers-color-scheme: dark`, and nothing else in the sheet knows which
- * scheme it is drawing. Dark costs one block because every colour was named
- * first, which is the whole argument for naming them.
- *
- * **Two type families, split by what the text is.** `--ui` sets prose, labels
- * and the names in the tree; `--mono` sets everything that is a value a reader
- * might retype — ids in the heading, file paths, counts and the row tags. That
- * division does more for the hierarchy than a third font size would.
- *
- * The contrast floor is 4.5:1 for every piece of text, measured, which is one
- * departure from where these colours came from: the muted `--ink-3` is darker
- * in light and lighter in dark than the palette it is drawn from, whose value
- * read at 3.48:1 on the panel. `--line` is a hairline between regions, so it
- * sits below that floor by design; where a line is the boundary of a control a
- * reader has to find — the filter field — the sheet uses `--line-strong`.
+ * **No shadows anywhere.** Depth is `--panel` and `--sunken` against `--bg`,
+ * plus hairlines. No border is wider than 1px except the 2px active tab rule.
  */
 const STYLESHEET = `
 #foldcase-lab {
-  --ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --bg: #f8f7fb; --panel: #ffffff; --sunken: #f2f1f6;
-  --ink: #0b0c0e; --ink-2: #5c5a63; --ink-3: #67646f;
-  --line: #e4e2ea; --line-strong: #c6c2d0;
-  --sel: #ecebf3; --sel-hover: #f4f3f8;
-  --accent: oklch(0.52 0.14 285);
-  --fail: oklch(0.53 0.17 25); --fail-bg: oklch(0.96 0.03 25);
-  --fail-line: oklch(0.88 0.06 25);
-  --warn: #92400e; --warn-bg: #fffbeb; --warn-line: #fcd34d;
+  --ui: Outfit, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --bg: #1e1c21; --panel: #26242b; --sunken: #1a181d;
+  --ink: #FAFAFA; --ink-2: #a7a3ae; --ink-3: #8f8b98;
+  --line: #34313a; --sel: #332f3d; --sel-hover: #2c2a33; --sel-text: #413b54;
+  --accent: oklch(0.76 0.11 285); --accent-text: oklch(0.76 0.11 285);
+  --pass: oklch(0.76 0.13 155); --pass-text: oklch(0.76 0.13 155);
+  --fail: oklch(0.71 0.16 25); --fail-text: oklch(0.75 0.15 25);
+  --pass-bg: oklch(0.28 0.04 155); --fail-bg: oklch(0.29 0.05 25);
+  --fail-line: oklch(0.40 0.08 25); --diff: oklch(0.76 0.11 235);
 }
-@media (prefers-color-scheme: dark) {
-  #foldcase-lab {
-    --bg: #1e1c21; --panel: #26242b; --sunken: #1a181d;
-    --ink: #fafafa; --ink-2: #a7a3ae; --ink-3: #9e9aa7;
-    --line: #34313a; --line-strong: #514c5c;
-    --sel: #332f3d; --sel-hover: #2c2a33;
-    --accent: oklch(0.76 0.11 285);
-    --fail: oklch(0.71 0.16 25); --fail-bg: oklch(0.29 0.05 25);
-    --fail-line: oklch(0.40 0.08 25);
-    --warn: #f5c563; --warn-bg: #3a2a12; --warn-line: #6b5220;
-  }
+#foldcase-lab[data-theme='light'] {
+  --bg: #f8f7fb; --panel: #ffffff; --sunken: #f2f1f6;
+  --ink: #0B0C0E; --ink-2: #5c5a63; --ink-3: #6e6b75;
+  --line: #e4e2ea; --sel: #ecebf3; --sel-hover: #f4f3f8; --sel-text: #e3e0f2;
+  --accent: oklch(0.52 0.14 285); --accent-text: oklch(0.46 0.15 285);
+  --pass: oklch(0.52 0.11 155); --pass-text: oklch(0.46 0.12 155);
+  --fail: oklch(0.53 0.17 25); --fail-text: oklch(0.45 0.19 25);
+  --pass-bg: oklch(0.96 0.03 155); --fail-bg: oklch(0.96 0.03 25);
+  --fail-line: oklch(0.88 0.06 25); --diff: oklch(0.62 0.12 235);
 }
 
 #foldcase-lab { position: fixed; inset: 0; display: flex; flex-direction: column;
   box-sizing: border-box; background: var(--bg); color: var(--ink);
-  font-family: var(--ui); font-size: 13px; line-height: 1.45;
+  font-family: var(--ui); font-size: 14px; line-height: 1.45;
   -webkit-font-smoothing: antialiased; }
 #foldcase-lab *, #foldcase-lab *::before, #foldcase-lab *::after { box-sizing: border-box; }
-#foldcase-lab :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px;
-  border-radius: 6px; }
+/* Wrapped in :where() end to end, so the reset weighs nothing at all and every
+   rule below — id or single class — outranks it. An unwrapped id-plus-type selector is
+   worth more than a class, which is how a reset quietly eats the padding off
+   the row it was meant to set up. */
+:where(#foldcase-lab) :where(button) { font: inherit; color: inherit;
+  background: none; border: 0; padding: 0; cursor: pointer; }
+#foldcase-lab a { color: var(--accent-text); }
+#foldcase-lab a:hover { color: var(--ink); text-decoration: underline; }
+#foldcase-lab ::selection { background: var(--sel-text); }
+#foldcase-lab :focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-/* The one piece of chrome that says whose lab this is. It is a bar and not a
-   heading because it spans both columns: the catalog and the stage are two
-   halves of one instrument, and a rule across the top is what says so. */
-#foldcase-lab-bar { flex: none; height: 52px; display: flex; align-items: center;
-  gap: 9px; padding: 0 14px; background: var(--panel);
-  border-bottom: 1px solid var(--line); }
-#foldcase-lab-bar svg { flex: none; color: var(--ink); }
-#foldcase-lab-bar b { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
-#foldcase-lab-bar em { font-style: normal; font-family: var(--mono);
-  font-size: 11px; color: var(--ink-3); }
-
-#foldcase-lab-frame { flex: 1; min-height: 0; display: flex; }
-
-/* The sidebar is a column of three parts: a head that stays put, a strip that
-   counts what is under it, and a tree that scrolls. Taking the head out of the
-   scroller is what lets a group heading stick at top: 0 without guessing how
-   tall the head above it is. */
-#foldcase-lab-sidebar { flex: 0 0 292px; min-height: 0; display: flex;
-  flex-direction: column; background: var(--panel);
-  border-right: 1px solid var(--line); }
-#foldcase-lab-sidebar-head { flex: none; padding: 10px; }
-#foldcase-lab-search { display: block; width: 100%; height: 30px; padding: 0 10px;
-  border: 1px solid var(--line-strong); border-radius: 6px; background: var(--sunken);
-  font: inherit; font-size: 12.5px; color: var(--ink); }
-#foldcase-lab-search::placeholder { color: var(--ink-3); }
-#foldcase-lab-search:focus-visible { border-color: var(--accent); outline-offset: 0; }
-
-/* What the catalog is, in one line of values: how many entries the filter left,
-   how many of those the canvas can draw, and how many components hold them.
-   Mono, because all three are numbers a reader compares rather than reads. */
-#foldcase-lab-summary { flex: none; display: flex; align-items: center; gap: 8px;
-  margin: 0; padding: 9px 12px; border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 11px;
-  color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
-#foldcase-lab-summary b { flex: none; font-weight: 400; color: var(--ink); }
-#foldcase-lab-summary span { min-width: 0; overflow: hidden;
-  text-overflow: ellipsis; }
-#foldcase-lab-summary span[data-field='drawable']::before { content: '· '; }
-#foldcase-lab-summary span:last-child { flex: none; margin-left: auto;
-  color: var(--ink-3); }
-
-#foldcase-lab-tree { flex: 1; min-height: 0; overflow-y: auto;
-  overscroll-behavior: contain; padding: 6px 0 24px; }
-#foldcase-lab-tree h3 { position: sticky; top: 0; z-index: 1; margin: 0;
-  background: var(--panel); }
-#foldcase-lab-tree ul { list-style: none; margin: 0 0 6px; padding: 0; }
-#foldcase-lab-tree button { position: relative; display: flex; align-items: center;
-  gap: 9px; width: 100%; text-align: left; padding: 5px 12px 5px 39px; border: 0;
-  border-left: 2px solid transparent; background: none; font: inherit;
-  font-size: 12.5px; color: var(--ink-2); cursor: pointer;
-  transition: background-color 120ms ease-out, color 120ms ease-out; }
-/* The marker the reveal Mount is handed. Stretched over the row so that
-   scrolling *it* into view scrolls the whole row in, margins and all — a
-   zero-size span at the text baseline leaves the row half under the fold. */
-.foldcase-lab-reveal { position: absolute; inset: 0; pointer-events: none;
-  scroll-margin: 20px 0; }
-#foldcase-lab-tree button:hover { background: var(--sel-hover); color: var(--ink); }
-/* Selection is a wash and a rule, not a fill. A saturated bar was legible and
-   loud enough to be the first thing the eye landed on — louder than the
-   component it was pointing at. The wash alone is 1.05:1, which is a selection
-   nobody can see, so the accent rule carries it and the wash confirms it. */
-#foldcase-lab-tree button[data-selected='true'],
-#foldcase-lab-tree button[data-selected='true']:hover { background: var(--sel);
-  border-left-color: var(--accent); color: var(--ink); font-weight: 500; }
-/* The file row: the fold, and the one thing in the tree set in mono, because a
-   path is a value and the names under it are prose. */
-#foldcase-lab-tree button[data-file] { padding: 5px 12px; gap: 7px;
-  font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
-#foldcase-lab-tree button[data-file]:hover { background: none; color: var(--ink); }
-#foldcase-lab-tree button[data-file] svg { flex: none; width: 8px; color: var(--ink-3);
-  transform: rotate(-90deg); transition: transform 140ms ease-out; }
-#foldcase-lab-tree button[data-file][data-expanded='true'] svg { transform: none; }
-#foldcase-lab-tree button[data-file] em { flex: 1; min-width: 0; font-style: normal;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* A component's name, not a control: the file above it is the fold, and one
-   fold per tier is one too many. */
-.foldcase-lab-group { display: flex; align-items: center; gap: 7px;
-  margin: 0; padding: 6px 12px 4px 27px; font-size: 12.5px; font-weight: 600;
-  color: var(--ink); }
-.foldcase-lab-group em { font-style: normal; }
-.foldcase-lab-group span { font-family: var(--mono); font-size: 10px;
-  font-weight: 400; color: var(--ink-3); font-variant-numeric: tabular-nums; }
-#foldcase-lab-tree button[data-id] i { flex: none; font-family: var(--mono);
-  font-style: normal; font-weight: 400; color: var(--ink-3);
-  font-variant-numeric: tabular-nums; }
-#foldcase-lab-tree button[data-file] i { flex: none; font-family: var(--mono);
-  font-style: normal; font-size: 10px; color: var(--ink-3);
-  font-variant-numeric: tabular-nums; }
-/* The file that would not load, in the tree rather than in a panel over it. */
-.foldcase-lab-failed { display: flex; align-items: baseline; gap: 8px; margin: 0;
-  padding: 6px 12px 6px 25px; border-left: 2px solid var(--fail);
-  color: var(--fail); font-size: 12px; }
-.foldcase-lab-failed i { flex: none; font-family: var(--mono); font-style: normal; }
-.foldcase-lab-failed small { flex: 1; min-width: 0; font-size: 11px;
-  color: var(--ink-2); overflow-wrap: anywhere; }
-/* The one fact a row carries beyond its name: whether there is anything behind
-   it to look at. Most entries in most catalogs have nothing, and finding that
-   out used to cost a click each. */
-#foldcase-lab-tree button[data-id] i { font-size: 9.5px; letter-spacing: 0.04em; }
-#foldcase-lab-tree button[data-id] em { flex: 1; min-width: 0; font-style: normal;
-  overflow: hidden; text-overflow: ellipsis; }
-#foldcase-lab-empty-tree { margin: 12px 12px; color: var(--ink-2); }
-#foldcase-lab-empty-tree b { display: block; color: var(--ink); }
-
-#foldcase-lab-main { flex: 1; min-width: 0; overflow: auto;
-  overscroll-behavior: contain; background: var(--sunken); }
-/* Panel, like the sidebar and the bar: the chrome is one surface, and the well
-   below is what the stage stands in. */
-#foldcase-lab-head { position: sticky; top: 0; z-index: 1; padding: 18px 24px 14px;
-  background: var(--panel); border-bottom: 1px solid var(--line); }
-#foldcase-lab-head h1 { margin: 0; font-family: var(--mono); font-size: 22px;
-  font-weight: 400; letter-spacing: -0.015em; color: var(--ink-3);
-  overflow-wrap: anywhere; }
-#foldcase-lab-head h1 b { font-weight: 500; color: var(--ink); }
-#foldcase-lab-seams { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
-  margin: 12px 0 0; padding: 0; list-style: none; font-family: var(--mono);
-  font-size: 11px; }
-#foldcase-lab-seams li { padding: 3px 8px; border: 1px solid var(--line);
-  border-radius: 5px; background: var(--sunken); color: var(--ink-2); }
-#foldcase-lab-seams li[data-present='false'] { border-style: dashed;
-  background: none; color: var(--ink-3); }
-/* The path is in the chip row but is not a chip: it is where the record was
-   declared, not a fact the record asserts. */
-#foldcase-lab-seams li#foldcase-lab-file { margin-left: auto; padding: 0 0 0 12px;
-  border: 0; background: none; color: var(--ink-3); overflow-wrap: anywhere; }
+@keyframes foldcase-lab-spin { to { transform: rotate(360deg); } }
+@keyframes foldcase-lab-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* Read aloud, never drawn. The clip-rect idiom rather than display:none, which
    takes the element out of the accessibility tree along with the pixels. */
@@ -782,79 +779,364 @@ const STYLESHEET = `
   padding: 0; border: 0; overflow: hidden; white-space: nowrap;
   clip-path: inset(50%); }
 
-#foldcase-lab-stage { padding: 24px; }
-/* The component sits in a card on a well, with a strip naming what is mounted.
-   Centred and capped, because a component asked to fill a 2560px monitor is not
-   the component anybody ships. */
-#foldcase-lab-canvas { max-width: 960px; margin: 0 auto; border: 1px solid var(--line);
-  border-radius: 10px; background: var(--panel); overflow: hidden; }
-#foldcase-lab-canvas-head { display: flex; align-items: center; gap: 8px;
-  padding: 7px 12px; border-bottom: 1px solid var(--line);
-  font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
-#foldcase-lab-canvas-head::before { content: ''; width: 6px; height: 6px; flex: none;
-  border-radius: 50%; background: var(--accent); }
-#foldcase-lab-slot { padding: 28px; min-height: 260px; }
-/* The slot is appended on mount, so :empty stops matching the moment the
-   component draws. Until then this is the only sign the lab is working. */
-#foldcase-lab-slot:empty::after { content: 'Drawing…'; color: var(--ink-3); }
-#foldcase-lab-no-mount, #foldcase-lab-empty { display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 6px; max-width: 960px;
-  margin: 0 auto; border: 1px dashed var(--line-strong); border-radius: 10px;
-  background: none; padding: 28px; min-height: 300px; text-align: center;
-  color: var(--ink-2); }
-#foldcase-lab-no-mount b, #foldcase-lab-empty b { font-size: 15px; color: var(--ink); }
-#foldcase-lab-no-mount span, #foldcase-lab-empty span { max-width: 46ch; }
-#foldcase-lab-no-mount code, #foldcase-lab-empty code { font-family: var(--mono);
-  font-size: 12px; color: var(--ink-2); }
+/* ── header, 52px ─────────────────────────────────────────────────────────── */
+#foldcase-lab-bar { flex: none; height: 52px; display: flex; align-items: center;
+  gap: 14px; padding: 0 14px; background: var(--panel);
+  border-bottom: 1px solid var(--line); }
+#foldcase-lab-brand { display: flex; align-items: center; gap: 9px; }
+#foldcase-lab-brand svg { flex: none; color: var(--ink); }
+#foldcase-lab-brand b { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+#foldcase-lab-bar .foldcase-lab-spacer { flex: 1; }
+#foldcase-lab-runtime { flex: none; padding: 4px 9px; border: 1px solid var(--line);
+  border-radius: 5px; background: var(--sunken); font-family: var(--mono);
+  font-size: 11.5px; line-height: normal; color: var(--ink-3); white-space: nowrap; }
+#foldcase-lab-runtime[data-state='live'] { color: var(--pass-text); }
+#foldcase-lab-runtime[data-state='failed'] { color: var(--fail-text); }
+#foldcase-lab-reload { flex: none; display: flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 12px; border: 1px solid var(--ink); border-radius: 6px;
+  background: var(--ink); color: var(--bg); font-size: 12.5px; font-weight: 600; }
+#foldcase-lab-reload:hover { opacity: 0.85; }
+#foldcase-lab-reload i { display: none; flex: none; width: 11px; height: 11px;
+  border: 1.5px solid currentColor; border-top-color: transparent; border-radius: 50%;
+  animation: foldcase-lab-spin 0.7s linear infinite; }
+#foldcase-lab-reload[data-loading='true'] i { display: block; }
+#foldcase-lab-theme { flex: none; display: flex; align-items: center;
+  justify-content: center; width: 30px; height: 30px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--panel); color: var(--ink-2); font-size: 13px; }
+#foldcase-lab-theme:hover { color: var(--ink); border-color: var(--ink-3); }
 
-#foldcase-lab-unknown-id { margin: 12px 24px 0; border: 1px solid var(--warn-line);
-  border-radius: 8px; background: var(--warn-bg); color: var(--warn);
-  padding: 10px 12px; }
-#foldcase-lab-unknown-id code { font-family: var(--mono); }
+#foldcase-lab-frame { flex: 1; min-height: 0; display: flex; }
 
-/* One column below the width where two of them stop being two columns: the
-   catalog takes the top third and the stage takes the rest. Both halves are
-   still their own scroll container, and the frame is still one viewport tall. */
+/* ── sidebar, 292px ───────────────────────────────────────────────────────── */
+#foldcase-lab-sidebar { flex: none; width: 292px; min-height: 0; display: flex;
+  flex-direction: column; background: var(--panel);
+  border-right: 1px solid var(--line); }
+#foldcase-lab-sidebar-head { flex: none; padding: 10px;
+  border-bottom: 1px solid var(--line); }
+#foldcase-lab-search { display: block; width: 100%; height: 30px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--sunken);
+  font: inherit; font-size: 12.5px; color: var(--ink); outline: none; }
+#foldcase-lab-search::placeholder { color: var(--ink-3); }
+#foldcase-lab-search:focus, #foldcase-lab-search:focus-visible {
+  border-color: var(--ink-3); outline: none; }
+#foldcase-lab-summary { flex: none; display: flex; align-items: center; gap: 10px;
+  margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--line);
+  font-family: var(--mono); font-size: 11px; line-height: normal; color: var(--ink-2);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+#foldcase-lab-summary span:last-child { margin-left: auto; color: var(--ink-3); }
+#foldcase-lab-tree { flex: 1; min-height: 0; overflow: auto;
+  overscroll-behavior: contain; padding: 6px 0 16px; }
+#foldcase-lab-tree ul { list-style: none; margin: 0; padding: 0; }
+#foldcase-lab-foot { flex: none; margin: 0; padding: 9px 12px;
+  border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px;
+  line-height: 1.55; color: var(--ink-3); }
+
+.foldcase-lab-component { display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 12px; text-align: left; font-size: 12.5px; line-height: normal;
+  font-weight: 600; color: var(--ink); }
+.foldcase-lab-component:hover { color: var(--accent-text); }
+.foldcase-lab-component svg { flex: none; width: 8px; height: 8px; color: var(--ink-3);
+  transform: rotate(-90deg); transition: transform 140ms ease-out; }
+.foldcase-lab-component[aria-expanded='true'] svg { transform: none; }
+.foldcase-lab-component em { flex: 1; min-width: 0; font-style: normal;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.foldcase-lab-component i { flex: none; font-family: var(--mono); font-style: normal;
+  font-size: 10px; font-weight: 400; color: var(--ink-3);
+  font-variant-numeric: tabular-nums; }
+
+.foldcase-lab-state { position: relative; display: flex; align-items: flex-start;
+  gap: 9px; width: 100%; padding: 5px 12px 5px 28px; text-align: left;
+  font-size: 12.5px; line-height: 1.35; color: var(--ink-2);
+  transition: background-color 120ms ease-out, color 120ms ease-out; }
+.foldcase-lab-state:hover { background: var(--sel-hover); }
+.foldcase-lab-state[data-selected='true'],
+.foldcase-lab-state[data-selected='true']:hover { background: var(--sel); color: var(--ink); }
+/* The mark says "mountable here" and nothing else. It is never green and never
+   red: the catalog carries no pass and no fail, so a status dot would be a
+   claim the data cannot back. */
+.foldcase-lab-state::before { content: ''; flex: none; width: 6px; height: 6px;
+  margin-top: 5px; border-radius: 50%; background: var(--accent); }
+.foldcase-lab-state[data-mountable='false']::before { background: none;
+  border: 1px solid var(--ink-3); }
+.foldcase-lab-state em { flex: 1; min-width: 0; font-style: normal;
+  overflow-wrap: anywhere; }
+.foldcase-lab-state i { flex: none; margin-top: 1px; font-family: var(--mono);
+  font-style: normal; font-size: 9px; letter-spacing: 0.05em; color: var(--accent-text); }
+/* The marker the reveal Mount is handed. Stretched over the row so that
+   scrolling *it* into view scrolls the whole row in, margins and all. */
+.foldcase-lab-reveal { position: absolute; inset: 0; pointer-events: none;
+  scroll-margin: 20px 0; }
+
+.foldcase-lab-failed { display: flex; align-items: flex-start; gap: 8px; margin: 0;
+  padding: 6px 12px 6px 12px; color: var(--fail-text); font-size: 12px;
+  line-height: 1.35; }
+.foldcase-lab-failed i { flex: none; font-family: var(--mono); font-style: normal; }
+.foldcase-lab-failed em { flex: 1; min-width: 0; font-style: normal;
+  font-family: var(--mono); font-size: 11px; overflow-wrap: anywhere; }
+.foldcase-lab-failed em small { display: block; font-size: 11px; color: var(--ink-2); }
+#foldcase-lab-empty-tree { margin: 12px; font-size: 12.5px; color: var(--ink-2); }
+#foldcase-lab-empty-tree b { display: block; color: var(--ink); }
+
+/* ── main: tab bar 40px, body, drawer ─────────────────────────────────────── */
+#foldcase-lab-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#foldcase-lab-tabs { flex: none; height: 40px; display: flex; align-items: stretch;
+  gap: 0; padding: 0 12px; background: var(--panel);
+  border-bottom: 1px solid var(--line); }
+#foldcase-lab-tabs button[role='tab'] { padding: 0 12px; border-bottom: 2px solid transparent;
+  font-size: 12.5px; font-weight: 500; color: var(--ink-3); }
+#foldcase-lab-tabs button[role='tab']:hover { color: var(--ink); }
+#foldcase-lab-tabs button[role='tab'][aria-selected='true'] { border-bottom-color: var(--ink);
+  color: var(--ink); }
+#foldcase-lab-tabs .foldcase-lab-spacer { flex: 1; }
+#foldcase-lab-tab-file { align-self: center; min-width: 0; font-family: var(--mono);
+  font-size: 11px; line-height: normal; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+#foldcase-lab-body { flex: 1; min-height: 0; overflow: auto;
+  overscroll-behavior: contain; display: flex; flex-direction: column;
+  animation: foldcase-lab-in 0.18s ease; }
+
+#foldcase-lab-notice { flex: none; margin: 12px 20px 0; padding: 10px 12px;
+  border: 1px solid var(--fail-line); border-radius: 6px; background: var(--fail-bg);
+  font-size: 12.5px; color: var(--ink); }
+#foldcase-lab-notice code { font-family: var(--mono); }
+
+/* ── the canvas tab ───────────────────────────────────────────────────────── */
+#foldcase-lab-canvas { flex: 1 0 auto; min-height: 100%; display: flex;
+  flex-direction: column; }
+#foldcase-lab-canvas-bar { flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 9px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+  font-family: var(--mono); font-size: 11px; line-height: normal; color: var(--ink-3); }
+#foldcase-lab-canvas-bar .foldcase-lab-spacer { flex: 1; }
+#foldcase-lab-remount { flex: none; height: 24px; padding: 0 9px;
+  border: 1px solid var(--line); border-radius: 5px; background: var(--panel);
+  color: var(--ink-2); font-size: 11px; }
+#foldcase-lab-remount:hover { color: var(--ink); }
+#foldcase-lab-canvas-body { flex: 1 0 auto; min-height: 280px; display: flex; }
+
+#foldcase-lab-preview { flex: 1; min-width: 0; min-height: 280px; overflow: auto;
+  padding: 24px; background: var(--sunken); display: flex; align-items: flex-start;
+  justify-content: center; }
+#foldcase-lab-card { width: 100%; max-width: 520px; margin: auto;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel);
+  overflow: hidden; }
+#foldcase-lab-card-title { display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-bottom: 1px solid var(--line); font-family: var(--mono);
+  font-size: 11px; line-height: normal; color: var(--ink-3); }
+#foldcase-lab-card-title::before { content: ''; flex: none; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--ink-3); }
+#foldcase-lab-card-title[data-live='true']::before { background: var(--pass); }
+#foldcase-lab-card-title span { min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+#foldcase-lab-slot { height: 186px; overflow: auto; }
+#foldcase-lab-slot[data-mountable='false'] { height: 0; }
+#foldcase-lab-card-model { display: flex; gap: 10px; padding: 9px 12px;
+  border-top: 1px solid var(--line); background: var(--sunken);
+  font-family: var(--mono); font-size: 11.5px; line-height: normal; color: var(--ink-2); }
+#foldcase-lab-card-model b { flex: none; font-weight: 400; color: var(--ink-3); }
+#foldcase-lab-card-empty { padding: 40px 30px; text-align: center;
+  font-family: var(--mono); font-size: 12px; line-height: 1.75; color: var(--ink-3);
+  text-wrap: pretty; }
+
+/* ── the timeline pane, 308px ─────────────────────────────────────────────── */
+#foldcase-lab-trail { flex: none; width: 308px; min-height: 0; display: flex;
+  flex-direction: column; background: var(--panel);
+  border-left: 1px solid var(--line); }
+#foldcase-lab-trail-head { flex: none; display: flex; align-items: center;
+  justify-content: space-between; gap: 8px; padding: 6px 10px;
+  border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 12px;
+  line-height: normal; }
+#foldcase-lab-trail-head b { display: flex; align-items: center; gap: 6px;
+  font-weight: 400; color: var(--ink-3); }
+#foldcase-lab-trail-head b::before { content: ''; flex: none; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--ink-3); }
+#foldcase-lab-trail-head[data-live='true'] b { color: var(--pass-text); }
+#foldcase-lab-trail-head[data-live='true'] b::before { background: var(--pass); }
+#foldcase-lab-trail-clear { font-family: var(--mono); font-size: 12px;
+  color: var(--ink-3); }
+#foldcase-lab-trail-clear:hover { color: var(--ink); }
+#foldcase-lab-trail-list { flex: 1; min-height: 0; overflow: auto; margin: 0;
+  padding: 0; list-style: none; }
+#foldcase-lab-trail-list li { display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border-bottom: 1px solid var(--line); }
+#foldcase-lab-trail-list b { flex: none; min-width: 20px; font-family: var(--mono);
+  font-size: 10px; font-weight: 400; color: var(--ink-3);
+  font-variant-numeric: tabular-nums; }
+#foldcase-lab-trail-list li::after { content: ''; order: -1; }
+.foldcase-lab-diff { flex: none; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--diff); }
+#foldcase-lab-trail-list em { flex: 1; min-width: 0; font-style: normal;
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#foldcase-lab-trail-list i { flex: none; font-family: var(--mono); font-style: normal;
+  font-size: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+#foldcase-lab-trail-empty { margin: 0; padding: 14px 12px; font-family: var(--mono);
+  font-size: 11px; line-height: 1.75; color: var(--ink-3); }
+#foldcase-lab-scrubber { flex: none; height: 33px; display: flex; align-items: center;
+  border-top: 1px solid var(--line); }
+#foldcase-lab-scrubber div { flex: 1; height: 16px; display: flex; align-items: center;
+  padding: 0 7px; }
+#foldcase-lab-scrubber div span { width: 100%; height: 4px; border-radius: 9999px;
+  background: var(--line); }
+#foldcase-lab-scrubber div span b { display: block; width: 0; height: 100%;
+  border-radius: 9999px; background: var(--accent); }
+#foldcase-lab-scrubber[data-filled='true'] div span b { width: 100%; }
+#foldcase-lab-scrubber em { flex: none; width: 72px; padding-left: 12px;
+  border-left: 1px solid var(--line); text-align: center; font-style: normal;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums; }
+
+/* ── the entry, timeline and schema tabs ──────────────────────────────────── */
+.foldcase-lab-page { flex: none; }
+#foldcase-lab-entry { padding: 26px 32px 34px; max-width: 900px; }
+#foldcase-lab-timeline { padding: 26px 32px 34px; max-width: 860px; }
+#foldcase-lab-schema { padding: 28px 32px 40px; max-width: 820px; }
+.foldcase-lab-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.foldcase-lab-pill { flex: none; padding: 4px 10px; border-radius: 6px;
+  background: var(--sunken); color: var(--ink-2); font-family: var(--mono);
+  font-size: 11.5px; font-weight: 600; }
+.foldcase-lab-top small { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+#foldcase-lab-entry h1 { margin: 0 0 20px; font-family: var(--mono); font-size: 22px;
+  font-weight: 500; letter-spacing: -0.015em; word-break: break-word; }
+/* The hairline trick: a 1px gap over a --line ground reads as one rule
+   between cells, where a border on each cell would read as two. */
+#foldcase-lab-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  margin: 0; border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
+  background: var(--line); }
+#foldcase-lab-facts > div { padding: 11px 15px; background: var(--panel); }
+#foldcase-lab-facts dt { margin: 0 0 4px; font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); }
+#foldcase-lab-facts dd { margin: 0; font-family: var(--mono); font-size: 12.5px;
+  word-break: break-word; color: var(--ink); }
+#foldcase-lab-facts dd[data-value='true'] { color: var(--pass-text); }
+#foldcase-lab-facts dd[data-value='false'] { color: var(--ink-3); }
+#foldcase-lab-facts dd[data-field='file'] { color: var(--ink-2); }
+.foldcase-lab-note { margin: 20px 0 0; padding: 14px 16px; border: 1px solid var(--line);
+  border-radius: 9px; background: var(--panel); font-size: 12.5px; line-height: 1.65;
+  color: var(--ink-2); text-wrap: pretty; }
+
+#foldcase-lab-timeline > p { margin: 0 0 20px; font-size: 13px; line-height: 1.65;
+  color: var(--ink-2); text-wrap: pretty; }
+#foldcase-lab-timeline-empty { padding: 20px; border: 1px dashed var(--line);
+  border-radius: 9px; font-family: var(--mono); font-size: 12px; line-height: 1.75;
+  color: var(--ink-3); }
+#foldcase-lab-timeline ol { margin: 0; padding: 0; list-style: none; }
+#foldcase-lab-timeline li { display: grid; grid-template-columns: 18px 1fr; gap: 16px; }
+.foldcase-lab-rail { display: flex; flex-direction: column; align-items: center; }
+.foldcase-lab-rail::before { content: ''; flex: none; width: 9px; height: 9px;
+  margin-top: 5px; border-radius: 50%; background: var(--accent); }
+.foldcase-lab-rail::after { content: ''; flex: 1; width: 1px; background: var(--line); }
+#foldcase-lab-timeline li > div:last-child { padding-bottom: 20px; }
+#foldcase-lab-timeline b { display: block; margin-bottom: 4px; font-family: var(--mono);
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em; color: var(--accent-text); }
+#foldcase-lab-timeline em { display: block; margin-bottom: 5px; font-style: normal;
+  font-family: var(--mono); font-size: 13.5px; color: var(--ink); word-break: break-word; }
+#foldcase-lab-timeline small { font-family: var(--mono); font-size: 12px;
+  color: var(--ink-3); }
+
+#foldcase-lab-schema .foldcase-lab-top { margin-bottom: 18px; }
+#foldcase-lab-chip { flex: none; padding: 3px 8px; border: 1px solid var(--line);
+  border-radius: 5px; background: var(--panel); font-family: var(--mono);
+  font-size: 11px; color: var(--ink-2); }
+#foldcase-lab-schema .foldcase-lab-top small { margin-left: auto; color: var(--fail-text); }
+#foldcase-lab-schema h1 { margin: 0 0 12px; font-family: var(--mono); font-size: 20px;
+  font-weight: 500; word-break: break-word; }
+#foldcase-lab-warning { margin: 0 0 20px; padding: 15px 17px;
+  border: 1px solid var(--fail-line); border-radius: 9px; background: var(--fail-bg);
+  font-size: 12.5px; line-height: 1.7; color: var(--ink); text-wrap: pretty; }
+.foldcase-lab-rows { display: flex; flex-direction: column; gap: 1px; margin: 0;
+  border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
+  background: var(--line); }
+.foldcase-lab-rows > div { display: grid; gap: 16px; padding: 11px 15px;
+  background: var(--panel); font-family: var(--mono); font-size: 12px; }
+#foldcase-lab-schema-facts > div { grid-template-columns: 230px 1fr; }
+.foldcase-lab-rows dt { margin: 0; color: var(--ink-2); }
+.foldcase-lab-rows dd { margin: 0; color: var(--ink-2); }
+.foldcase-lab-rows dd[data-tone='pass'] { color: var(--pass-text); }
+.foldcase-lab-rows dd[data-tone='fail'] { color: var(--fail-text); }
+
+/* ── the addon drawer ─────────────────────────────────────────────────────── */
+#foldcase-lab-drawer { flex: none; background: var(--panel);
+  border-top: 1px solid var(--line); }
+#foldcase-lab-drawer-tabs { height: 36px; display: flex; align-items: stretch;
+  padding: 0 12px; border-bottom: 1px solid var(--line); }
+#foldcase-lab-drawer-tabs button[role='tab'] { display: flex; align-items: center; gap: 6px;
+  padding: 0 11px; border-bottom: 2px solid transparent; font-size: 12px;
+  font-weight: 500; color: var(--ink-3); }
+#foldcase-lab-drawer-tabs button[role='tab']:hover { color: var(--ink); }
+#foldcase-lab-drawer-tabs button[role='tab'][aria-selected='true'] { border-bottom-color: var(--ink);
+  color: var(--ink); }
+#foldcase-lab-drawer-tabs .foldcase-lab-spacer { flex: 1; }
+#foldcase-lab-drawer-tabs em { padding: 1px 5px; border-radius: 4px;
+  background: var(--sunken); font-style: normal; font-family: var(--mono);
+  font-size: 10px; font-weight: 500; line-height: normal; color: var(--ink-3); }
+/* A warning, not a count: eight fields a catalog browser usually shows that
+   this catalog does not carry. */
+#foldcase-lab-drawer-tabs em[data-tone='fail'] { background: var(--fail-bg);
+  color: var(--fail-text); }
+#foldcase-lab-collapse { padding: 0 8px; font-size: 14px; color: var(--ink-3); }
+#foldcase-lab-collapse:hover { color: var(--ink); }
+#foldcase-lab-drawer-body { height: min(222px, 30vh); overflow: auto;
+  overscroll-behavior: contain; padding: 16px 20px 22px; }
+#foldcase-lab-drawer-body > p { margin: 0 0 12px; font-size: 12.5px; line-height: 1.65;
+  color: var(--ink-2); text-wrap: pretty; }
+#foldcase-lab-drawer-body dl { display: grid; gap: 0; margin: 0; }
+#foldcase-lab-drawer-body dl > div { display: grid; gap: 16px; padding: 8px 0;
+  border-top: 1px solid var(--line); }
+#foldcase-lab-drawer-body dt { margin: 0; font-family: var(--mono); font-size: 12px;
+  color: var(--ink); overflow-wrap: anywhere; }
+#foldcase-lab-drawer-body dt[data-tone='pass'] { color: var(--pass-text); }
+#foldcase-lab-drawer-body dt[data-tone='fail'] { color: var(--fail-text); }
+#foldcase-lab-drawer-body dt[data-tone='mute'] { color: var(--ink-2); }
+#foldcase-lab-drawer-body dd { margin: 0; font-size: 12.5px; line-height: 1.5;
+  color: var(--ink-2); text-wrap: pretty; }
+#foldcase-lab-drawer-body dd code { font-family: var(--mono); }
+#foldcase-lab-panel-runtime dl > div { grid-template-columns: 220px 1fr; }
+#foldcase-lab-panel-absent dl > div { grid-template-columns: 200px 1fr; }
+#foldcase-lab-panel-agent dl > div { grid-template-columns: 280px 1fr; }
+#foldcase-lab-panel-json { margin: 0; font-family: var(--mono); font-size: 12px;
+  line-height: 1.7; color: var(--ink-2); white-space: pre-wrap;
+  overflow-wrap: anywhere; }
+
 @media (max-width: 880px) {
   #foldcase-lab-frame { flex-direction: column; }
-  #foldcase-lab-sidebar { flex: 0 0 38%; border-right: 0;
+  #foldcase-lab-sidebar { flex: 0 0 34%; width: auto; border-right: 0;
     border-bottom: 1px solid var(--line); }
-  #foldcase-lab-head { padding-left: 16px; padding-right: 16px; }
-  #foldcase-lab-stage { padding: 16px; }
-  #foldcase-lab-unknown-id { margin-left: 16px; margin-right: 16px; }
-  #foldcase-lab-file { margin-left: 0; padding-left: 0; flex-basis: 100%; }
+  #foldcase-lab-canvas-body { flex-direction: column; }
+  #foldcase-lab-trail { width: auto; border-left: 0; border-top: 1px solid var(--line); }
+  #foldcase-lab-entry, #foldcase-lab-timeline, #foldcase-lab-schema { padding: 20px 16px 28px; }
+  #foldcase-lab-facts { grid-template-columns: 1fr; }
+  #foldcase-lab-drawer-body dl > div { grid-template-columns: 1fr; gap: 4px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  #foldcase-lab * { transition-duration: 1ms !important; }
+  #foldcase-lab * { transition-duration: 1ms !important; animation: none !important; }
 }
 `
 
 /** The part of an id that is not its component namespace. */
 const leafOf = (id: string): string => id.slice(id.lastIndexOf("/") + 1)
 
+/** A count, zero-padded to three, which is how the trail keeps its columns straight. */
+const padded = (count: number): string => String(count).padStart(3, "0")
+
 /**
  * Bring the chosen row into view, and nothing else.
  *
  * A cold load of `?showcase=<id>` selects a row that can be thousands of pixels
- * down a sidebar that now scrolls itself, and a selection nobody can see is a
- * details panel with no answer to "where did this come from". The lab may not
- * go looking for that row in the document — a surface that queries the DOM is
- * the move ADR-0001 exists to stop — and it does not have to: `OnMount` hands
- * the factory the live element. It is handed a marker that exists only inside
- * the chosen row, so every new selection builds one and this runs once for it,
+ * down a sidebar that scrolls itself, and a selection nobody can see is a panel
+ * with no answer to "where did this come from". The lab may not go looking for
+ * that row in the document — a surface that queries the DOM is the move
+ * ADR-0001 exists to stop — and it does not have to: `OnMount` hands the
+ * factory the live element. It is handed a marker that exists only inside the
+ * chosen row, so every new selection builds one and this runs once for it,
  * while the row around it — and any focus on it — survives untouched.
- * `block: "nearest"` is what keeps it quiet: a row already in view is left
- * exactly where it is, so clicking about the sidebar never jerks it around.
  */
-const RevealSelection = Mount.define(
-  "RevealSelection",
-  { id: Schema.String },
-  RevealedSelection,
-)(({ id }) => (element) =>
-  Effect.sync(() => {
-    element.scrollIntoView({ block: "nearest" })
-    return RevealedSelection({ id })
-  }),
+const RevealSelection = Mount.define("RevealSelection", { id: Schema.String }, RevealedSelection)(
+  ({ id }) =>
+    (element) =>
+      Effect.sync(() => {
+        element.scrollIntoView({ block: "nearest" })
+        return RevealedSelection({ id })
+      }),
 )
 
 /** The id of the row a Showcase is drawn on. */
@@ -873,78 +1155,18 @@ const rowIdOf = (id: string): string => `foldcase-lab-select-${id}`
 const rowSelectorOf = (id: string): string =>
   `#foldcase-lab-tree button[data-id="${id.replace(/["\\]/g, "\\$&")}"]`
 
-const entryButton = (entry: LabEntry, model: Model, h: HtmlBuilder<Message>): Html => {
-  const selected = isSelected(model, entry.id)
-  return h.keyed("li")(
-    // The key is the id and nothing else, so a row survives being chosen: the
-    // arrow keys focus the row they are about to select, and an element rebuilt
-    // under that focus would drop it on the floor and end the walk after one
-    // step. What is rebuilt is the marker inside it — see below.
-    entry.id,
-    [],
-    [
-      h.button(
-        [
-          h.Type("button"),
-          h.Id(rowIdOf(entry.id)),
-          h.OnClick(SelectedShowcase({ id: entry.id })),
-          h.DataAttribute("id", entry.id),
-          h.DataAttribute("selected", String(selected)),
-          h.DataAttribute("has-mount", String(entry.hasMount)),
-          // The roving tabindex: one row of however many is in the tab order,
-          // and it is the chosen one. Without it a reader reaching the canvas
-          // by keyboard passes through every row in the catalog first — a
-          // hundred and seventy presses in the gallery this was measured on.
-          // The arrow keys on the sidebar are what move between the rest.
-          h.Tabindex(selected ? 0 : -1),
-          ...(selected ? [h.AriaCurrent("true")] : []),
-        ],
-        [
-          h.em([], [leafOf(entry.id)]),
-          // Whether the canvas has anything to draw for this row, said on the
-          // row rather than found by clicking it.
-          //
-          // It marks the rows with *no* mount, not the rows with one. A
-          // component gallery declares a mount for nearly everything, so a tag
-          // on the drawable rows is a word repeated a hundred and forty-six
-          // times and read none. The dead row is the exception, and it is also
-          // the one that costs a click to discover — so it is the one that
-          // says so up front.
-          ...(entry.hasMount ? [] : [h.i([], ["NO MOUNT"])]),
-          // The marker that carries the reveal. It exists only while this row
-          // is the chosen one, so it is built the moment the row is chosen and
-          // that is what fires the Mount — without rebuilding the row itself.
-          // It draws nothing and is hidden from the accessible name.
-          ...(selected
-            ? [
-                h.keyed("span")(
-                  "reveal",
-                  [
-                    h.Class("foldcase-lab-reveal"),
-                    h.AriaHidden(true),
-                    h.OnMount(RevealSelection({ id: entry.id })),
-                  ],
-                  [],
-                ),
-              ]
-            : []),
-        ],
-      ),
-    ],
-  )
-}
-
 /**
- * The disclosure mark on a group heading, drawn rather than typed.
+ * The disclosure mark on a component heading, drawn rather than typed.
  *
- * It was `▾` and `▸`, two characters standing in for an icon: they inherit the
- * text's weight, they sit on the baseline rather than on the row's centre, and
- * they are read out loud by a screen reader as part of the component's name.
- * One path at one stroke width is none of those things, and `aria-hidden` keeps
- * it out of the accessible name — where `aria-expanded` now says the same thing
+ * The design names the literal characters `▾` and `▸` and then says to swap
+ * them for the codebase's icon set. This is that set. Two characters standing
+ * in for an icon inherit the text's weight, sit on the baseline rather than on
+ * the row's centre, and are read out loud as part of the component's name; one
+ * path at one stroke width is none of those things, and `aria-hidden` keeps it
+ * out of the accessible name where `aria-expanded` says the same thing
  * properly.
  */
-const foldMark = (h: HtmlBuilder<Message>): Html =>
+const caretMark = (h: HtmlBuilder<Message>): Html =>
   h.svg(
     [
       h.ViewBox("0 0 12 12"),
@@ -952,7 +1174,7 @@ const foldMark = (h: HtmlBuilder<Message>): Html =>
       h.Height("12"),
       h.Fill("none"),
       h.Stroke("currentColor"),
-      h.StrokeWidth("1.6"),
+      h.StrokeWidth("1.8"),
       h.StrokeLinecap("round"),
       h.StrokeLinejoin("round"),
       h.AriaHidden(true),
@@ -961,147 +1183,12 @@ const foldMark = (h: HtmlBuilder<Message>): Html =>
   )
 
 /**
- * One component's group: a heading that folds it, and its entries when it is
- * open. Folded, the group costs one row instead of however many Showcases it
- * declares — which is how twenty-four components fit on a screen.
- *
- * The heading is `aria-expanded` and `aria-controls` over the list it owns, so
- * the fold is state a screen reader is told about rather than a glyph it reads
- * out. It is also `position: sticky`, because a leaf name is meaningless without
- * its namespace — `starts-unclicked` belongs to a button, a switch, a checkbox
- * or a radio group, and six thousand pixels down a catalog the heading is the
- * only thing that says which.
- */
-/**
- * One component under its file: a heading, and its entries.
- *
- * The heading does not fold. The file above it does, and one fold per tier is
- * one too many — a reader who wants a component out of the way wants the file
- * out of the way, because in every catalog measured so far a file declares one
- * component. `ToggledComponent` stays in the union, so an agent that folds a
- * namespace by dispatch still can; there is simply no second button for it.
- */
-const componentSection = (
-  component: LabComponent,
-  model: Model,
-  h: HtmlBuilder<Message>,
-): Html => {
-  const expanded = isComponentExpanded(model, component.component)
-  return h.section(
-    [
-      h.DataAttribute("component", component.component),
-      h.DataAttribute("expanded", String(expanded)),
-    ],
-    [
-      h.h4(
-        [h.Class("foldcase-lab-group")],
-        [h.em([], [component.component]), h.span([], [String(component.entries.length)])],
-      ),
-      ...(expanded
-        ? [h.ul([], Arr.map(component.entries, (entry) => entryButton(entry, model, h)))]
-        : []),
-    ],
-  )
-}
-
-/**
- * The one row a file the loader could not read gets (ADR-0001 › Amendment 2).
- *
- * It sits in the tree, in path order, among the files that did load — not in a
- * panel above it. A reader wondering why a component is missing looks at the
- * list of files, and this is the answer in the place the question is asked.
- */
-const failureRow = (
-  failure: LabCatalog["failures"][number],
-  h: HtmlBuilder<Message>,
-): Html =>
-  h.p(
-    [h.Class("foldcase-lab-failed"), h.DataAttribute("failed", failure.path)],
-    [h.i([], ["\u2717"]), h.span([], ["did not load"]), h.small([], [failure.reason])],
-  )
-
-/**
- * One file's group: a heading that folds it, then whatever it declared.
- *
- * The heading is `aria-expanded` over the list it owns, and it is
- * `position: sticky`, because a leaf name is meaningless without its namespace
- * and a namespace is easier to place when the file that declared it is on
- * screen. A catalog no file backs has an empty path and gets no heading at all,
- * so an in-memory catalog does not grow a blank row.
- */
-const fileSection = (file: LabFile, model: Model, h: HtmlBuilder<Message>): Html => {
-  const expanded = isFileExpanded(model, file.path)
-  const bodyId = `foldcase-lab-file-${file.path}`
-  const named = file.path !== ""
-  const body = [
-    ...(file.maybeFailure === undefined ? [] : [failureRow(file.maybeFailure, h)]),
-    ...Arr.map(file.components, (component) => componentSection(component, model, h)),
-  ]
-  return h.section(
-    [
-      h.Class("foldcase-lab-file"),
-      h.DataAttribute("path", file.path),
-      h.DataAttribute("expanded", String(expanded)),
-      h.DataAttribute("failed", String(file.maybeFailure !== undefined)),
-    ],
-    [
-      ...(named
-        ? [
-            h.h3(
-              [],
-              [
-                h.button(
-                  [
-                    h.Type("button"),
-                    h.OnClick(ToggledFile({ path: file.path })),
-                    h.DataAttribute("file", file.path),
-                    h.DataAttribute("expanded", String(expanded)),
-                    h.AriaExpanded(expanded),
-                    ...(expanded ? [h.AriaControls(bodyId)] : []),
-                  ],
-                  [foldMark(h), h.em([], [file.path]), h.i([], [countOf(file)])],
-                ),
-              ],
-            ),
-          ]
-        : []),
-      ...(expanded || !named ? [h.div([h.Id(bodyId)], body)] : []),
-    ],
-  )
-}
-
-/** How many entries a file is holding, or the mark that it holds none. */
-const countOf = (file: LabFile): string =>
-  file.maybeFailure !== undefined
-    ? "\u2717"
-    : String(file.components.reduce((total, group) => total + group.entries.length, 0))
-
-/**
- * What the sidebar strip says the catalog is: how many entries it holds, or —
- * once a filter is live — how many of them are left. A reader who narrowed a
- * hundred and forty-six down to three has to read that it was three of a
- * hundred and forty-six, or a short list is indistinguishable from a short
- * catalog.
- */
-const catalogCount = (model: Model): string => {
-  const matching = matchingTotal(model)
-  return matching === model.catalog.total
-    ? String(model.catalog.total)
-    : `${matching} of ${model.catalog.total}`
-}
-
-/** How many components hold what is drawn, counted rather than pluralised badly. */
-const componentCount = (drawn: number): string =>
-  drawn === 1 ? "1 component" : `${drawn} components`
-
-/**
  * The mark on the bar, and the only picture the lab draws.
  *
  * It is markup rather than a file because the lab ships as compiled TypeScript
  * and nothing else — there is no asset in the tarball for a stylesheet to point
- * `url()` at, and a data URI in a template literal would be an image nobody
- * could read or edit. Two paths at `evenodd`: the shell, and the three faces
- * folded inside it.
+ * `url()` at, so the design's `mask: url(mark.svg)` has nothing to point at
+ * either. `fill: currentColor` does the same job: the ink follows the theme.
  */
 const brandMark = (h: HtmlBuilder<Message>): Html =>
   h.svg(
@@ -1127,29 +1214,220 @@ const brandMark = (h: HtmlBuilder<Message>): Html =>
   )
 
 /**
+ * What the pill says about the runtime, and it says only what has been seen.
+ *
+ * The design's copy names a version and a CDN. Neither is knowable here: the
+ * lab is bundled with the consumer's own Foldkit by the consumer's own dev
+ * server (ADR-0004), so it can read neither the version nor where it came from.
+ * What it can say is whether a mount has been watched to paint, which is the
+ * fact the pill was carrying anyway.
+ */
+const runtimeState = (model: Model): readonly [string, string] =>
+  model.previewFailed
+    ? ["failed", "foldkit · mount painted nothing"]
+    : model.mounted
+      ? ["live", "foldkit · mounted"]
+      : ["idle", "foldkit · nothing mounted"]
+
+/**
  * The bar across the top, which is the lab saying whose lab it is.
  *
  * It spans both columns on purpose: the catalog and the stage are two halves of
- * one instrument, and a rule across the top of both is what says so. The
- * directory beside the wordmark is the one fact the bar carries — a reader with
- * two labs open has no other way to tell which catalog is which.
+ * one instrument, and a rule across the top of both is what says so. Nothing
+ * stands beside the wordmark — no directory chip, no segmented toggle — because
+ * both were tried, read as chrome, and taken out.
  */
-const titleBar = (h: HtmlBuilder<Message>): Html =>
-  h.header(
+const titleBar = (model: Model, h: HtmlBuilder<Message>): Html => {
+  const [state, pill] = runtimeState(model)
+  return h.header(
     [h.Id("foldcase-lab-bar")],
-    [brandMark(h), h.b([], ["Foldcase"]), h.em([], ["lab"])],
+    [
+      h.div([h.Id("foldcase-lab-brand")], [brandMark(h), h.b([], ["Foldcase"])]),
+      h.span([h.Class("foldcase-lab-spacer")], []),
+      h.span([h.Id("foldcase-lab-runtime"), h.DataAttribute("state", state)], [pill]),
+      h.button(
+        [
+          h.Type("button"),
+          h.Id("foldcase-lab-reload"),
+          h.DataAttribute("loading", String(model.reloading)),
+          h.OnClick(ReloadedCatalog()),
+        ],
+        // Idle, the spinner is `display: none` rather than absent, so starting
+        // a reload never reflows the button it sits in.
+        [h.i([h.AriaHidden(true)], []), model.reloading ? "Loading" : "Reload catalog"],
+      ),
+      h.button(
+        [
+          h.Type("button"),
+          h.Id("foldcase-lab-theme"),
+          h.Title("Toggle theme"),
+          h.AriaLabel(model.theme === "dark" ? "Switch to the light theme" : "Switch to the dark theme"),
+          h.OnClick(ToggledTheme()),
+        ],
+        [h.span([h.AriaHidden(true)], [model.theme === "dark" ? "\u263E" : "\u2600"])],
+      ),
+    ],
   )
+}
+
+/**
+ * One Showcase's row.
+ *
+ * The mark on the left says whether the canvas can mount this entry, and it
+ * says nothing else. It is filled for a mountable entry and a hollow ring for
+ * one with no mount — never green, never red. The catalog carries no pass and
+ * no fail, so a status dot here would be a claim the data cannot back.
+ */
+const stateRow = (entry: LabEntry, model: Model, h: HtmlBuilder<Message>): Html => {
+  const selected = isSelected(model, entry.id)
+  return h.keyed("li")(
+    // The key is the id and nothing else, so a row survives being chosen: the
+    // arrow keys focus the row they are about to select, and an element rebuilt
+    // under that focus would drop it on the floor and end the walk after one
+    // step. What is rebuilt is the marker inside it — see below.
+    entry.id,
+    [],
+    [
+      h.button(
+        [
+          h.Type("button"),
+          h.Class("foldcase-lab-state"),
+          h.Id(rowIdOf(entry.id)),
+          h.OnClick(SelectedShowcase({ id: entry.id })),
+          h.DataAttribute("id", entry.id),
+          h.DataAttribute("selected", String(selected)),
+          h.DataAttribute("mountable", String(entry.hasMount)),
+          // The roving tabindex: one row of however many is in the tab order,
+          // and it is the chosen one. Without it a reader reaching the canvas
+          // by keyboard passes through every row in the catalog first — a
+          // hundred and seventy presses in the gallery this was measured on.
+          h.Tabindex(selected ? 0 : -1),
+          ...(selected ? [h.AriaCurrent("true")] : []),
+        ],
+        [
+          h.em([], [leafOf(entry.id)]),
+          ...(entry.hasMount ? [h.i([], ["LIVE"])] : []),
+          // The marker that carries the reveal. It exists only while this row
+          // is the chosen one, so it is built the moment the row is chosen and
+          // that is what fires the Mount — without rebuilding the row itself.
+          ...(selected
+            ? [
+                h.keyed("span")(
+                  "reveal",
+                  [
+                    h.Class("foldcase-lab-reveal"),
+                    h.AriaHidden(true),
+                    h.OnMount(RevealSelection({ id: entry.id })),
+                  ],
+                  [],
+                ),
+              ]
+            : []),
+        ],
+      ),
+    ],
+  )
+}
+
+/**
+ * One component's group: a heading that folds it, and its states when it is
+ * open.
+ *
+ * Two tiers and no file tier. A hundred and forty-six entries across
+ * twenty-four files make the path noise on every row, and the file is on the
+ * entry — the tab bar names it for whatever is selected. Folded, a group costs
+ * one row instead of however many Showcases it declares, which is how
+ * twenty-four components fit on one screen.
+ */
+const componentSection = (
+  component: LabComponent,
+  model: Model,
+  h: HtmlBuilder<Message>,
+): Html => {
+  const expanded = isComponentExpanded(model, component.component)
+  const bodyId = `foldcase-lab-group-${component.component}`
+  return h.section(
+    [
+      h.DataAttribute("component", component.component),
+      h.DataAttribute("expanded", String(expanded)),
+    ],
+    [
+      h.h3(
+        [h.Class("foldcase-lab-sr")],
+        [component.component],
+      ),
+      h.button(
+        [
+          h.Type("button"),
+          h.Class("foldcase-lab-component"),
+          h.OnClick(ToggledComponent({ component: component.component })),
+          h.AriaExpanded(expanded),
+          ...(expanded ? [h.AriaControls(bodyId)] : []),
+        ],
+        [
+          caretMark(h),
+          h.em([], [component.component]),
+          h.i([], [String(component.entries.length)]),
+        ],
+      ),
+      ...(expanded
+        ? [
+            h.ul(
+              [h.Id(bodyId)],
+              Arr.map(component.entries, (entry) => stateRow(entry, model, h)),
+            ),
+          ]
+        : []),
+    ],
+  )
+}
+
+/**
+ * The one row a file the loader could not read gets (ADR-0001 › Amendment 2).
+ *
+ * Such a file declared no id, so it has no component to hang under and no entry
+ * to be found by — and it is still the answer to "where did that component go".
+ * It sits at the top of the tree, in path order, because a reader looking for a
+ * missing component looks at the list before they look anywhere else.
+ */
+const failureRow = (
+  failure: LabCatalog["failures"][number],
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.p(
+    [h.Class("foldcase-lab-failed"), h.DataAttribute("failed", failure.path)],
+    [
+      h.i([h.AriaHidden(true)], ["✗"]),
+      h.em([], [failure.path, h.small([], ["did not load — ", failure.reason])]),
+    ],
+  )
+
+/**
+ * What the strip says the catalog is: how many entries it holds, or — once a
+ * filter is live — how many of them are left. A reader who narrowed a hundred
+ * and forty-six down to three has to read that it was three of a hundred and
+ * forty-six, or a short list is indistinguishable from a short catalog.
+ */
+const catalogCount = (model: Model): string => {
+  const matching = matchingTotal(model)
+  const showcases = `${model.catalog.total} showcases`
+  return matching === model.catalog.total ? showcases : `${matching} of ${showcases}`
+}
+
+/** How many components hold what is drawn, counted rather than pluralised badly. */
+const componentCount = (drawn: number): string =>
+  drawn === 1 ? "1 component" : `${drawn} components`
 
 /**
  * The catalog, and the one control over it.
  *
- * The head does not scroll and the tree does, which is what lets a group
- * heading stick to the top of the tree without knowing how tall the head is —
- * and it keeps the filter on screen, where a filter belongs when the thing it
- * filters is several thousand pixels long.
+ * The head, the strip and the footer do not scroll and the tree does, which is
+ * what keeps the filter on screen when the thing it filters is several thousand
+ * pixels long.
  */
 const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const files = sidebarFiles(model)
+  const components = sidebarComponents(model)
+  const failures = sidebarFailures(model)
   return h.nav(
     [
       h.Id("foldcase-lab-sidebar"),
@@ -1159,15 +1437,11 @@ const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
       // then walk what is left without reaching for the mouse to get out of the
       // field. `OnKeyDownFocus` moves DOM focus to the row the step lands on at
       // the same time as it dispatches, which is what makes the roving tabindex
-      // below a navigation rather than a trap. Keys it does not handle are left
+      // a navigation rather than a trap. Keys it does not handle are left
       // alone, so typing in the filter still types.
       h.OnKeyDownFocus((key) =>
         pipe(
-          key === "ArrowDown"
-            ? Option.some(1)
-            : key === "ArrowUp"
-              ? Option.some(-1)
-              : Option.none(),
+          key === "ArrowDown" ? Option.some(1) : key === "ArrowUp" ? Option.some(-1) : Option.none(),
           Option.flatMap((delta) =>
             Option.map(neighbourId(model, delta), (id) => ({
               focusSelector: rowSelectorOf(id),
@@ -1178,11 +1452,6 @@ const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
       ),
     ],
     [
-      // The heading the tree hangs off. It is drawn for a screen reader and not
-      // for the eye: the strip below says the same thing in numbers, and a
-      // second word "Showcases" over a column of them earns no pixels. Dropping
-      // it outright would leave the tree's group headings at h3 under the
-      // details h1, which is the gap this heading exists to close.
       h.h2([h.Class("foldcase-lab-sr")], ["Showcases"]),
       h.div(
         [h.Id("foldcase-lab-sidebar-head")],
@@ -1201,15 +1470,11 @@ const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
       ),
       h.p(
         [h.Id("foldcase-lab-summary")],
-        [
-          h.b([], [catalogCount(model)]),
-          h.span([h.DataAttribute("field", "drawable")], [drawableLabel(model)]),
-          h.span([], [componentCount(sidebarComponents(model).length)]),
-        ],
+        [h.span([], [catalogCount(model)]), h.span([], [componentCount(components.length)])],
       ),
       h.div(
         [h.Id("foldcase-lab-tree")],
-        files.length === 0
+        components.length === 0 && failures.length === 0
           ? [
               h.p(
                 [h.Id("foldcase-lab-empty-tree")],
@@ -1226,11 +1491,504 @@ const sidebar = (model: Model, h: HtmlBuilder<Message>): Html => {
                 ],
               ),
             ]
-          : Arr.map(files, (file) => fileSection(file, model, h)),
+          : [
+              ...Arr.map(failures, (failure) => failureRow(failure, h)),
+              ...Arr.map(components, (component) => componentSection(component, model, h)),
+            ],
+      ),
+      h.p([h.Id("foldcase-lab-foot")], ["foldcase_load_catalog · no run yet, so no status"]),
+    ],
+  )
+}
+
+/** One cell of the Entry tab's facts grid. */
+const fact = (
+  label: string,
+  value: string,
+  tone: string,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.div(
+    [],
+    [h.dt([], [label]), h.dd([h.DataAttribute("value", tone), h.DataAttribute("field", label)], [value])],
+  )
+
+/**
+ * The Entry tab: the whole listing entry, said plainly.
+ *
+ * Six fields, and the closing note says they are six — because a reader who has
+ * used a component browser before is looking for a seventh, and the honest
+ * answer is that running the Showcase is the only way to get one.
+ */
+const entryTab = (entry: LabEntry, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Id("foldcase-lab-entry"), h.Class("foldcase-lab-page")],
+    [
+      h.div(
+        [h.Class("foldcase-lab-top")],
+        [
+          h.span([h.Class("foldcase-lab-pill")], ["listed"]),
+          h.small([], ["foldcase_list_showcases — the catalog reports no status until a run"]),
+        ],
+      ),
+      h.h1([], [entry.id]),
+      h.dl(
+        [h.Id("foldcase-lab-facts")],
+        [
+          fact("component", entry.component, "text", h),
+          fact("state", leafOf(entry.id), "text", h),
+          fact("file", entry.file ?? "held in memory", "text", h),
+          fact("hasMount", String(entry.hasMount), String(entry.hasMount), h),
+          fact("hasMessageSchema", String(entry.hasMessageSchema), String(entry.hasMessageSchema), h),
+          fact("hasModelSchema", String(entry.hasModelSchema), String(entry.hasModelSchema), h),
+        ],
+      ),
+      h.p(
+        [h.Class("foldcase-lab-note")],
+        [
+          "These six fields are the whole listing entry. Anything else a catalog browser might show — pass or fail, how long it took, which Messages the play dispatched — is not in the data, and is reachable only by running the Showcase.",
+        ],
+      ),
+    ],
+  )
+
+/**
+ * The Timeline tab: what a run would record, and why the listing holds none of
+ * it.
+ *
+ * The trail fills only from Messages a mount relays out. Foldkit gives a host
+ * no read on a runtime it did not build, so for a catalog whose `mount` is an
+ * opaque thunk this stays at its empty state — which is the honest reading and
+ * not a gap in the lab.
+ */
+const timelineTab = (model: Model, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Id("foldcase-lab-timeline"), h.Class("foldcase-lab-page")],
+    [
+      h.p(
+        [],
+        [
+          "A play is an opaque thunk — the runner never looks inside it, and the catalog listing carries no trace of one. What can be recorded is a live mount: every Message a mounted component relays out as it reaches its own update.",
+        ],
+      ),
+      ...(model.trail.length === 0
+        ? [
+            h.p(
+              [h.Id("foldcase-lab-timeline-empty")],
+              [
+                model.mounted
+                  ? "This mount has relayed nothing. Foldkit gives a host no read on a runtime it did not build, so a Showcase that does not relay its own dispatches leaves this empty rather than filling it with a guess."
+                  : "The trail records real dispatches, so it fills only while a component is mounted.",
+              ],
+            ),
+          ]
+        : [
+            h.ol(
+              [],
+              Arr.map(model.trail, (row, at) =>
+                h.li(
+                  [],
+                  [
+                    h.div([h.Class("foldcase-lab-rail"), h.AriaHidden(true)], []),
+                    h.div(
+                      [],
+                      [
+                        h.b([], ["message"]),
+                        h.em([], [row.tag]),
+                        h.small([], [`${padded(at + 1)} · +${row.delta}ms`]),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ]),
+    ],
+  )
+
+/** One row of the Schema tab's facts list, or of a drawer panel. */
+const row = (
+  label: string,
+  value: string,
+  tone: string,
+  h: HtmlBuilder<Message>,
+): Html => h.div([], [h.dt([], [label]), h.dd([h.DataAttribute("tone", tone)], [value])])
+
+/**
+ * The Schema tab: the one-union problem, stated rather than papered over.
+ *
+ * A Foldkit catalog declares one Message union for the whole application, and
+ * the MCP server hands back the same document whichever component is asked
+ * about — twenty-four calls, twenty-four identical replies. A per-component
+ * table would therefore be the same table once per component, which is worse
+ * than no table because it looks like twenty-four answers.
+ *
+ * The numbers here are the catalog's own, counted from the listing. The design
+ * cites the gallery's `45,759 bytes`; that is a measurement of one catalog and
+ * would be a lie in front of another, so this counts what is in front of it.
+ */
+const schemaTab = (entry: LabEntry, model: Model, h: HtmlBuilder<Message>): Html => {
+  const withMessage = Arr.filter(
+    model.catalog.components.flatMap((component) => component.entries),
+    (held) => held.hasMessageSchema,
+  ).length
+  const withModel = Arr.filter(
+    model.catalog.components.flatMap((component) => component.entries),
+    (held) => held.hasModelSchema,
+  ).length
+  const components = model.catalog.components.length
+  return h.div(
+    [h.Id("foldcase-lab-schema"), h.Class("foldcase-lab-page")],
+    [
+      h.div(
+        [h.Class("foldcase-lab-top")],
+        [
+          h.span([h.Id("foldcase-lab-chip")], ["foldcase_get_showcase_schema"]),
+          h.small([], ["catalog-wide, not per component"]),
+        ],
+      ),
+      h.h1([], [entry.component]),
+      h.p(
+        [h.Id("foldcase-lab-warning")],
+        [
+          `One Message union covers the whole catalog. Asking about ${entry.component} and asking about any other component returns the same document, so a per-component table would be the same table ${components} times over. Until a catalog splits its unions, this tab is honest only as a catalog-wide view.`,
+        ],
+      ),
+      h.dl(
+        [h.Id("foldcase-lab-schema-facts"), h.Class("foldcase-lab-rows")],
+        [
+          row("hasMessageSchema", String(entry.hasMessageSchema), entry.hasMessageSchema ? "pass" : "mute", h),
+          row("hasModelSchema", String(entry.hasModelSchema), entry.hasModelSchema ? "pass" : "mute", h),
+          row("distinct documents", `1 across ${components} components`, "fail", h),
+          row(
+            "declaring a Message Schema",
+            `${withMessage} of ${model.catalog.total} entries`,
+            "mute",
+            h,
+          ),
+          row("declaring a Model Schema", `${withModel} of ${model.catalog.total} entries`, "mute", h),
+        ],
       ),
     ],
   )
 }
+
+/**
+ * The four runtime facts this surface was built around, plus what the lab has
+ * actually seen. Every one of them changed what is buildable here, which is why
+ * they are in the UI rather than in a comment nobody opens.
+ */
+const RUNTIME_ROWS: ReadonlyArray<readonly [string, string, string]> = [
+  [
+    "no Style attribute",
+    "fail",
+    "The builder offers Class, Id, Key, Title and every On* handler. A style string crashes the application, so every value on this screen is a class or a rule in one stylesheet.",
+  ],
+  [
+    "the container is owned",
+    "mute",
+    "makeApplication replaces the node it is given, so a mount gets a fresh child element of its own and never the canvas itself.",
+  ],
+  [
+    "update is async",
+    "mute",
+    "It runs on an Effect fiber, so the Model lands a tick after the event rather than during it.",
+  ],
+  [
+    "the preview is isolated",
+    "mute",
+    "The shell re-renders on every dispatch, which would wipe an in-tree mount — and a mounted component's stylesheet must not reach the shell. The mount gets a shadow root, which answers both.",
+  ],
+  [
+    "a paint is verified",
+    "pass",
+    "Runtime.run returns undefined and throws nothing when an application paints nothing at all, so Live is set from a checked container and never from a module that loaded.",
+  ],
+  [
+    "foldkit is the consumer's",
+    "mute",
+    "The lab is compiled by tsc and bundled by the consumer's own dev server, so it reads neither the Foldkit version nor where it was resolved from.",
+  ],
+]
+
+/**
+ * The eight fields the first draft of this design leaned on, and what the
+ * listing carries instead.
+ *
+ * They are in the UI on purpose. A catalog browser that quietly omits a status
+ * column reads as a catalog with nothing to report; one that draws a grey dot
+ * reads as a status. Naming the absence is the only reading that is true.
+ */
+const ABSENT_ROWS: ReadonlyArray<readonly [string, string]> = [
+  [
+    "status",
+    "The listing carries none. Pass and fail belong to a run, not to a catalog — so there are no status dots in the tree.",
+  ],
+  [
+    "error",
+    "A file that would not load is a row in the tree. Anything else that failed belongs to a run report, which this surface does not hold.",
+  ],
+  [
+    "kind",
+    "No field, and no Scene in any catalog measured. A Story / Scene badge would say the same word on every row.",
+  ],
+  [
+    "dispatches",
+    "Not on the listing. A gap list held against the Message union would be empty by default, which reads as covered when it means unknown.",
+  ],
+  ["duration", "Not a field on ShowcaseReport."],
+  ["lines / functions", "Coverage is collected by a run, and the listing carries no run."],
+  [
+    "exports a view",
+    "No such field. hasMount is the closest, and it says a thunk exists rather than that a view does.",
+  ],
+  [
+    "per-component schema",
+    "One Message union covers the whole catalog, so every component returns the same document.",
+  ],
+]
+
+/**
+ * The same catalog over stdio. The copy is the tool descriptions themselves, so
+ * a reader looking at the lab and an agent reading `tools/list` are told the
+ * same thing.
+ */
+const TOOL_ROWS: ReadonlyArray<readonly [string, string]> = [
+  [
+    "foldcase_list_showcases",
+    "Enumerate every Showcase — the file it came from, and whether it carries a mount, a Message Schema and a Model Schema.",
+  ],
+  [
+    "foldcase_get_showcase_schema",
+    "Introspect the Message union into a JSON Schema document, so a payload is built by construction.",
+  ],
+  ["foldcase_get_showcase_model_schema", "The same for the Model — the shape a play asserts on."],
+  [
+    "foldcase_run_showcase",
+    "Run one play in a fresh subprocess, from the code on disk, and return the typed pass/fail report.",
+  ],
+  ["foldcase_run_catalog", "Run the whole catalog into one suite report, or the part under an id prefix."],
+  [
+    "foldcase_load_catalog",
+    "Refresh the listing after files appear or vanish, or point the server at another directory under the root.",
+  ],
+]
+
+/** A drawer panel: an intro, then a list of label/value rows. */
+const panelOf = (
+  id: string,
+  intro: string,
+  rows: ReadonlyArray<readonly [string, string, string]>,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.div(
+    [h.Id(id)],
+    [
+      h.p([], [intro]),
+      h.dl(
+        [],
+        Arr.map(rows, ([label, tone, value]) =>
+          h.div([], [h.dt([h.DataAttribute("tone", tone)], [label]), h.dd([], [value])]),
+        ),
+      ),
+    ],
+  )
+
+/** The selected entry exactly as the listing carries it, and the catalog totals. */
+const jsonPanel = (entry: Option.Option<LabEntry>, model: Model, h: HtmlBuilder<Message>): Html =>
+  h.pre(
+    [h.Id("foldcase-lab-panel-json")],
+    [
+      pipe(
+        entry,
+        Option.match({
+          onNone: () => "// nothing selected",
+          onSome: (held) =>
+            JSON.stringify(
+              {
+                id: held.id,
+                component: held.component,
+                file: held.file,
+                hasMount: held.hasMount,
+                hasMessageSchema: held.hasMessageSchema,
+                hasModelSchema: held.hasModelSchema,
+              },
+              null,
+              2,
+            ),
+        }),
+      ),
+      `\n\n// catalog: { total: ${model.catalog.total}, components: ${model.catalog.components.length}, failures: ${model.catalog.failures.length} }`,
+    ],
+  )
+
+/** One tab of the drawer strip, with its badge when it carries one. */
+const drawerTab = (
+  panel: Panel,
+  label: string,
+  badge: Option.Option<readonly [string, string]>,
+  model: Model,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.button(
+    [
+      h.Type("button"),
+      h.Role("tab"),
+      h.AriaSelected(model.panel === panel && model.drawerOpen),
+      h.DataAttribute("panel", panel),
+      h.OnClick(SelectedPanel({ panel })),
+    ],
+    [
+      label,
+      ...pipe(
+        badge,
+        Option.match({
+          onNone: (): ReadonlyArray<Html> => [],
+          onSome: ([count, tone]) => [h.em([h.DataAttribute("tone", tone)], [count])],
+        }),
+      ),
+    ],
+  )
+
+/**
+ * The addon drawer, pinned to the bottom of main.
+ *
+ * Collapsing hides the body and keeps the strip, so the tabs stay reachable —
+ * and the body is `min(222px, 30vh)` so that on a short viewport the drawer
+ * yields rather than starving the canvas it sits under.
+ */
+const drawer = (
+  entry: Option.Option<LabEntry>,
+  model: Model,
+  showAgentPanel: boolean,
+  h: HtmlBuilder<Message>,
+): Html =>
+  h.section(
+    [h.Id("foldcase-lab-drawer"), h.AriaLabel("Addons")],
+    [
+      h.div(
+        [h.Id("foldcase-lab-drawer-tabs"), h.Role("tablist")],
+        [
+          drawerTab("runtime", "Runtime", Option.none(), model, h),
+          drawerTab(
+            "absent",
+            "Not in the data",
+            Option.some([String(ABSENT_ROWS.length), "fail"] as const),
+            model,
+            h,
+          ),
+          ...(showAgentPanel
+            ? [
+                drawerTab(
+                  "agent",
+                  "Agent (MCP)",
+                  Option.some([String(TOOL_ROWS.length), "mute"] as const),
+                  model,
+                  h,
+                ),
+              ]
+            : []),
+          drawerTab("json", "JSON", Option.none(), model, h),
+          h.span([h.Class("foldcase-lab-spacer")], []),
+          h.button(
+            [
+              h.Type("button"),
+              h.Id("foldcase-lab-collapse"),
+              h.AriaExpanded(model.drawerOpen),
+              h.AriaLabel(model.drawerOpen ? "Collapse the drawer" : "Open the drawer"),
+              h.OnClick(ToggledDrawer()),
+            ],
+            [h.span([h.AriaHidden(true)], [model.drawerOpen ? "⌄" : "⌃"])],
+          ),
+        ],
+      ),
+      ...(model.drawerOpen
+        ? [
+            h.div(
+              [h.Id("foldcase-lab-drawer-body")],
+              [
+                pipe(
+                  M.value(model.panel),
+                  M.withReturnType<Html>(),
+                  M.when("runtime", () =>
+                    panelOf(
+                      "foldcase-lab-panel-runtime",
+                      "Four facts about running Foldkit in a browser, each of which changed what this screen could be, and what the lab has seen since.",
+                      RUNTIME_ROWS,
+                      h,
+                    ),
+                  ),
+                  M.when("absent", () =>
+                    panelOf(
+                      "foldcase-lab-panel-absent",
+                      "Every row is a field a catalog browser usually shows, and what a Foldcase listing carries instead. None of them is drawn as a placeholder, because a placeholder reads as a value.",
+                      Arr.map(ABSENT_ROWS, ([label, value]) => [label, "text", value] as const),
+                      h,
+                    ),
+                  ),
+                  M.when("agent", () =>
+                    panelOf(
+                      "foldcase-lab-panel-agent",
+                      "The same catalog over stdio. All six tools are readOnlyHint: true, so a host does not prompt to list a catalog.",
+                      Arr.map(TOOL_ROWS, ([label, value]) => [label, "text", value] as const),
+                      h,
+                    ),
+                  ),
+                  M.when("json", () => jsonPanel(entry, model, h)),
+                  M.exhaustive,
+                ),
+              ],
+            ),
+          ]
+        : []),
+    ],
+  )
+
+/** One tab of the canvas tab bar. */
+const canvasTab = (tab: Tab, label: string, model: Model, h: HtmlBuilder<Message>): Html =>
+  h.button(
+    [
+      h.Type("button"),
+      h.Role("tab"),
+      h.AriaSelected(model.tab === tab),
+      h.DataAttribute("tab", tab),
+      h.OnClick(SelectedTab({ tab })),
+    ],
+    [label],
+  )
+
+/**
+ * The tab bar, and the file the selection came from.
+ *
+ * The path is relative to the catalog root, because in a real catalog the first
+ * forty characters are the same on every row and the part that differs is the
+ * part that says anything. It is text and not a control: it is where the record
+ * was declared, not a fact the record asserts.
+ */
+const tabBar = (entry: Option.Option<LabEntry>, model: Model, h: HtmlBuilder<Message>): Html =>
+  h.div(
+    [h.Id("foldcase-lab-tabs"), h.Role("tablist")],
+    [
+      canvasTab("canvas", "Canvas", model, h),
+      canvasTab("entry", "Entry", model, h),
+      canvasTab("timeline", "Timeline", model, h),
+      canvasTab("schema", "Schema", model, h),
+      h.span([h.Class("foldcase-lab-spacer")], []),
+      ...pipe(
+        entry,
+        Option.flatMap((held) => Option.fromUndefinedOr(held.file)),
+        Option.match({
+          onNone: (): ReadonlyArray<Html> => [],
+          onSome: (file) => [
+            h.span(
+              [h.Id("foldcase-lab-tab-file"), h.Title(file)],
+              [relativeFile(catalogRoot(model.catalog), file)],
+            ),
+          ],
+        }),
+      ),
+    ],
+  )
 
 /**
  * The address named an id this catalog does not declare, said plainly.
@@ -1251,7 +2009,7 @@ const unknownIdNotice = (
       onSome: (id) => [
         h.p(
           [
-            h.Id("foldcase-lab-unknown-id"),
+            h.Id("foldcase-lab-notice"),
             h.DataAttribute("unknown-id", id),
             // Announced, because this is the one panel whose whole job is to
             // stop a reader believing what is drawn — and an agent driving the
@@ -1268,58 +2026,6 @@ const unknownIdNotice = (
     }),
   )
 
-/**
- * One seam the record either declares or does not, drawn as a chip.
- *
- * The word carries the fact, so `data-present` and the fill are reinforcement
- * rather than the message — a column of `true` with one `false` in it was
- * scanned by shape, which is exactly how a reader misses the one that differs.
- */
-const seam = (label: string, present: boolean, h: HtmlBuilder<Message>): Html =>
-  h.li(
-    [h.DataAttribute("seam", label), h.DataAttribute("present", String(present))],
-    [present ? label : `no ${label}`],
-  )
-
-/**
- * What the record declares about the selected entry.
- *
- * The id is the heading, split at its last slash: the namespace is the
- * component and the leaf is the Showcase, and drawing them at one size in two
- * weights says so without a second label. Everything the panel used to list as
- * `dt`/`dd` pairs of monospace booleans is three chips and a path under it.
- */
-const details = (entry: LabEntry, h: HtmlBuilder<Message>): Html =>
-  h.header(
-    [h.Id("foldcase-lab-head")],
-    [
-      h.h1(
-        [h.DataAttribute("field", "id")],
-        [`${entry.component}/`, h.b([], [leafOf(entry.id)])],
-      ),
-      h.ul(
-        [h.Id("foldcase-lab-seams")],
-        [
-          seam("mount", entry.hasMount, h),
-          seam("message schema", entry.hasMessageSchema, h),
-          seam("model schema", entry.hasModelSchema, h),
-          // The path rides on the same line as the chips, pushed to the far
-          // end. It used to be a paragraph of its own under them, which gave
-          // the least interesting fact on the panel a row to itself.
-          ...pipe(
-            Option.fromUndefinedOr(entry.file),
-            Option.match({
-              onNone: (): ReadonlyArray<Html> => [],
-              onSome: (file) => [
-                h.li([h.Id("foldcase-lab-file"), h.DataAttribute("field", "file")], [file]),
-              ],
-            }),
-          ),
-        ],
-      ),
-    ],
-  )
-
 // APPLICATION
 
 /** A teardown for an entry whose Showcase declares no mount. */
@@ -1333,15 +2039,20 @@ const noTeardown = (): void => {}
  * `load` is the one loader's output and the only way in — the lab reads the
  * record and nothing else. `devTools.overlay` is the consumer's to supply, so
  * this module never depends on `@foldkit/devtools`; switching devtools off is
- * not offered, because the Message union below is what makes the lab drivable
- * by an agent and that is not an optional half of this surface.
+ * not offered, because the Message union is what makes the lab drivable by an
+ * agent and that is not an optional half of this surface.
+ *
+ * `showAgentPanel` removes the Agent (MCP) tab from the drawer, for a consumer
+ * who runs the lab and not the server.
  */
 export const makeLabApplication = (config: {
   readonly load: CatalogLoad
   readonly container: HTMLElement | null
   readonly devTools?: Exclude<DevToolsConfig, false>
+  readonly showAgentPanel?: boolean
 }): MakeRuntimeReturn => {
   const catalog = labCatalogOf(config.load)
+  const showAgentPanel = config.showAgentPanel ?? true
 
   // The `mount` thunks, keyed exactly as the document is keyed. They are
   // closures, so they cannot live in the Model; the id in the Model is the
@@ -1352,167 +2063,303 @@ export const makeLabApplication = (config: {
     ),
   )
 
-  // The Mount hands the factory the live canvas element, so the lab never looks
-  // one up in the document, and the Mount's scope is that element's lifetime:
-  // the `acquireRelease` finaliser runs when the element unmounts.
-  //
-  // What is handed over is a fresh child of the canvas, never the canvas
-  // itself. `Runtime.embed` *replaces* the element it is given with the
-  // embedded app's root, so handing over a node the lab's own virtual DOM owns
-  // detaches it and the next patch dies on `insertBefore`. The canvas renders
-  // with no children, so the lab's virtual DOM never diffs this slot.
+  /**
+   * Put one Showcase on the canvas, in a document of its own, and then check
+   * that it drew.
+   *
+   * The Mount hands the factory the live slot element, so the lab never looks
+   * one up in the document, and the Mount's scope is that element's lifetime:
+   * the `acquireRelease` finaliser runs when the element unmounts.
+   *
+   * **A shadow root, not the slot itself.** Two independent reasons, both from
+   * the design's runtime facts. A component's stylesheet must not reach the
+   * shell — a shadow root scopes it, and a `body { … }` rule inside one matches
+   * nothing outside it. And `Runtime.embed` *replaces* the element it is given
+   * with the embedded app's root, so handing over a node the lab's own virtual
+   * DOM owns would detach it and the next patch would die on `insertBefore`.
+   * The custom properties the shell declares still cascade in, which is what
+   * makes the theme toggle re-skin the mount without rebuilding it.
+   *
+   * **The paint is checked, not assumed.** `Runtime.run` returns `undefined`
+   * and throws nothing when an application paints an empty container, so this
+   * waits a frame and looks at the host before reporting. A silent failure
+   * becomes `PreviewFailed`, and the card says so instead of claiming Live.
+   */
   const MountShowcase = Mount.define(
     "MountShowcase",
     { id: Schema.String },
-    MountedShowcase,
+    PreviewMounted,
+    PreviewFailed,
   )(({ id }) => (element) =>
     Effect.gen(function* () {
-      yield* Effect.acquireRelease(
+      const mount = yield* Effect.acquireRelease(
         Effect.promise(async () => {
-          const slot = element.ownerDocument.createElement("div")
+          const shadow = element.shadowRoot ?? element.attachShadow({ mode: "open" })
+          const host = element.ownerDocument.createElement("div")
           // A Foldkit runtime dies on a container with no `id` — it keys HMR
           // model preservation by it — and because `embed` forks, it dies
-          // silently. Name the slot before anything is embedded in it.
-          slot.id = `foldcase-lab-slot-${id}`
-          element.appendChild(slot)
-          const teardown = await (mounts.get(id)?.(slot) ?? noTeardown)
+          // silently. Name the host before anything is embedded in it.
+          host.id = `foldcase-lab-mount-${id}`
+          shadow.appendChild(host)
+          const teardown = await (mounts.get(id)?.(host) ?? noTeardown)
           // `Runtime.run` restarts the app once on load to pick up the model
           // HMR preserved, so a mount can fire twice per page load in dev and
           // its finaliser can be reached twice. Tear down at most once.
           let released = false
-          return () => {
-            if (released) {
-              return
-            }
-            released = true
-            teardown()
-            slot.remove()
+          return {
+            host,
+            release: () => {
+              if (released) {
+                return
+              }
+              released = true
+              teardown()
+              // Not `host.remove()`: `embed` may have replaced the host with
+              // the application's own root, and then the host is not what is
+              // in the tree. Emptying the shadow root clears either shape.
+              while (shadow.firstChild !== null) {
+                shadow.firstChild.remove()
+              }
+            },
           }
         }),
-        (teardown) => Effect.sync(teardown),
+        ({ release }) => Effect.sync(release),
       )
-      return MountedShowcase({ id })
+      // A tick, because `update` runs on a fiber and the first paint lands
+      // after the event that asked for it.
+      yield* Effect.sleep("120 millis")
+      // Two ways a mount paints, and one way it does not. `Runtime.embed`
+      // *replaces* the host with the application's own root, which detaches the
+      // host; a plain mount appends into it. Either is a paint. A host still
+      // attached and still empty is the silent failure this check exists for.
+      return mount.host.isConnected === false || mount.host.childElementCount > 0
+        ? PreviewMounted({ id })
+        : PreviewFailed({ id })
     }),
   )
 
   /**
-   * The canvas, keyed on the selection: changing the key destroys this element,
-   * which closes the Mount's scope, which runs the finaliser above. Teardown is
-   * the key's job, so nothing here has to remember what was drawn last.
+   * The preview card: a title strip, the mount, and a bar under it.
    *
-   * A Showcase that declares no mount gets an empty state instead, in the same
-   * box and at the same height, so moving between entries never jumps the page.
-   * That is the record's answer and not an error — most catalogs give it for
-   * most of their entries, which is why it is written to reassure rather than to
-   * apologise: the assertions still run, this surface just has nothing to draw.
+   * The slot is keyed on the selection *and* the remount counter, so both a new
+   * selection and a remount destroy this element — which closes the Mount's
+   * scope, which runs the teardown, which is what takes the component's Model
+   * back to `init`. Teardown is the key's job, so nothing here has to remember
+   * what was drawn last.
    */
-  const stage = (entry: LabEntry, h: HtmlBuilder<Message>): Html =>
-    entry.hasMount
-      ? h.div(
-          [h.Id("foldcase-lab-canvas")],
-          [
-            // A strip naming what is standing on the stage. Without it the card
-            // is an unlabelled rectangle, and a component that happens to draw
-            // its own border is indistinguishable from the lab's chrome.
-            h.div([h.Id("foldcase-lab-canvas-head")], [`mounted · ${entry.id}`]),
-            // The slot the component is embedded in, and the element the key
-            // belongs to: it is the one that has to be destroyed and rebuilt
-            // when the selection moves. It renders with no children of its own,
-            // so the lab's virtual DOM never diffs what the embed puts inside.
-            h.keyed("div")(
-              entry.id,
-              [
-                h.Id("foldcase-lab-slot"),
-                h.AriaLabel(`Canvas: ${entry.id}`),
-                h.OnMount(MountShowcase({ id: entry.id })),
-              ],
-              [],
-            ),
-          ],
-        )
-      : h.p(
-          [h.Id("foldcase-lab-no-mount")],
-          [
-            h.b([], ["Nothing to draw"]),
-            h.span(
-              [],
-              [
-                "This entry declares no ",
-                h.code([], ["mount"]),
-                ", so there is no live component to show. Everything it asserts still runs under ",
-                h.code([], ["foldcase test"]),
-                ".",
-              ],
-            ),
-          ],
-        )
-
-  const view = (model: Model, h: HtmlBuilder<Message>): Document => ({
-    // The address already round-trips the selection; this is the other half of
-    // knowing where you are, and it costs nothing. Eight tabs open on eight
-    // entries used to read "Foldcase lab" eight times.
-    title: pipe(
-      selectedEntry(model),
-      Option.match({
-        onNone: () => "Foldcase lab",
-        onSome: (entry) => `${entry.id} · Foldcase lab`,
-      }),
-    ),
-    body: h.div(
-      [],
+  const previewCard = (entry: LabEntry, model: Model, h: HtmlBuilder<Message>): Html =>
+    h.div(
+      [h.Id("foldcase-lab-card")],
       [
-        h.style([], [STYLESHEET]),
         h.div(
-          [h.Id("foldcase-lab")],
+          [h.Id("foldcase-lab-card-title"), h.DataAttribute("live", String(model.mounted))],
+          [h.span([], [entry.id])],
+        ),
+        h.keyed("div")(
+          `${entry.id}#${model.remounts}`,
           [
-            titleBar(h),
-            h.div(
-          [h.Id("foldcase-lab-frame")],
-          [
-            sidebar(model, h),
-            h.main(
-              [h.Id("foldcase-lab-main"), h.AriaLabel("Selected showcase")],
-              [
-                ...unknownIdNotice(model.maybeUnknownId, h),
-                ...pipe(
-                  selectedEntry(model),
-                  Option.match({
-                    onNone: (): ReadonlyArray<Html> => [
-                      h.div(
-                        [h.Id("foldcase-lab-stage")],
-                        [
-                          h.p(
-                            [h.Id("foldcase-lab-empty")],
-                            [
-                              h.b([], ["Nothing selected"]),
-                              h.span(
-                                [],
-                                [
-                                  "This catalog is empty: the load found no showcases at the path ",
-                                  h.code([], ["foldcase"]),
-                                  " was given.",
-                                ],
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ],
-                    onSome: (entry) => [
-                      details(entry, h),
-                      h.div([h.Id("foldcase-lab-stage")], [stage(entry, h)]),
-                    ],
-                  }),
-                ),
-              ],
-            ),
+            h.Id("foldcase-lab-slot"),
+            h.DataAttribute("mountable", String(entry.hasMount)),
+            h.AriaLabel(`Canvas: ${entry.id}`),
+            ...(entry.hasMount ? [h.OnMount(MountShowcase({ id: entry.id }))] : []),
           ],
+          [],
+        ),
+        ...(entry.hasMount
+          ? []
+          : [
+              h.p(
+                [h.Id("foldcase-lab-card-empty")],
+                [
+                  `${entry.component} declares no mount, so there is nothing for this surface to draw. Everything the Showcase asserts still runs under foldcase test.`,
+                ],
+              ),
+            ]),
+        ...(model.mounted
+          ? [
+              h.div(
+                [h.Id("foldcase-lab-card-model")],
+                [h.b([], ["model"]), h.span([], ["held inside the mount, not on the lab's Model"])],
+              ),
+            ]
+          : []),
+      ],
+    )
+
+  /** The trail pane: what the mount relayed, and the position in it. */
+  const trailPane = (model: Model, h: HtmlBuilder<Message>): Html =>
+    h.aside(
+      [h.Id("foldcase-lab-trail"), h.AriaLabel("Dispatch trail")],
+      [
+        h.div(
+          [h.Id("foldcase-lab-trail-head"), h.DataAttribute("live", String(model.mounted))],
+          [
+            h.b([], [model.mounted ? "Live" : "Idle"]),
+            h.button(
+              [h.Type("button"), h.Id("foldcase-lab-trail-clear"), h.OnClick(ClearedHistory())],
+              ["Clear history"],
             ),
           ],
         ),
+        ...(model.trail.length === 0
+          ? [
+              h.p(
+                [h.Id("foldcase-lab-trail-empty")],
+                [
+                  model.mounted
+                    ? "This mount has relayed nothing. Foldkit gives a host no read on a runtime it did not build, so the trail fills only for a Showcase that relays its own dispatches."
+                    : "The trail records real dispatches, so it fills only while a component is mounted.",
+                ],
+              ),
+            ]
+          : [
+              h.ul(
+                [h.Id("foldcase-lab-trail-list")],
+                Arr.map(model.trail, (held, at) =>
+                  h.li(
+                    [],
+                    [
+                      h.b([], [padded(at + 1)]),
+                      h.span([h.Class("foldcase-lab-diff"), h.AriaHidden(true)], []),
+                      h.em([], [held.tag]),
+                      h.i([], [`+${held.delta}ms`]),
+                    ],
+                  ),
+                ),
+              ),
+            ]),
+        h.div(
+          [
+            h.Id("foldcase-lab-scrubber"),
+            h.DataAttribute("filled", String(model.trail.length > 0)),
+          ],
+          [
+            h.div([h.AriaHidden(true)], [h.span([], [h.b([], [])])]),
+            h.em([], [`${padded(model.trail.length)} / ${padded(model.trail.length)}`]),
+          ],
+        ),
       ],
-    ),
-  })
+    )
+
+  /** The reason the UI exists: the component, mounted, with its trail beside it. */
+  const canvasPane = (entry: LabEntry, model: Model, h: HtmlBuilder<Message>): Html =>
+    h.div(
+      [h.Id("foldcase-lab-canvas")],
+      [
+        h.div(
+          [h.Id("foldcase-lab-canvas-bar")],
+          [
+            h.span(
+              [],
+              [
+                entry.hasMount === false
+                  ? "hasMount: false"
+                  : model.previewFailed
+                    ? "hasMount: true · the mount painted nothing"
+                    : model.mounted
+                      ? "mounted { update, view } · in a shadow root of its own"
+                      : "hasMount: true",
+              ],
+            ),
+            h.span([h.Class("foldcase-lab-spacer")], []),
+            ...(model.mounted
+              ? [
+                  h.button(
+                    [h.Type("button"), h.Id("foldcase-lab-remount"), h.OnClick(Remounted())],
+                    ["remount"],
+                  ),
+                ]
+              : []),
+          ],
+        ),
+        h.div(
+          [h.Id("foldcase-lab-canvas-body")],
+          [
+            h.div([h.Id("foldcase-lab-preview")], [previewCard(entry, model, h)]),
+            trailPane(model, h),
+          ],
+        ),
+      ],
+    )
+
+  /** Whichever of the four readings the reader chose, for the selected entry. */
+  const readingOf = (entry: LabEntry, model: Model, h: HtmlBuilder<Message>): Html =>
+    pipe(
+      M.value(model.tab),
+      M.withReturnType<Html>(),
+      M.when("canvas", () => canvasPane(entry, model, h)),
+      M.when("entry", () => entryTab(entry, h)),
+      M.when("timeline", () => timelineTab(model, h)),
+      M.when("schema", () => schemaTab(entry, model, h)),
+      M.exhaustive,
+    )
+
+  const view = (model: Model, h: HtmlBuilder<Message>): Document => {
+    const entry = selectedEntry(model)
+    return {
+      // The address already round-trips the selection; this is the other half
+      // of knowing where you are, and it costs nothing. Eight tabs open on
+      // eight entries used to read "Foldcase" eight times.
+      title: pipe(
+        entry,
+        Option.match({
+          onNone: () => "Foldcase",
+          onSome: (held) => `${held.id} · Foldcase`,
+        }),
+      ),
+      body: h.div(
+        [],
+        [
+          h.style([], [STYLESHEET]),
+          h.div(
+            [h.Id("foldcase-lab"), h.DataAttribute("theme", model.theme)],
+            [
+              titleBar(model, h),
+              h.div(
+                [h.Id("foldcase-lab-frame")],
+                [
+                  sidebar(model, h),
+                  h.main(
+                    [h.Id("foldcase-lab-main"), h.AriaLabel("Selected showcase")],
+                    [
+                      tabBar(entry, model, h),
+                      h.div(
+                        [h.Id("foldcase-lab-body")],
+                        [
+                          ...unknownIdNotice(model.maybeUnknownId, h),
+                          ...pipe(
+                            entry,
+                            Option.match({
+                              onNone: (): ReadonlyArray<Html> => [
+                                h.p(
+                                  [h.Id("foldcase-lab-empty-tree"), h.Class("foldcase-lab-page")],
+                                  [
+                                    h.b([], ["Nothing selected"]),
+                                    h.span(
+                                      [],
+                                      [
+                                        "This catalog is empty: the load found no Showcases at the path foldcase was given.",
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              onSome: (held) => [readingOf(held, model, h)],
+                            }),
+                          ),
+                        ],
+                      ),
+                      drawer(entry, model, showAgentPanel, h),
+                    ],
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    }
+  }
 
   return Runtime.makeApplication({
     Model,
