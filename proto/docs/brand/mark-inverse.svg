@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Foldcase">
+  
+  <path fill="#FAFAFA" fill-rule="evenodd" d="M128 16 224 72V184L128 240 32 184V72Z M128 44 200 86V170L128 212 56 170V86Z"></path>
+  <g fill="#FAFAFA">
+    <path d="M136 124 136 68 184 96 184 152Z"></path>
+    <path d="M128 138 176 166 128 194 80 166Z"></path>
+    <path d="M120 124 72 152 72 96 120 68Z"></path>
+  </g>
+</svg>
