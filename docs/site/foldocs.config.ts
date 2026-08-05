@@ -5,14 +5,17 @@ export default defineConfig({
     title: 'Foldcase',
     description:
       'One typed record per component state — read by your coding agent, your CI, your docs, and your coverage.',
-    // Placeholder until the first `alchemy deploy` prints the real workers.dev URL.
-    baseUrl: 'https://foldcase-docs.example.com',
+    // The Worker `mise run docs:deploy` creates. Absolute links in the sitemap,
+    // the OG tags and llms.txt are built from this, so it has to be the real one.
+    baseUrl: 'https://foldcase-docs.1st-account.workers.dev',
     logoText: 'Foldcase',
     tagline:
       'One typed record per component state — read by your coding agent, your CI, your docs, and your coverage.',
     githubUrl: 'https://github.com/tao-io/foldcase',
     keywords: ['Foldcase', 'Foldkit', 'Effect', 'Showcase', 'testing', 'MCP'],
-    favicon: '/favicon.svg',
+    // Copied out of docs/brand/ by scripts/sync-content.mjs, never committed
+    // here — the brand directory is the one copy of every mark.
+    favicon: '/brand/favicon.svg',
     locale: 'en',
   },
   i18n: {
@@ -23,10 +26,15 @@ export default defineConfig({
   basePath: '/docs',
   layout: { preset: 'docs' },
   landing: {
-    sections: ['hero', 'overview', 'features', 'cta'],
+    // Only the hero. Every other section foldocs offers — overview, stack,
+    // features, ai, proof, cta — is hardcoded prose about foldocs itself, with
+    // no hook to reword it, so switching them on would advertise the wrong
+    // tool on Foldcase's front page. The hero is the part this config owns
+    // outright: headline, lede, install line and the two buttons.
+    sections: ['hero'],
     headline: 'One typed record per component state.',
     description:
-      'A Showcase is data, not a function: your coding agent, your CI, your docs, and your coverage all read the same declaration.',
+      'A Showcase is data, not a function — so your coding agent, your CI, your docs and your coverage all read the same declaration, and none of them can drift from the others.',
     command: 'bun add -d foldcase@alpha',
     footer: {
       author: 'tao-io',

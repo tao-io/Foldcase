@@ -70,7 +70,7 @@ describe("labCatalogOf", () => {
 
     expect(drawn?.hasMount).toBe(true)
     // A Showcase without `mount` is listed like any other and gets no canvas —
-    // the record's answer, not a defect (ADR-0001 › Amendment 4).
+    // the record's answer, not a defect (ADR-0001 › Amendment 6).
     expect(silent?.hasMount).toBe(false)
     expect([drawn?.hasMessageSchema, drawn?.hasModelSchema]).toEqual([true, true])
     expect([silent?.hasMessageSchema, silent?.hasModelSchema]).toEqual([false, false])

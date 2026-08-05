@@ -519,7 +519,44 @@ const SHOWCASE_IDENTIFIER = /\bShowcase\b/
 const IMPORTS_FROM_RUNNER = /from\s+["']\.{1,2}(?:\/\.\.)*\/runner(?:\.js)?["']/
 
 /**
- * Modules that name a `Showcase` without importing the type from
+ * The code with the *contents* of its string and template literals emptied,
+ * quotes and all else kept. The loader rule below needs a path to stay code, so
+ * {@link codeOf} keeps literals; this rule needs the opposite, because a string
+ * cannot declare a type. `src/init.ts` carries the paragraph `foldcase init`
+ * writes into a consumer's `AGENTS.md`, which names Showcases the way the
+ * README does — text the tool hands over, not a record it declares. An
+ * interpolation goes with the literal holding it: a type cannot appear in one,
+ * so nothing this rule looks for can hide there.
+ */
+export const withoutText = (code: string): string => {
+  let stripped = ""
+  let index = 0
+  let quote: string | undefined
+  while (index < code.length) {
+    const character = code[index] as string
+    if (quote === undefined) {
+      stripped += character
+      if (character === '"' || character === "'" || character === "`") {
+        quote = character
+      }
+      index += 1
+      continue
+    }
+    if (character === "\\") {
+      index += 2
+      continue
+    }
+    if (character === quote) {
+      stripped += character
+      quote = undefined
+    }
+    index += 1
+  }
+  return stripped
+}
+
+/**
+ * Modules that name a `Showcase` in *code* without importing the type from
  * {@link DEFINITION}. Naming the record while sourcing it from somewhere else
  * is how a private, drifting copy starts.
  */
@@ -529,7 +566,7 @@ export const undeclaredShowcaseUsers = (
 ): ReadonlyArray<string> =>
   files.filter((file) => {
     const code = codeOf(source(file))
-    return SHOWCASE_IDENTIFIER.test(code) && !IMPORTS_FROM_RUNNER.test(code)
+    return SHOWCASE_IDENTIFIER.test(withoutText(code)) && !IMPORTS_FROM_RUNNER.test(code)
   })
 
 describe("ADR-0001 — every surface derives from the definition", () => {
@@ -540,10 +577,19 @@ describe("ADR-0001 — every surface derives from the definition", () => {
       "src/rogue.ts": "const a: Showcase = x",
       "src/coverage/report.ts": "class ShowcaseCoverage {}",
       "src/prose.ts": "// per-Showcase attribution\nexport const a = 1",
+      "src/init.ts": 'export const section = ["- add a Showcase for it"].join("\\n")',
     }
     expect(undeclaredShowcaseUsers(Object.keys(sources), (file) => sources[file] ?? "")).toEqual([
       "src/rogue.ts",
     ])
+  })
+
+  test("empties a literal and keeps the code around it", () => {
+    expect(withoutText('const a = "text" + `more ${x}`')).toBe("const a = \"\" + ``")
+    // An escaped quote does not end the literal, so what follows is still text.
+    expect(withoutText('const a = "he said \\"Showcase\\"" ; const b: Showcase = x')).toBe(
+      'const a = "" ; const b: Showcase = x',
+    )
   })
 
   test("every module that names a Showcase takes it from src/runner.ts", () => {
@@ -565,6 +611,10 @@ describe("ADR-0001 — every surface derives from the definition", () => {
       // parse, no DOM crawl — so it derives like the surfaces before it.
       "src/lab/catalog.ts",
       "src/mcp/catalog.ts",
+      // A fresh run answers with the runner's own report Schemas, in a child
+      // process: the document that crosses the boundary derives from the
+      // definition, so no second shape is invented to carry it.
+      "src/mcp/freshRun.ts",
       "src/mcp/tools.ts",
       "src/program.ts",
       // The `--json` documents: `TestDocument` wraps the runner's `SuiteReport`,

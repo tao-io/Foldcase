@@ -1,7 +1,9 @@
 // A complete Foldkit component: one Model, one Message union, one pure update,
-// and one view. Foldcase asserts on the Model the update returns, so a `play`
-// needs no DOM — a component can render and still be tested without one. The
-// browser lab does draw it, through each Showcase's `mount`.
+// and a view. The catalog next door showcases it both ways — a Story asserting
+// on the Model the update returns, and a Scene clicking the buttons and reading
+// the markup back. Neither needs a DOM: a Scene renders to Foldkit's virtual
+// tree, so the whole component is tested under a bare Node or Bun. The browser
+// lab does draw it, through each Showcase's `mount`.
 //
 // The markup is written once, in `body`, which returns `Html`. `view` wraps it
 // in the `Document` a `makeApplication` app owns, and `mount` hands the same

@@ -4,16 +4,27 @@
 // by whichever bin you run — `foldcase` under Node, `foldcase-bun` under Bun —
 // so an import that only one runtime has would tie the catalog to that runtime.
 //
+// Two kinds of play live here. A `Story.story` drives the `update` and asserts
+// on the Model it returns. A `Scene.scene` mounts `{ update, view }`, finds the
+// controls the way a user would — by role and name — clicks them, and asserts
+// on the markup. Neither needs a DOM: a Scene renders to Foldkit's virtual tree
+// and queries that, so both bins run these under a bare runtime.
+//
 // `foldkit` is imported at the top level, and that was measured rather than
 // assumed: nothing on that path reads `window` or `document` while the module
 // loads, so both bins import this catalog with no DOM under them. Only `mount`
 // reaches the DOM, and only the browser lab calls it.
+//
+// Every entry declares what its play sends. `dispatches: []` is a claim, not a
+// blank: it says the play sends nothing. Foldcase holds the declarations of a
+// component against its Message union and names any tag no play sends, so a
+// missing Showcase shows up in the docs instead of going unnoticed.
 
 import assert from "node:assert/strict"
 
 import type { Showcase, Teardown } from "foldcase"
 import { Runtime } from "foldkit"
-import { Story } from "foldkit/test"
+import { Scene, Story } from "foldkit/test"
 
 import {
   body,
@@ -25,6 +36,7 @@ import {
   Message,
   Model,
   update,
+  view,
 } from "./counter"
 
 // Every `mount` below is this: embed the component in the container the lab
@@ -47,6 +59,9 @@ const embedAt =
     return handle.dispose
   }
 
+/** The paragraph the view prints the count into. */
+const shownCount = Scene.selector("p")
+
 export const showcases: ReadonlyArray<Showcase> = [
   {
     id: "counter/starts-at-zero",
@@ -59,6 +74,7 @@ export const showcases: ReadonlyArray<Showcase> = [
     mount: embedAt(initialModel),
     message: Message,
     model: Model,
+    dispatches: [],
   },
   {
     id: "counter/counts-up-and-down",
@@ -74,6 +90,7 @@ export const showcases: ReadonlyArray<Showcase> = [
     mount: embedAt({ ...initialModel, count: 1 }),
     message: Message,
     model: Model,
+    dispatches: ["ClickedIncrement", "ClickedDecrement"],
   },
   {
     id: "counter/step-of-ten",
@@ -91,6 +108,7 @@ export const showcases: ReadonlyArray<Showcase> = [
     mount: embedAt({ count: 10, step: 10 }),
     message: Message,
     model: Model,
+    dispatches: ["ChangedStep", "ClickedIncrement"],
   },
   {
     id: "counter/reset-keeps-the-step",
@@ -109,5 +127,40 @@ export const showcases: ReadonlyArray<Showcase> = [
     mount: embedAt({ count: 0, step: 5 }),
     message: Message,
     model: Model,
+    dispatches: ["ChangedStep", "ClickedIncrement", "ClickedReset"],
+  },
+  {
+    id: "counter/renders-the-controls",
+    play: () =>
+      Scene.scene(
+        { update, view },
+        Scene.given(initialModel),
+        Scene.expectAll(Scene.all.role("button")).toHaveCount(3),
+        Scene.expect(Scene.role("button", { name: "-" })).toExist(),
+        Scene.expect(Scene.role("button", { name: "Reset" })).toExist(),
+        Scene.expect(Scene.role("button", { name: "+" })).toExist(),
+        Scene.expect(shownCount).toHaveText("0"),
+      ),
+    message: Message,
+    model: Model,
+    dispatches: [],
+  },
+  {
+    id: "counter/the-buttons-move-the-count",
+    play: () =>
+      Scene.scene(
+        { update, view },
+        Scene.given(initialModel),
+        Scene.click(Scene.role("button", { name: "+" })),
+        Scene.click(Scene.role("button", { name: "+" })),
+        Scene.expect(shownCount).toHaveText("2"),
+        Scene.click(Scene.role("button", { name: "-" })),
+        Scene.expect(shownCount).toHaveText("1"),
+        Scene.click(Scene.role("button", { name: "Reset" })),
+        Scene.expect(shownCount).toHaveText("0"),
+      ),
+    message: Message,
+    model: Model,
+    dispatches: ["ClickedIncrement", "ClickedDecrement", "ClickedReset"],
   },
 ]

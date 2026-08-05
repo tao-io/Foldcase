@@ -15,7 +15,8 @@ import * as Schema from "effect/Schema"
 
 import { ShowcaseModuleError } from "./cli.js"
 import { CoverageReport } from "./coverage/report.js"
-import { StaleDoc, WrittenDoc } from "./docs/generate.js"
+import { ComponentGap, StaleDoc, WrittenDoc } from "./docs/generate.js"
+import { InitArtifact } from "./init.js"
 // The lab's own two Schemas: the catalog projection it renders from, and the
 // entry module the verb scaffolds. Taken from the lab, never re-stated here.
 import { LabCatalog } from "./lab/catalog.js"
@@ -47,6 +48,25 @@ export class DocsDocument extends Schema.Class<DocsDocument>("foldcase/DocsDocum
   docs: Schema.Array(WrittenDoc),
   failures: Schema.Array(ShowcaseModuleError),
   stale: Schema.optional(Schema.Array(StaleDoc)),
+  /**
+   * The message-tag gap of every component the answer is knowable for: which
+   * Messages of its union no `play` declares it dispatches, and which declared
+   * tags the union does not carry. The Markdown says the same under each
+   * component's Messages table; this is the half an agent reads, because
+   * `undispatched` is the list of Showcases still to write. A component nobody
+   * declared for is absent, never an empty gap.
+   */
+  gaps: Schema.Array(ComponentGap),
+}) {}
+
+/**
+ * What `foldcase init --json` prints: one entry per file the run wired, in the
+ * order it wired them, each saying what happened to it. The same lines the
+ * human output prints, in the shape an agent reads — so a caller checking
+ * whether anything changed looks at `action`, not at text.
+ */
+export class InitDocument extends Schema.Class<InitDocument>("foldcase/InitDocument")({
+  artifacts: Schema.Array(InitArtifact),
 }) {}
 
 /**
@@ -69,7 +89,8 @@ export class LabDocument extends Schema.Class<LabDocument>("foldcase/LabDocument
 export { ShowcaseModuleError } from "./cli.js"
 export { SkippedFile } from "./coverage/coverage.js"
 export { CoverageReport, FileCoverage, ShowcaseCoverage } from "./coverage/report.js"
-export { StaleDoc, WrittenDoc } from "./docs/generate.js"
+export { ComponentGap, StaleDoc, WrittenDoc } from "./docs/generate.js"
+export { InitArtifact, InitFileError } from "./init.js"
 export { LabCatalog, LabComponent, LabEntry } from "./lab/catalog.js"
 export { LabEntryFile } from "./lab/scaffold.js"
 export { SerializedError, ShowcaseReport, SuiteReport } from "./runner.js"

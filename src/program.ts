@@ -33,21 +33,24 @@ import { collectCoverage } from "./coverage/collect.js"
 import { type CoverageReport, formatCoverage } from "./coverage/report.js"
 import {
   checkComponentDocs,
+  type ComponentDoc,
+  type ComponentGap,
   type StaleDoc,
   writeComponentDocs,
   type WrittenDoc,
 } from "./docs/generate.js"
+import { type InitArtifact, initialize } from "./init.js"
 import { labCatalogOf } from "./lab/catalog.js"
 import { LabEntryFile, labEntryModule } from "./lab/scaffold.js"
 import { FoldcaseMcpServer } from "./mcp/server.js"
 // The `--json` documents are a published contract, so they are declared on the
 // entry point a consumer imports and used here — not the other way round.
-import { DocsDocument, LabDocument, TestDocument } from "./reports.js"
+import { DocsDocument, InitDocument, LabDocument, TestDocument } from "./reports.js"
 import { formatSuite, type Showcase, type SuiteReport, suiteExitCode } from "./runner.js"
 
 /** The one-line usage banner, printed to stderr for an unknown subcommand. */
 export const usage =
-  "usage: foldcase <test [dir-or-file] [--coverage] [--json] | docs [dir] [out-dir] [--json] [--check] | lab [dir] [out-file] [--json] [--check] | mcp>   (test/docs/lab default to the current directory; --coverage adds a V8 line/function coverage summary; --json prints one JSON document on stdout instead of the summary, diagnostics on stderr; docs writes Schema-table Markdown to out-dir, default FOLDCASE_DOCS_DIR; lab scaffolds the entry module your own dev server builds, default FOLDCASE_LAB_ENTRY, and neither bundles nor serves; --check writes nothing and exits non-zero if what is there would change; mcp serves the catalog over stdio)"
+  "usage: foldcase <test [dir-or-file] [--coverage] [--json] | docs [dir] [out-dir] [--json] [--check] | lab [dir] [out-file] [--json] [--check] | init [dir] [--json] | mcp>   (test/docs/lab/init default to the current directory; --coverage adds a V8 line/function coverage summary; --json prints one JSON document on stdout instead of the summary, diagnostics on stderr; docs writes Schema-table Markdown to out-dir, default FOLDCASE_DOCS_DIR; lab scaffolds the entry module your own dev server builds, default FOLDCASE_LAB_ENTRY, and neither bundles nor serves; --check writes nothing and exits non-zero if what is there would change; init wires .mcp.json and AGENTS.md for an agent, never overwriting what is already there; mcp serves the catalog over stdio)"
 
 /** What the argument vector asked for. */
 export type Command = Data.TaggedEnum<{
@@ -85,6 +88,15 @@ export type Command = Data.TaggedEnum<{
     readonly json: boolean
     /** Compare instead of write, exactly as `docs --check` does. */
     readonly check: boolean
+  }
+  /**
+   * Wire `target` for an agent: the MCP server into `.mcp.json`, the Showcase
+   * house rules into `AGENTS.md`. Both are merged, never overwritten, so a
+   * second run is a no-op that says so.
+   */
+  readonly Init: {
+    readonly target: string
+    readonly json: boolean
   }
   /** Serve the catalog to an agent over stdio MCP. */
   readonly Mcp: object
@@ -189,6 +201,17 @@ export const parseCommand = (argv: ReadonlyArray<string>): Command => {
             check: flags.has("--check"),
           }),
       )
+    case "init":
+      return Option.getOrElse(
+        Option.orElse(surplus("init takes one directory", 1, positionals), () =>
+          unknown("init takes --json", ["--json"], flags),
+        ),
+        () =>
+          Command.Init({
+            target: target ?? DEFAULT_TARGET,
+            json: flags.has("--json"),
+          }),
+      )
     case "mcp":
       return Option.getOrElse(
         Option.orElse(surplus("mcp takes no target", 0, positionals), () =>
@@ -285,9 +308,10 @@ const printDocsDocument = (
   written: ReadonlyArray<WrittenDoc>,
   failures: ReadonlyArray<ShowcaseModuleError>,
   stale: Option.Option<ReadonlyArray<StaleDoc>>,
+  gaps: ReadonlyArray<ComponentGap>,
 ) =>
   encodeDocsDocument(
-    new DocsDocument({ docs: written, failures, stale: Option.getOrUndefined(stale) }),
+    new DocsDocument({ docs: written, failures, stale: Option.getOrUndefined(stale), gaps }),
   ).pipe(Effect.orDie, Effect.flatMap(Console.log))
 
 const printWritten = (outDir: string, written: ReadonlyArray<WrittenDoc>) =>
@@ -436,7 +460,10 @@ const docs = Effect.fn("foldcase.docs")(function* (
     ? Option.some(yield* checkComponentDocs(outDir, generated))
     : Option.none<ReadonlyArray<StaleDoc>>()
   const written = check ? [] : yield* writeComponentDocs(outDir, generated)
-  yield* json ? printDocsDocument(written, failures, stale) : Effect.void
+  // The gaps the pages already report, read off the documents rather than back
+  // out of their Markdown — one derivation, two renderings of it.
+  const gaps = generated.flatMap((doc: ComponentDoc) => (doc.gap === undefined ? [] : [doc.gap]))
+  yield* json ? printDocsDocument(written, failures, stale, gaps) : Effect.void
   yield* Option.match(stale, {
     onNone: () => (json ? Effect.void : printWritten(outDir, written)),
     onSome: (drifted) =>
@@ -450,14 +477,57 @@ const docs = Effect.fn("foldcase.docs")(function* (
     concurrency: 1,
     discard: true,
   })
+  // A Message tag a catalog says it dispatches but its union does not have is
+  // the catalog lying about itself — a typo, or a Message renamed since. It is
+  // named on stderr in both modes, like a file that would not load, because a
+  // reader watching the terminal has to see it.
+  const lying = gaps.filter((gap) => !Arr.isReadonlyArrayEmpty(gap.unknown))
+  yield* Effect.forEach(
+    lying,
+    (gap) =>
+      Console.error(
+        `foldcase docs: ${gap.component} dispatches ${gap.unknown.join(", ")}, which its Message union does not declare`,
+      ),
+    { concurrency: 1, discard: true },
+  )
   // Drift fails the run the same way a file that would not load does: a `docs`
   // page that no longer matches its catalog is out of date, and the exit code is
-  // the only thing a CI job reads.
+  // the only thing a CI job reads. An unknown dispatch fails it for the same
+  // reason a Schema that will not introspect does — the declaration is wrong.
+  // A mere gap does not: a Message nobody showcases yet is information, and the
+  // next Showcase to write.
   const drifted = Option.match(stale, {
     onNone: () => false,
     onSome: (entries) => !Arr.isReadonlyArrayEmpty(entries),
   })
-  return Arr.isReadonlyArrayEmpty(failures) && !drifted ? 0 : 1
+  return Arr.isReadonlyArrayEmpty(failures) && !drifted && Arr.isReadonlyArrayEmpty(lying) ? 0 : 1
+})
+
+// One line per file, in the order the files were wired, each naming what
+// happened to it. `kept` is the line a second run prints, and it is the point:
+// the tool says it changed nothing rather than staying silent about it.
+const printInit = (artifacts: ReadonlyArray<InitArtifact>) =>
+  Effect.forEach(
+    artifacts,
+    (artifact) => Console.log(`foldcase init: ${artifact.file} ${artifact.action}`),
+    { concurrency: 1, discard: true },
+  )
+
+const encodeInitDocument = Schema.encodeEffect(Schema.fromJsonString(InitDocument))
+
+// Same contract as the other two documents: the encoded Schema value, so what
+// an agent parses is what `init` reported. An encode failure would mean the
+// Schema disagrees with the artifacts just written — a defect, not a caller's
+// problem.
+const printInitDocument = (artifacts: ReadonlyArray<InitArtifact>) =>
+  encodeInitDocument(new InitDocument({ artifacts })).pipe(Effect.orDie, Effect.flatMap(Console.log))
+
+const init = Effect.fn("foldcase.init")(function* (target: string, json: boolean) {
+  const artifacts = yield* initialize(target)
+  yield* json ? printInitDocument(artifacts) : printInit(artifacts)
+  // Wiring either happened or failed: there is no partial verdict to report,
+  // so a run that returns at all returns clean.
+  return 0
 })
 
 // In JSON mode stdout carries the document and nothing else, so the built-in
@@ -477,6 +547,7 @@ export const runCommand = Command.$match({
     reserveStdout(json, docs(target, outDir, json, check)),
   Lab: ({ check, json, outFile, target }) =>
     reserveStdout(json, lab(target, outFile, json, check)),
+  Init: ({ json, target }) => reserveStdout(json, init(target, json)),
   Mcp: () => Layer.launch(FoldcaseMcpServer),
   // The reason goes above the banner, so a reader meets the word that was
   // wrong before the form that is right — both on stderr, both in one write.

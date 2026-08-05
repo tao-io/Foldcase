@@ -1,7 +1,7 @@
 ---
 type: adr
 title: A Showcase is defined once; every surface is derived from that definition
-description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the future browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase; Amendment 3 says what a component is; Amendment 4 gives the lab its one seam, a mount rather than the view this ADR predicted.
+description: The Showcase record is the single definition of a component under test. The CI runner, the agent tools, the Markdown autodocs, coverage attribution, and the browser lab are all projections of it — never a second, hand-written surface. Amendment 2 settles what a projection does with a file that will not load, and keys the docs surface on the component rather than the Showcase; Amendment 3 says what a component is; Amendment 4 moves a run into a fresh process, so what it reports is the code on disk; Amendment 5 adds the one fact a closure cannot be asked for — which Messages a play dispatches — so a surface can name the Showcases nobody has written; Amendment 6 gives the lab its one seam, a mount rather than the view this ADR predicted.
 status: accepted
 created: 2026-07-31
 updated: 2026-08-04
@@ -49,6 +49,7 @@ export interface Showcase {
   readonly play: () => void | Promise<void> // throws on assertion failure
   readonly message?: Schema.Top // the Message-union Effect Schema
   readonly model?: Schema.Top // the Model Effect Schema
+  readonly dispatches?: ReadonlyArray<string> // the Message tags this play sends (Amendment 5)
 }
 ```
 
@@ -304,7 +305,97 @@ the namespace. Two rules follow from a group no longer sharing one declaration:
   A page whose only content is a note that there is nothing to say costs a reader more than
   no page. The Showcase stays valid and still runs, which is what that clause protected.
 
-## Amendment 4 — 2026-08-04: the lab's seam is a mount, not a view
+## Amendment 4 — 2026-08-04: a run reads the disk
+
+`foldcase mcp` held its catalog in memory and ran a `play` in its own process. Both
+runtimes cache an ES module by URL, so once a `*.showcase.ts` had been imported, importing
+it again handed back the module that was already there. An agent that fixed a component,
+called `foldcase_load_catalog` and ran the Showcase read a report of the code it had just
+replaced — and concluded the fix had not worked. The reload verb could not help: it
+re-imports the same URL.
+
+**Decision: the two run verbs run in a fresh child process of the current runtime.**
+`foldcase_run_showcase` and `foldcase_run_catalog`, over a catalog read from a directory,
+walk that directory again, hand the files to a child spawned on `process.execPath`, and
+decode the one JSON document the child writes on stdout. The child has imported nothing
+before, so what it runs is what is on disk. An in-memory catalog (`layerFromShowcases`)
+keeps the in-process path — a `play` is a closure, and a closure cannot be handed to a
+process that never saw the module holding it, which is the same structural reason
+Amendment 1 gives for the coverage collector.
+
+This ADR is untouched by it, in the three ways that matter:
+
+- **The record is still the single description.** The child reads it with the one loader,
+  `loadShowcasesFromFiles`, in another process. It is not a second loader in the sense the
+  gate fences: it imports no path of its own choosing — the parent's directory walk, also
+  `src/cli.ts`, decides which files it is handed.
+- **One function decides what a run means.** `runSelection` in `src/mcp/freshRun.ts` takes
+  a loaded catalog and a selection, and the in-process path and the child both call it. So
+  crossing a process boundary changes where the catalog was read and nothing else: a
+  failing play is still data, a report still names its file, a prefix run still folds in
+  every load failure, and both errors still carry the ids they could have matched.
+- **Nothing new crosses the boundary.** The document the child writes is built from the
+  report Schemas `src/runner.ts` already declares. `src/mcp/freshRun.ts` is on the list of
+  modules that derive from the definition, for that reason.
+
+What does **not** cross the boundary is a Schema: it is a live object, so
+`foldcase_list_showcases`, `foldcase_get_showcase_schema` and
+`foldcase_get_showcase_model_schema` still answer from the module this process imported.
+`foldcase_load_catalog` refreshes them for a file that appeared or vanished; a Schema
+edited inside a file that was already loaded needs a restart. The tool descriptions say
+so — an agent reading them has to know which answers it can trust after an edit, and the
+honest split is: runs, always; metadata, until the file was first imported.
+
+The cost is a process per run. That is the right trade for an agent loop, where the
+alternative is a wrong answer that costs a turn to discover and often is not discovered
+at all.
+
+## Amendment 5 — 2026-08-04: a Showcase declares which Messages it dispatches
+
+Every surface so far answers a question about the Showcases that exist. The question an
+agent asks before it writes one is the opposite: **which Messages of this component's
+union does no Showcase ever send?** Each answer is a Showcase somebody still has to
+write, which makes it the most useful thing this catalog can say to an agent — and
+nothing here could say it.
+
+Observing it is not available. `play` is an opaque closure, which is the seam the whole
+ADR rests on: the runner never learns what a play did, only whether it threw. Watching a
+dispatch would mean either a Foldkit dependency in the core or a source parse of the
+play, and the second is exactly what the Enforcement section forbids.
+
+**Decision: `Showcase` gains an optional `dispatches?: ReadonlyArray<string>` — the
+Message tags this play sends, declared by the author and validated against `message`.**
+
+- **Declared, not observed.** The author says what the play dispatches. That is a claim,
+  and this ADR does not take claims on trust, so:
+- **Validated against the union.** A declared tag the component's Message Schema does not
+  carry is reported as `unknown` wherever a gap is shown, and `foldcase docs` exits
+  non-zero for it — the same class of failure as a Schema that will not introspect,
+  because both mean the declaration disagrees with the definition. A *gap* is not a
+  failure: a Message nobody showcases yet is information, and the run stays green.
+- **Unknown is never coverage.** A component whose Showcases declare nothing is reported
+  nowhere at all, rather than as a component with an empty gap. An empty gap means "every
+  Message is showcased" and must keep meaning only that; a single array could not tell
+  the two apart, so absence carries one of them.
+- **An empty declaration is a declaration.** `dispatches: []` says the play sends nothing,
+  which is a fact about it; an absent field says nobody has looked.
+
+The derivation is one function, `componentGaps` in `src/docs/generate.ts`, and both
+surfaces import it: `foldcase docs` prints `Not showcased:` and `Unknown dispatches:`
+under a component's Messages table and carries the same lists in its `--json` document,
+and `foldcase_list_showcases` answers with a `gaps` entry per component. It lives beside
+the docs surface because a gap is keyed on a *component*, and Amendment 3 put the
+definition of a component — the id namespace — there. It reads its tags out of
+`messageVariants`, the extraction that renders the Messages table's first column, so a
+table and a gap can never disagree about which Messages exist.
+
+The field is optional, so every catalog written before this amendment stays valid and
+reports no gap, which is the honest answer for it. The loader holds it to its shape — a
+`dispatches` that is not a list of strings makes the file malformed, exactly as a
+`message` that is not an Effect Schema does — so a surface reading it can never be handed
+something else.
+
+## Amendment 6 — 2026-08-04: the lab's seam is a mount, not a view
 
 Building the browser lab ([ADR-0004](0004-the-lab-is-a-foldkit-app-the-consumer-builds.md))
 reached the row this ADR left marked *not built yet*, and with it the seam the Consequences

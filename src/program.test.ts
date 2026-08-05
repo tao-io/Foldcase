@@ -170,10 +170,37 @@ describe("parseCommand", () => {
     )
   })
 
+  test("reads `init`, with the directory defaulting to the current one", () => {
+    expect(parseCommand(["init"])).toEqual(Command.Init({ target: ".", json: false }))
+    expect(parseCommand(["init", "app"])).toEqual(Command.Init({ target: "app", json: false }))
+    expect(parseCommand(["init", "--json", "app"])).toEqual(
+      Command.Init({ target: "app", json: true }),
+    )
+    expect(parseCommand(["init", "app", "--json"])).toEqual(
+      Command.Init({ target: "app", json: true }),
+    )
+  })
+
+  test("refuses a second directory for `init`, which wires exactly one", () => {
+    expect(parseCommand(["init", "app", "other"])).toEqual(
+      Command.Usage({
+        reason: Option.some("init takes one directory; it did not understand: other"),
+      }),
+    )
+  })
+
   test("refuses --coverage for `lab`, which runs no Showcase", () => {
     expect(parseCommand(["lab", "src/ui", "--coverage"])).toEqual(
       Command.Usage({
         reason: Option.some("lab takes --json and --check; it did not understand: --coverage"),
+      }),
+    )
+  })
+
+  test("refuses a flag `init` does not know, naming it", () => {
+    expect(parseCommand(["init", "app", "--force"])).toEqual(
+      Command.Usage({
+        reason: Option.some("init takes --json; it did not understand: --force"),
       }),
     )
   })
@@ -318,6 +345,7 @@ describe("run", () => {
       suite: { reports: ReadonlyArray<{ id: string; file: string }> }
     }
     expect(document.suite.reports.map((report) => report.file)).toEqual([
+      `${malformed}/bad-dispatches.showcase.ts`,
       `${malformed}/bad-message.showcase.ts`,
       `${malformed}/bad-mount.showcase.ts`,
       `${malformed}/broken-import.showcase.ts`,
@@ -333,6 +361,66 @@ describe("run", () => {
     expect(result.code).toBe(1)
     expect(result.out).toEqual([])
     expect(result.err.join("\n")).toContain("no *.showcase.ts found")
+  })
+
+  test("init says what it did to each file, and a second run says it kept them", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-init`
+    await Bun.$`rm -rf ${dir}`.quiet()
+    await Bun.$`mkdir -p ${dir}`.quiet()
+
+    const first = await runCapturing(["init", dir])
+    const second = await runCapturing(["init", dir])
+
+    expect(first.code).toBe(0)
+    expect(first.out).toEqual([
+      "foldcase init: .mcp.json created",
+      "foldcase init: AGENTS.md created",
+    ])
+    // Idempotent, and it says so rather than going quiet.
+    expect(second.code).toBe(0)
+    expect(second.out).toEqual([
+      "foldcase init: .mcp.json kept",
+      "foldcase init: AGENTS.md kept",
+    ])
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
+  test("init --json prints one document naming each file, and only that on stdout", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-init-json`
+    await Bun.$`rm -rf ${dir}`.quiet()
+    await Bun.$`mkdir -p ${dir}`.quiet()
+
+    const result = await runCapturing(["init", "--json", dir])
+
+    expect(result.code).toBe(0)
+    expect(documentOf(result)).toEqual({
+      artifacts: [
+        {
+          file: ".mcp.json",
+          path: `${new URL("../runtime-test-init-json", import.meta.url).pathname}/.mcp.json`,
+          action: "created",
+        },
+        {
+          file: "AGENTS.md",
+          path: `${new URL("../runtime-test-init-json", import.meta.url).pathname}/AGENTS.md`,
+          action: "created",
+        },
+      ],
+    })
+    // The human lines are the summary the document replaces, so none of them
+    // may appear beside it.
+    expect(result.err).toEqual([])
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
+  test("init on a directory that is not there fails instead of creating one", async () => {
+    const absent = `${import.meta.dir}/../runtime-test-init-absent`
+    await Bun.$`rm -rf ${absent}`.quiet()
+
+    // The same typed failure every other subcommand gives for a target that
+    // does not exist — `init` does not invent the directory it was pointed at.
+    await expect(runCapturing(["init", absent])).rejects.toThrow()
+    expect(await Bun.file(`${absent}/.mcp.json`).exists()).toBe(false)
   })
 
   test("docs --json names the documents it wrote", async () => {
@@ -353,6 +441,9 @@ describe("run", () => {
         },
       ],
       failures: [],
+      // A catalog that declares no dispatches has no knowable gap, so the list
+      // is empty — the fixture says nothing about what its play sends.
+      gaps: [],
     })
     await Bun.$`rm -rf ${out}`.quiet()
   })
@@ -368,12 +459,96 @@ describe("run", () => {
     }
     expect(document.docs).toEqual([])
     expect(document.failures.map((failure) => failure.path)).toEqual([
+      `${malformed}/bad-dispatches.showcase.ts`,
       `${malformed}/bad-message.showcase.ts`,
       `${malformed}/bad-mount.showcase.ts`,
       `${malformed}/broken-import.showcase.ts`,
     ])
     expect(document.failures[0]?.reason.length).toBeGreaterThan(0)
     await Bun.$`rm -rf ${out}`.quiet()
+  })
+
+  /**
+   * A catalog declaring what its plays dispatch, written where `effect/Schema`
+   * resolves. `dispatches` names the tags of the union above it, so a run over
+   * this directory has a real gap to report — and, when `unknown` is asked for,
+   * a tag the union does not carry.
+   */
+  const catalogDeclaring = async (dir: string, dispatches: ReadonlyArray<string>): Promise<void> => {
+    await Bun.$`rm -rf ${dir}`.quiet()
+    await Bun.$`mkdir -p ${dir}`.quiet()
+    await Bun.write(
+      `${dir}/gap.showcase.ts`,
+      [
+        `import * as Schema from "effect/Schema"`,
+        ``,
+        `const Message = Schema.Union([`,
+        `  Schema.TaggedStruct("Increment", {}),`,
+        `  Schema.TaggedStruct("SetLabel", { label: Schema.String }),`,
+        `])`,
+        ``,
+        `export const showcases = [`,
+        `  {`,
+        `    id: "counter/one",`,
+        `    play: () => {},`,
+        `    message: Message,`,
+        `    dispatches: ${JSON.stringify(dispatches)},`,
+        `  },`,
+        `]`,
+        ``,
+      ].join("\n"),
+    )
+  }
+
+  test("docs prints the Messages no play dispatches, and still exits 0 — a gap is information", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-docs-gap`
+    const out = `${dir}/out`
+    await catalogDeclaring(dir, ["Increment"])
+
+    const result = await runCapturing(["docs", dir, out])
+
+    // A Message nobody showcases is the next Showcase to write, not a broken
+    // catalog: the page says so and the run stays green.
+    expect(result.code).toBe(0)
+    expect(await Bun.file(`${out}/counter.md`).text()).toContain("Not showcased: `SetLabel`")
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
+  test("docs exits non-zero on a dispatch the Message union does not carry", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-docs-unknown`
+    const out = `${dir}/out`
+    await catalogDeclaring(dir, ["Increment", "SetLable"])
+
+    const result = await runCapturing(["docs", dir, out])
+
+    // A tag the union does not have means the catalog is lying about itself —
+    // the same class of failure as a Schema that will not introspect, and the
+    // exit code is the only thing a CI job reads.
+    expect(result.code).toBe(1)
+    expect(result.err.join("\n")).toContain("SetLable")
+    expect(await Bun.file(`${out}/counter.md`).text()).toContain("Unknown dispatches: `SetLable`")
+    await Bun.$`rm -rf ${dir}`.quiet()
+  })
+
+  test("docs --json carries the gaps, so an agent reads them rather than the Markdown", async () => {
+    const dir = `${import.meta.dir}/../runtime-test-docs-gap-json`
+    const out = `${dir}/out`
+    await catalogDeclaring(dir, ["Increment"])
+
+    const result = await runCapturing(["docs", "--json", dir, out])
+
+    expect(result.code).toBe(0)
+    const document = documentOf(result) as {
+      gaps: ReadonlyArray<{
+        component: string
+        undispatched: ReadonlyArray<string>
+        unknown: ReadonlyArray<string>
+      }>
+    }
+    expect(document.gaps).toEqual([
+      { component: "counter", undispatched: ["SetLabel"], unknown: [] },
+    ])
+    await Bun.$`rm -rf ${dir}`.quiet()
   })
 
   test("docs --check exits 0 when the out-dir already holds what this run would write", async () => {

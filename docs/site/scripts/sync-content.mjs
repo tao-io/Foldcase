@@ -11,6 +11,7 @@
 // second one.
 import { execFileSync } from 'node:child_process'
 import {
+  copyFileSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -65,12 +66,24 @@ const headingsOf = markdown =>
 
 /** First paragraph line, stripped to plain text, for a frontmatter description. */
 const descriptionOf = markdown => {
-  const line = withFenceState(markdown.split('\n')).find(
-    ([text, inFence]) =>
-      !inFence && text.trim() !== '' && !/^[#\-*>|]|^\d+\./.test(text.trim()),
+  // A real block marker is the character *and* its space — `**bold**` opening a
+  // paragraph is prose, not a list, and skipping it took the second line of the
+  // paragraph as the description.
+  const BLOCK = /^(#{1,6} |[-*+] |> |\d+\. |\||`{3,})/
+  const lines = withFenceState(markdown.split('\n'))
+  const start = lines.findIndex(
+    ([text, inFence]) => !inFence && text.trim() !== '' && !BLOCK.test(text.trim()),
   )
-  if (!line) return ''
-  const plain = line[0]
+  if (start < 0) return ''
+  // The whole paragraph, not its first line: this prose is hard-wrapped, so one
+  // line ends mid-sentence and reads as a truncation.
+  const paragraph = []
+  for (const [text, inFence] of lines.slice(start)) {
+    if (inFence || text.trim() === '') break
+    paragraph.push(text.trim())
+  }
+  const plain = paragraph
+    .join(' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/[`*_]/g, '')
     .trim()
@@ -109,6 +122,40 @@ const inlineReferenceLinks = markdown => {
     .join('\n')
 }
 
+/**
+ * Drop raw HTML blocks. A README carries presentation markup that only GitHub
+ * reads — a centred `<p>` around the mark, say — and the site draws its own
+ * header, so the block is noise here at best and an unsupported markdown node
+ * at worst.
+ */
+const withoutHtmlBlocks = markdown => {
+  const lines = withFenceState(markdown.split('\n'))
+  const kept = []
+  let closing = null
+  for (const [line, inFence] of lines) {
+    if (closing !== null) {
+      if (!inFence && line.includes(closing)) closing = null
+      continue
+    }
+    // `<!-- site:skip -->` … `<!-- /site:skip -->` marks prose that only makes
+    // sense on GitHub — a link to this very site, for one. The markers are HTML
+    // comments, so GitHub shows nothing where they sit.
+    if (!inFence && line.trim() === '<!-- site:skip -->') {
+      closing = '<!-- /site:skip -->'
+      continue
+    }
+    if (!inFence && /^<!--/.test(line.trim())) continue
+    const open = !inFence && /^<([a-z][\w-]*)(\s|>)/.exec(line)
+    if (open) {
+      closing = `</${open[1]}>`
+      if (line.includes(closing)) closing = null
+      continue
+    }
+    kept.push(line)
+  }
+  return kept.join('\n')
+}
+
 const yaml = value => `'${value.replace(/'/g, "''")}'`
 
 const page = (title, description, order, body) =>
@@ -131,7 +178,7 @@ const page = (title, description, order, body) =>
  */
 const rewriteTarget = (
   target,
-  { anchors = {}, selfRoute = '', adrRoutes = {} },
+  { anchors = {}, selfRoute = '', adrRoutes = {}, assets = [] },
 ) => {
   if (/^(https?:|mailto:)/.test(target)) return target
   if (target.startsWith('#')) {
@@ -144,6 +191,9 @@ const rewriteTarget = (
   if (adr && adrRoutes[adr[1]]) {
     return adrRoutes[adr[1]] + (anchor ? `#${anchor}` : '')
   }
+  // A brand file the site serves itself, so the page can show the real mark
+  // rather than link away to GitHub for it.
+  if (assets.includes(path)) return `/brand/${path}`
   return blob(clean)
 }
 
@@ -161,8 +211,8 @@ const rewriteLinks = (markdown, context) =>
 
 // ── read the definition ──────────────────────────────────────────────────────
 
-const readme = inlineReferenceLinks(
-  readFileSync(join(source, 'README.md'), 'utf8'),
+const readme = withoutHtmlBlocks(
+  inlineReferenceLinks(readFileSync(join(source, 'README.md'), 'utf8')),
 )
 const changelog = inlineReferenceLinks(
   readFileSync(join(source, 'CHANGELOG.md'), 'utf8'),
@@ -171,6 +221,10 @@ const adrDir = join(source, 'docs', 'adr')
 const adrFiles = readdirSync(adrDir)
   .filter(file => file.endsWith('.md'))
   .sort()
+
+const brandDir = join(source, 'docs', 'brand')
+const brand = inlineReferenceLinks(readFileSync(join(brandDir, 'README.md'), 'utf8'))
+const brandAssets = readdirSync(brandDir).filter(file => file.endsWith('.svg'))
 
 // Split the README into the intro and one chunk per `## ` section.
 const lines = withFenceState(readme.split('\n'))
@@ -222,6 +276,21 @@ writeFileSync(
   ),
 )
 
+/**
+ * The page header already shows the description; when the first paragraph after
+ * the H1 is a single line and *is* the description, drop it from the body so it
+ * does not read twice.
+ */
+const withoutRepeatedDescription = (markdown, description) => {
+  const body = markdown.split('\n')
+  const first = body.findIndex((line, i) => i > 0 && line.trim() !== '')
+  const isLoneParagraph =
+    first > 0 &&
+    (body[first + 1] ?? '').trim() === '' &&
+    descriptionOf(body[first]) === description
+  return (isLoneParagraph ? body.toSpliced(first, 1) : body).join('\n')
+}
+
 sections.forEach((section, index) => {
   // Promote the section to a page: its `##` becomes the H1, `###` becomes `##`.
   const promoted = withFenceState(section.body.split('\n'))
@@ -229,19 +298,10 @@ sections.forEach((section, index) => {
       !inFence && /^##+ /.test(line) ? line.slice(1) : line,
     )
     .join('\n')
-  // The page header already shows the description; when the first paragraph
-  // after the H1 is a single line and IS the description, drop it from the
-  // body so it does not read twice.
   const description = descriptionOf(
     section.body.split('\n').slice(1).join('\n'),
   )
-  const body = promoted.split('\n')
-  const first = body.findIndex((line, i) => i > 0 && line.trim() !== '')
-  const isLoneParagraph =
-    first > 0 &&
-    (body[first + 1] ?? '').trim() === '' &&
-    descriptionOf(body[first]) === description
-  const deduped = (isLoneParagraph ? body.toSpliced(first, 1) : body).join('\n')
+  const deduped = withoutRepeatedDescription(promoted, description)
   writeFileSync(
     join(out, `${section.slug}.md`),
     page(
@@ -264,6 +324,31 @@ writeFileSync(
     descriptionOf(changelog),
     undefined,
     rewriteLinks(changelog, { adrRoutes }),
+  ),
+)
+
+// The brand page, and the files it draws. The site serves the real SVGs out of
+// public/brand/ — copied, never committed — so the page shows the mark instead
+// of linking away to it, and there is still only one copy of each file in git.
+const publicBrand = join(site, 'public', 'brand')
+rmSync(publicBrand, { recursive: true, force: true })
+mkdirSync(publicBrand, { recursive: true })
+for (const asset of brandAssets) {
+  copyFileSync(join(brandDir, asset), join(publicBrand, asset))
+}
+
+const brandDescription = descriptionOf(brand.split('\n').slice(1).join('\n'))
+
+writeFileSync(
+  join(out, 'brand.md'),
+  page(
+    'The mark',
+    brandDescription,
+    undefined,
+    rewriteLinks(withoutRepeatedDescription(brand, brandDescription), {
+      selfRoute: route('brand'),
+      assets: brandAssets,
+    }),
   ),
 )
 
@@ -319,6 +404,7 @@ writeFileSync(
         '---Project---',
         'changelog',
         'adr',
+        'brand',
       ],
     },
     null,
@@ -327,5 +413,5 @@ writeFileSync(
 )
 
 console.log(
-  `Derived ${1 + sections.length + 1 + adrFiles.length} pages from tao-io/foldcase@${commit.slice(0, 7)}`,
+  `Derived ${2 + sections.length + 1 + adrFiles.length} pages and ${brandAssets.length} brand files from tao-io/foldcase@${commit.slice(0, 7)}`,
 )

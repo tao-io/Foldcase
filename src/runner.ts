@@ -53,6 +53,21 @@ export interface Showcase {
    * backward-compatible; absent for framework-agnostic showcases.
    */
   readonly model?: Schema.Top
+  /**
+   * Optional Message tags this Showcase's `play` dispatches, so a surface can
+   * answer the question a catalog cannot answer for itself: which Messages of
+   * the union does no Showcase ever send? That answer names the next Showcase
+   * to write.
+   *
+   * Declared, not observed: `play` is an opaque closure (above), so nothing
+   * here watches a dispatch happen — the author says what it sends. A
+   * declaration that nothing checks would rot, so the tags are validated
+   * against {@link Showcase.message}: a tag the union does not carry is
+   * reported as unknown rather than quietly counting as coverage.
+   *
+   * Absent is *unknown*, never "sends nothing" — an empty array says that.
+   */
+  readonly dispatches?: ReadonlyArray<string>
 }
 
 /**

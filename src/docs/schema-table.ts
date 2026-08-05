@@ -391,6 +391,15 @@ export const messageVariants = (document: JsonSchemaDocument): ReadonlyArray<Mes
   return Arr.sort(variants, byTag)
 }
 
+/**
+ * The tags a Message schema declares, sorted, read out of the variants the
+ * table is rendered from. One extraction serves both: what the table prints in
+ * its first column is what a dispatch declaration is checked against, so the
+ * two can never disagree about which Messages exist.
+ */
+export const messageTags = (document: JsonSchemaDocument): ReadonlyArray<string> =>
+  messageVariants(document).map((variant) => variant.tag)
+
 /** Decode a Model schema document into its fields (name → type/optional), sorted by name. */
 export const modelFields = (document: JsonSchemaDocument): ReadonlyArray<FieldDoc> =>
   fieldsOf(resolveRef(document, document.schema), false)

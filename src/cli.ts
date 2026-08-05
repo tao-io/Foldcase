@@ -89,10 +89,18 @@ const isShowcase = (value: unknown): value is Showcase => {
   // calls it to draw the component and keeps what it returns, so a non-callable
   // value would defect there. Reject the module as malformed instead.
   const mount = Reflect.get(value, "mount")
+  // `dispatches` is read as a list of Message tags wherever a coverage gap is
+  // reported, so a module declaring anything else is malformed here rather than
+  // silently contributing nonsense to the gap — the same rule, for the same
+  // reason, as the two Schema fields above.
+  const dispatches = Reflect.get(value, "dispatches")
+  const dispatchesAreTags =
+    dispatches === undefined || (Array.isArray(dispatches) && dispatches.every(P.isString))
   return (
     (mount === undefined || P.isFunction(mount)) &&
     isSchemaOrAbsent("message") &&
-    isSchemaOrAbsent("model")
+    isSchemaOrAbsent("model") &&
+    dispatchesAreTags
   )
 }
 

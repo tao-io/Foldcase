@@ -166,6 +166,23 @@ describe("loadShowcasesFromFiles", () => {
     expect(load.failures[0]?.reason.length).toBeGreaterThan(0)
   })
 
+  test("a module whose dispatches are not Message tags is a failure for that file only", async () => {
+    // The gap surfaces read `dispatches` as a list of tags, so a module that
+    // declares something else is malformed at the loader — the same rule the
+    // `message` field is held to, for the same reason.
+    const load = await Effect.runPromise(
+      loadShowcasesFromFiles([
+        malformed("bad-dispatches.showcase.ts"),
+        fixture("sample.showcase.ts"),
+      ]),
+    )
+
+    expect(load.failures.map((failure) => failure.path)).toEqual([
+      malformed("bad-dispatches.showcase.ts"),
+    ])
+    expect(load.showcases).toHaveLength(2)
+  })
+
   test("says which file each Showcase was read from", async () => {
     const load = await Effect.runPromise(
       loadShowcasesFromFiles([fixture("sample.showcase.ts"), fixture("schema.showcase.ts")]),
