@@ -61,15 +61,24 @@ this tool, and each of these is something it hit on the first run.
   a mountable row, a hollow ring for one with no mount, and never green or red. The
   catalog carries no pass and no fail, so a status dot would be a claim the data cannot
   back. The `NO MOUNT` tag is replaced by a `LIVE` tag on the rows that can be drawn.
-- **The preview mounts in a shadow root of its own.** A mounted component's stylesheet no
-  longer reaches the shell — a Showcase shipping `body { background: red }` leaves the lab
-  untouched — and `Runtime.embed` gets a node the lab's virtual DOM does not own. The
-  custom properties the shell declares still cascade in, so the theme toggle re-skins the
-  mount without rebuilding it or losing its Model.
-- **"Live" comes from a verified paint.** `Runtime.run` returns `undefined` and throws
-  nothing when an application paints an empty container, so the lab now looks at the host
-  a tick after handing it over. A mount that draws nothing is reported as a failure
-  instead of being labelled Live over an empty card.
+- **The preview mounts in a shadow root of its own, and the page's styles are copied into
+  it.** A shadow root stops styles in both directions and only one of those is wanted. Out
+  is what it is for: a Showcase shipping `body { background: red }` leaves the lab
+  untouched, and `Runtime.embed` gets a node the lab's virtual DOM does not own. In is the
+  opposite case — a component *is* its consumer's design system, so a mount sealed off from
+  the page's stylesheet draws browser defaults, which is not the component anybody wrote.
+  The page's sheets are cloned in, and the mount band takes the page's own ground rather
+  than the shell's: a component whose colours were chosen against a near-white page is
+  unreadable on a dark panel, and the colours are right — the ground under them was not.
+  A page that paints no background of its own is still painted white by the browser, and
+  that is the fallback. The lab's own custom properties still cascade in, so the theme
+  toggle re-skins the shell around the mount without rebuilding it or losing its Model.
+- **"Live" comes from a verified paint, watched rather than sampled.** `Runtime.run`
+  returns `undefined` and throws nothing when an application paints an empty container, so
+  the lab looks at the host itself. It looks every 40ms for two seconds rather than once at
+  a fixed moment: `update` runs on a fiber and a mount may await a stylesheet or an import
+  before it draws, so a single look reports whichever the race happened to leave — and a
+  component that paints on the next frame was called a failure, and stayed called one.
 - **Both themes are the reader's choice, not the machine's.** The palette is a `data-theme`
   attribute the view writes, so the toggle in the header outranks `prefers-color-scheme`.
   Dark is the default. Every piece of text in both themes was measured at or above 4.5:1;

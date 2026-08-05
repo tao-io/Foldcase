@@ -779,6 +779,12 @@ export const update = (
  * **No shadows anywhere.** Depth is `--panel` and `--sunken` against `--bg`,
  * plus hairlines. No border is wider than 1px except the 2px active tab rule.
  */
+/**
+ * The id on the lab's own stylesheet. It exists so that {@link adoptPageStyles}
+ * can tell the shell's sheet from the consumer's and leave it where it is.
+ */
+const LAB_STYLE_ID = "foldcase-lab-style"
+
 const STYLESHEET = `
 #foldcase-lab {
   --ui: Outfit, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -2092,10 +2098,91 @@ const unknownIdNotice = (
     }),
   )
 
+/**
+ * The page's own stylesheets, copied into the preview's shadow root.
+ *
+ * A shadow root stops styles in both directions, and only one of those
+ * directions is wanted.
+ *
+ * Out is the direction the root exists for: a mounted component must not be
+ * able to restyle the shell around it, and a Showcase shipping
+ * `body { background: red }` must leave the lab exactly as it found it.
+ *
+ * In is the opposite case, and cutting it costs the whole point of the canvas.
+ * A component *is* its consumer's design system — a Foldkit gallery styles its
+ * buttons from a stylesheet the page links, not from rules it carries itself —
+ * so a mount sealed off from that sheet draws browser defaults, which is not
+ * the component anybody wrote. Copying the sheets in gives the mount the page
+ * it belongs to; the copies are inside the root, so nothing the mount adds
+ * afterwards gets out.
+ *
+ * The lab's own sheet is left behind. It is scoped to `#foldcase-lab`, which no
+ * selector inside a shadow tree can reach anyway, so copying it would be dead
+ * weight.
+ *
+ * `ownerDocument` is what the Mount handed us — the lab looks nothing up. Its
+ * type is spelled off `Element` because `Document` is Foldkit's here.
+ */
+const adoptPageStyles = (shadow: ShadowRoot, owner: Element["ownerDocument"]): void => {
+  shadow.appendChild(groundSheet(owner))
+  for (const sheet of Array.from(owner.styleSheets)) {
+    const node = sheet.ownerNode
+    if (node === null || (node as Element).id === LAB_STYLE_ID) {
+      continue
+    }
+    shadow.appendChild(node.cloneNode(true))
+  }
+}
+
+/**
+ * The ground the mount stands on: the consumer page's own background and ink.
+ *
+ * A component's stylesheet is written against the page it ships in. Foldkit's
+ * own gallery styles its text near-black because its page is near-white, and
+ * standing that on the lab's dark panel is a component nobody can read — the
+ * colours are right and the ground under them is not. So the mount band takes
+ * the page's ground rather than the shell's, which is the one surface on this
+ * screen that belongs to the component and not to the lab.
+ *
+ * It is written first, so anything the page's own sheets say still wins.
+ *
+ * A page that paints no background of its own is still not transparent — the
+ * browser paints it white, and white is what the component's author was looking
+ * at while they wrote it. So that is the fallback, rather than letting the
+ * shell's panel show through and standing a light component on a dark ground.
+ */
+const groundSheet = (owner: Element["ownerDocument"]): Element => {
+  const view = owner.defaultView
+  const grounds = view === null || view === undefined
+    ? []
+    : [view.getComputedStyle(owner.body), view.getComputedStyle(owner.documentElement)]
+  const painted = grounds.find((ground) => ground.backgroundColor !== TRANSPARENT)
+  const sheet = owner.createElement("style")
+  sheet.textContent = `:host { display: block; background-color: ${
+    painted?.backgroundColor ?? "#ffffff"
+  }; color: ${grounds[0]?.color ?? "inherit"}; }`
+  return sheet
+}
+
+/** What `getComputedStyle` calls a background nobody painted. */
+const TRANSPARENT = "rgba(0, 0, 0, 0)"
+
 // APPLICATION
 
 /** A teardown for an entry whose Showcase declares no mount. */
 const noTeardown = (): void => {}
+
+/**
+ * How long the lab waits for a mount to draw before it calls the mount a
+ * failure: fifty looks, forty milliseconds apart, so two seconds in all.
+ *
+ * Two seconds is generous on purpose. The cost of waiting is a card that reads
+ * "nothing mounted" for a moment longer; the cost of not waiting is a component
+ * that paints on the next frame being labelled a failure, and staying labelled
+ * one, which is the exact reading this check exists to prevent.
+ */
+const PAINT_LOOKS = 50
+const PAINT_GAP = "40 millis"
 
 /**
  * The lab shell as an ordinary Foldkit application (ADR-0004): the consumer's
@@ -2160,8 +2247,10 @@ export const makeLabApplication = (config: {
     Effect.gen(function* () {
       const mount = yield* Effect.acquireRelease(
         Effect.promise(async () => {
+          const owner = element.ownerDocument
           const shadow = element.shadowRoot ?? element.attachShadow({ mode: "open" })
-          const host = element.ownerDocument.createElement("div")
+          adoptPageStyles(shadow, owner)
+          const host = owner.createElement("div")
           // A Foldkit runtime dies on a container with no `id` — it keys HMR
           // model preservation by it — and because `embed` forks, it dies
           // silently. Name the host before anything is embedded in it.
@@ -2191,16 +2280,25 @@ export const makeLabApplication = (config: {
         }),
         ({ release }) => Effect.sync(release),
       )
-      // A tick, because `update` runs on a fiber and the first paint lands
-      // after the event that asked for it.
-      yield* Effect.sleep("120 millis")
       // Two ways a mount paints, and one way it does not. `Runtime.embed`
       // *replaces* the host with the application's own root, which detaches the
       // host; a plain mount appends into it. Either is a paint. A host still
       // attached and still empty is the silent failure this check exists for.
-      return mount.host.isConnected === false || mount.host.childElementCount > 0
-        ? PreviewMounted({ id })
-        : PreviewFailed({ id })
+      //
+      // It is watched rather than sampled once. `update` runs on a fiber, a
+      // mount may await a stylesheet or an import before it draws, and a single
+      // look a fixed number of milliseconds in reports whichever the race
+      // happened to leave — a component that paints on the next frame gets
+      // called a failure, and stays called one. So this asks every 40ms until
+      // the paint lands, and calls it a failure only once the whole window has
+      // passed with nothing drawn.
+      const drawn = () => mount.host.isConnected === false || mount.host.childElementCount > 0
+      let painted = false
+      for (let look = 0; look < PAINT_LOOKS && !painted; look += 1) {
+        yield* Effect.sleep(PAINT_GAP)
+        painted = drawn()
+      }
+      return painted ? PreviewMounted({ id }) : PreviewFailed({ id })
     }),
   )
 
@@ -2406,7 +2504,7 @@ export const makeLabApplication = (config: {
       body: h.div(
         [],
         [
-          h.style([], [STYLESHEET]),
+          h.style([h.Id(LAB_STYLE_ID)], [STYLESHEET]),
           h.div(
             [h.Id("foldcase-lab"), h.DataAttribute("theme", model.theme)],
             [
