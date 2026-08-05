@@ -555,9 +555,21 @@ foldcase lab                # the entry goes to FOLDCASE_LAB_ENTRY, default ./fo
 
 The module it writes imports `foldcase/lab`, imports the `showcases` of every catalog it
 discovered, and starts the runtime on them. Point a page at it — `<script type="module"
-src="/src/lab.entry.ts"></script>` — and open the dev server you already run. A Showcase
-that declares a `mount` draws in the canvas; one that does not says so, and the panel
-beside it reads what the record declares.
+src="/src/lab.entry.ts"></script>` — and open the dev server you already run.
+
+The sidebar is the catalog by component, then by state, with a row for any file the loader
+could not read. Four tabs read whatever is selected four ways: **Canvas** mounts it in a
+shadow root of its own, so its stylesheet cannot reach the shell and the palette still
+cascades in; **Entry** prints the six fields the listing carries; **Timeline** records what
+a mount relays; **Schema** says what the Message and Model documents actually are. A drawer
+under them carries the browser-runtime facts, the six MCP tools, the entry as JSON, and the
+fields a catalog browser usually shows that a Foldcase listing does not.
+
+Nothing in it claims a status, a duration or a coverage number, because a listing carries
+none — those belong to a run. A row's mark says whether the canvas can mount that entry and
+says nothing else, and "Live" appears only once the lab has watched the mount paint:
+`Runtime.run` returns `undefined` and throws nothing when an application draws an empty
+container, so an assumed mount is exactly the failure that would otherwise be labelled Live.
 
 Regenerate it whenever a catalog file appears or vanishes, the way you regenerate docs.
 `--json` prints the catalog the lab renders from beside the path it wrote, so an agent
